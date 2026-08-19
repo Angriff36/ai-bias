@@ -1,5 +1,6 @@
 import type { Database } from 'sql.js'
 
+/** A typed schema migration. `id` is a stable monospace-friendly identifier. */
 export interface Migration {
   id: string
   name: string
@@ -87,6 +88,48 @@ export const migrations: Migration[] = [
           received_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
 
+        CREATE TABLE classifications (
+          id INTEGER PRIMARY KEY,
+          response_id INTEGER NOT NULL REFERENCES raw_responses(id) ON DELETE CASCADE,
+          label TEXT NOT NULL,
+          confidence REAL,
+          classifier TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE observations (
+          id INTEGER PRIMARY KEY,
+          experiment_id INTEGER NOT NULL REFERENCES experiments(id) ON DELETE CASCADE,
+          summary TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE evidence (
+          id INTEGER PRIMARY KEY,
+          observation_id INTEGER NOT NULL REFERENCES observations(id) ON DELETE CASCADE,
+          response_id INTEGER REFERENCES raw_responses(id) ON DELETE SET NULL,
+          content_hash TEXT NOT NULL,
+          hash_verified INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE annotations (
+          id INTEGER PRIMARY KEY,
+          evidence_id INTEGER NOT NULL REFERENCES evidence(id) ON DELETE CASCADE,
+          author_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+          note TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE judge_results (
+          id INTEGER PRIMARY KEY,
+          run_id INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+          judge_model TEXT NOT NULL,
+          verdict TEXT NOT NULL,
+          rationale TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
         CREATE TABLE reports (
           id INTEGER PRIMARY KEY,
           experiment_id INTEGER NOT NULL REFERENCES experiments(id) ON DELETE CASCADE,
@@ -96,6 +139,27 @@ export const migrations: Migration[] = [
           hash_verified INTEGER NOT NULL DEFAULT 0,
           created_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
+
+        CREATE INDEX idx_runs_batch ON runs(batch_id);
+        CREATE INDEX idx_raw_responses_run ON raw_responses(run_id);
+        CREATE INDEX idx_classifications_response ON classifications(response_id);
+        CREATE INDEX idx_evidence_observation ON evidence(observation_id);
+      `)
+    },
+  },
+  {
+    id: '0002',
+    name: 'auth_sessions',
+    up(db) {
+      db.run(`
+        CREATE TABLE sessions (
+          token TEXT PRIMARY KEY,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          expires_at TEXT NOT NULL
+        );
+        CREATE INDEX idx_targets_created_by ON targets(created_by);
+        CREATE INDEX idx_experiments_created_by ON experiments(created_by);
       `)
     },
   },

@@ -1,5 +1,11 @@
 import { getDb, persist } from '../db/database'
 
+/**
+ * Bolt server functions. Every function requires a session token and scopes
+ * all reads/writes to the authenticated user. Cross-user access returns 404
+ * (never 403) so resource existence is not confirmed to other users.
+ */
+
 export class ServerError extends Error {
   constructor(public status: 401 | 404 | 500, message: string) {
     super(message)
@@ -19,11 +25,11 @@ export interface ReportRow { id: number; title: string; hash_verified: boolean }
 const SESSION_TTL_HOURS = 24
 
 function newToken(): string {
-  const bytes = new Uint8Array(24)
-  crypto.getRandomValues(bytes)
+  const bytes = crypto.getRandomValues(new Uint8Array(24))
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
 }
 
+/** Resolves a session token to a user id or throws 401. Expired sessions are purged. */
 function requireUser(token: string | null): number {
   if (!token) throw new ServerError(401, 'Not signed in')
   const db = getDb()
@@ -34,6 +40,7 @@ function requireUser(token: string | null): number {
   return Number(userId)
 }
 
+/** Signs in (creating the user on first sign-in) and returns a session token. */
 export function signIn(email: string, _password: string): { token: string; user: SessionUser } {
   const db = getDb()
   const normalized = email.trim().toLowerCase()
@@ -61,6 +68,7 @@ export function signOut(token: string | null): void {
   persist()
 }
 
+/** Validates the session and returns the current user, or throws 401. */
 export function getCurrentUser(token: string | null): SessionUser {
   const userId = requireUser(token)
   const res = getDb().exec('SELECT id, email, display_name FROM users WHERE id = ?', [userId])

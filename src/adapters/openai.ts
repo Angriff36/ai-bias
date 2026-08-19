@@ -35,7 +35,12 @@ export const openaiAdapter: ProviderAdapter = {
 
     if (!res.ok) throw classifyHttpError(res.status)
     const json = await res.json() as { data?: { id: string }[] }
-    return { models: (json.data ?? []).map((m) => m.id).sort() }
+    return {
+      models: (json.data ?? [])
+        .map((m) => ({ id: m.id }))
+        .sort((a, b) => a.id.localeCompare(b.id)),
+      source: 'live',
+    }
   },
 
   async testConnection(config, apiKey, signal): Promise<void> {

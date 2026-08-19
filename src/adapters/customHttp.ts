@@ -30,7 +30,7 @@ export const customHttpAdapter: ProviderAdapter = {
   },
 
   async discoverModels(config, apiKey, signal): Promise<DiscoverModelsResult> {
-    if (!config.endpointUrl) return { models: [] }
+    if (!config.endpointUrl) return { models: [], source: 'live' }
     const res = await fetch(`${config.endpointUrl}/models`, {
       signal,
       headers: {
@@ -41,11 +41,11 @@ export const customHttpAdapter: ProviderAdapter = {
 
     if (!res.ok) throw classifyHttpError(res.status)
     const json = await res.json() as { data?: { id: string }[] } | { models?: { name: string }[] }
-    const list =
-      'data' in json ? (json.data ?? []).map((m) => m.id) :
-      'models' in json ? (json.models ?? []).map((m) => m.name) :
+    const list: { id: string }[] =
+      'data' in json ? (json.data ?? []).map((m) => ({ id: m.id })) :
+      'models' in json ? (json.models ?? []).map((m) => ({ id: m.name })) :
       []
-    return { models: list.sort() }
+    return { models: list.sort((a, b) => a.id.localeCompare(b.id)), source: 'live' }
   },
 
   async testConnection(config, apiKey, signal): Promise<void> {

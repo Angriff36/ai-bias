@@ -51,12 +51,22 @@ export const anthropicAdapter: ProviderAdapter = {
     }).catch(() => { throw { kind: 'timeout', message: 'fetch failed' } })
 
     if (!res.ok) {
-      // Fallback to known models on auth failure so UI is usable
+      // Auth failures must surface — no silent fallback
       if (res.status === 401 || res.status === 403) throw classifyHttpError(res.status)
-      return { models: KNOWN_MODELS }
+      // Curated static list is the officially documented approach when the
+      // list endpoint is unavailable — never proxy through an aggregator.
+      return {
+        models: KNOWN_MODELS.map((id) => ({ id })),
+        source: 'static',
+      }
     }
-    const json = await res.json() as { data?: { id: string }[] }
-    return { models: (json.data ?? []).map((m) => m.id).sort() }
+    const json = await res.json() as { data?: { id: string; display_name?: string }[] }
+    return {
+      models: (json.data ?? [])
+        .map((m) => ({ id: m.id, ...(m.display_name ? { name: m.display_name } : {}) }))
+        .sort((a, b) => a.id.localeCompare(b.id)),
+      source: 'live',
+    }
   },
 
   async testConnection(config, apiKey, signal): Promise<void> {

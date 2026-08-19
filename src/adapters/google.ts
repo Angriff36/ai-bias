@@ -31,12 +31,16 @@ export const googleAdapter: ProviderAdapter = {
       () => { throw { kind: 'timeout', message: 'fetch failed' } },
     )
     if (!res.ok) throw classifyHttpError(res.status)
-    const json = await res.json() as { models?: { name: string }[] }
+    const json = await res.json() as { models?: { name: string; displayName?: string }[] }
     return {
       models: (json.models ?? [])
-        .map((m) => m.name.replace('models/', ''))
-        .filter((id) => id.startsWith('gemini'))
-        .sort(),
+        .map((m) => ({
+          id: m.name.replace('models/', ''),
+          ...(m.displayName ? { name: m.displayName } : {}),
+        }))
+        .filter((m) => m.id.startsWith('gemini'))
+        .sort((a, b) => a.id.localeCompare(b.id)),
+      source: 'live',
     }
   },
 

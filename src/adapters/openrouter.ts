@@ -37,8 +37,13 @@ export const openrouterAdapter: ProviderAdapter = {
     }).catch(() => { throw { kind: 'timeout', message: 'fetch failed' } })
 
     if (!res.ok) throw classifyHttpError(res.status)
-    const json = await res.json() as { data?: { id: string }[] }
-    return { models: (json.data ?? []).map((m) => m.id).sort() }
+    const json = await res.json() as { data?: { id: string; name?: string }[] }
+    return {
+      models: (json.data ?? [])
+        .map((m) => ({ id: m.id, ...(m.name ? { name: m.name } : {}) }))
+        .sort((a, b) => a.id.localeCompare(b.id)),
+      source: 'live',
+    }
   },
 
   async testConnection(config, apiKey, signal): Promise<void> {

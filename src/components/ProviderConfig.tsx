@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
-import type { ProviderId } from '../adapters/types'
+import type { DiscoverySource, ModelInfo, ProviderId } from '../adapters/types'
 import { friendlyError, isAdapterError } from '../adapters/types'
 import { discoverModels, testConnection } from '../adapters/registry'
 import { getKey, hasKey, REDACTED } from '../store/keyStore'
 import type { TargetConfig } from '../store/targetStore'
+import { ModelCombobox, type FetchState } from './ModelCombobox'
 
 // ---------- Provider metadata ----------
 
@@ -18,6 +19,14 @@ const PROVIDERS: { id: ProviderId; label: string }[] = [
 function providerNeedsEndpoint(p: ProviderId): boolean {
   return p === 'custom'
 }
+
+// Per-session cache: one discovery result per provider (+ endpoint for custom).
+// Lives for the browser session only — never persisted.
+interface CacheEntry {
+  models: ModelInfo[]
+  source: DiscoverySource
+}
+const sessionCache = new Map<string, CacheEntry>()
 
 // ---------- Sub-components ----------
 
@@ -114,8 +123,9 @@ export function ProviderConfigForm({ initial, onSave, onCancel }: Props) {
   const [modelCleared, setModelCleared] = useState(false)
 
   // Model discovery
-  const [discoveredModels, setDiscoveredModels] = useState<string[]>([])
-  const [discoverState, setDiscoverState] = useState<'idle' | 'loading' | 'error'>('idle')
+  const [discoveredModels, setDiscoveredModels] = useState<ModelInfo[]>([])
+  const [discoverSource, setDiscoverSource] = useState<DiscoverySource | null>(null)
+  const [discoverState, setDiscoverState] = useState<FetchState>('idle')
 
   // Connection test
   const [connStatus, setConnStatus] = useState<ConnStatus>('idle')
@@ -128,15 +138,23 @@ export function ProviderConfigForm({ initial, onSave, onCancel }: Props) {
   // Form validation errors
   const [errors, setErrors] = useState<Record<string, string>>({})
 
-  // When provider changes, clear model
+  // When provider changes, retain no model but restore cached discovery if any
   const handleProviderChange = (next: ProviderId) => {
     setProvider(next)
     setModelId('')
-    setDiscoveredModels([])
-    setDiscoverState('idle')
     setModelCleared(true)
     setConnStatus('idle')
     setConnError('')
+    const cached = sessionCache.get(next)
+    if (cached) {
+      setDiscoveredModels(cached.models)
+      setDiscoverSource(cached.source)
+      setDiscoverState('success')
+    } else {
+      setDiscoveredModels([])
+      setDiscoverSource(null)
+      setDiscoverState('idle')
+    }
   }
 
   const resolvedKey = (): string => {
@@ -144,6 +162,8 @@ export function ProviderConfigForm({ initial, onSave, onCancel }: Props) {
     if (initial?.id) return getKey(initial.id)
     return ''
   }
+
+  const cacheKey = provider === 'custom' ? `custom:${endpointUrl}` : provider
 
   const handleDiscover = useCallback(async () => {
     abortRef.current?.abort()
@@ -156,11 +176,17 @@ export function ProviderConfigForm({ initial, onSave, onCancel }: Props) {
         abortRef.current.signal,
       )
       setDiscoveredModels(result.models)
-      setDiscoverState('idle')
+      setDiscoverSource(result.source)
+      setDiscoverState('success')
+      // Cache for this session (key presence is enough; keys are never cached)
+      if (result.models.length > 0) {
+        sessionCache.set(cacheKey, { models: result.models, source: result.source })
+      }
     } catch {
+      // Keep last valid selection — do not clear discoveredModels
       setDiscoverState('error')
     }
-  }, [provider, modelId, endpointUrl])
+  }, [provider, modelId, endpointUrl, cacheKey])
 
   const handleTest = useCallback(async () => {
     if (resetTimerRef.current) clearTimeout(resetTimerRef.current)
@@ -307,28 +333,18 @@ export function ProviderConfigForm({ initial, onSave, onCancel }: Props) {
           <p className="field-hint model-notice">Select a model for this provider.</p>
         )}
         <div className="model-row">
-          {discoveredModels.length > 0 ? (
-            <select
-              id={id('model')}
-              value={modelId}
-              onChange={(e) => { setModelId(e.target.value); setModelCleared(false) }}
-              aria-describedby={errors.modelId ? id('model-err') : undefined}
-            >
-              <option value="">— select a model —</option>
-              {discoveredModels.map((m) => (
-                <option key={m} value={m}>{m}</option>
-              ))}
-            </select>
-          ) : (
-            <input
-              id={id('model')}
-              value={modelId}
-              onChange={(e) => { setModelId(e.target.value); setModelCleared(false) }}
-              aria-describedby={errors.modelId ? id('model-err') : undefined}
-              placeholder="e.g. gpt-4o"
-              autoComplete="off"
-            />
-          )}
+          <ModelCombobox
+            provider={provider}
+            providerLabel={PROVIDERS.find((p) => p.id === provider)?.label ?? provider}
+            value={modelId}
+            onChange={(m) => { setModelId(m); setModelCleared(false) }}
+            models={discoveredModels}
+            source={discoverSource}
+            fetchState={discoverState}
+            onRetry={handleDiscover}
+            inputId={id('model')}
+            describedBy={errors.modelId ? id('model-err') : undefined}
+          />
           <button
             type="button"
             className="btn-discover"
@@ -339,13 +355,8 @@ export function ProviderConfigForm({ initial, onSave, onCancel }: Props) {
             {discoverState === 'loading' ? <><Spinner /> Discovering…</> : 'Discover Models'}
           </button>
         </div>
-        {discoverState === 'error' && (
-          <p className="field-error" aria-live="polite">
-            Could not fetch models. Enter a model ID manually.
-          </p>
-        )}
         {errors.modelId && <FieldError id={id('model-err')} message={errors.modelId} />}
-        <p className="field-hint">Manual model ID input is always available.</p>
+        <p className="field-hint">Type a model ID manually at any time.</p>
       </div>
 
       {/* Test Connection */}

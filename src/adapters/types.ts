@@ -22,8 +22,23 @@ export interface CallModelResult {
   latencyMs: number
 }
 
+export interface ModelInfo {
+  id: string
+  /** Human-readable display name when the provider supplies one. */
+  name?: string
+}
+
+/**
+ * How the model list was obtained:
+ * - 'live':   fetched from the DIRECT provider's official model-list endpoint
+ * - 'static': curated static list — used only where that is the officially
+ *             documented approach, or as an explicit non-aggregator fallback
+ */
+export type DiscoverySource = 'live' | 'static'
+
 export interface DiscoverModelsResult {
-  models: string[]
+  models: ModelInfo[]
+  source: DiscoverySource
 }
 
 export interface AdapterError {

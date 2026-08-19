@@ -1,0 +1,97 @@
+:root {
+  --bg: #0f1115;
+  --panel: #171a21;
+  --border: #2a2f3a;
+  --text: #e6e9ef;
+  --muted: #9aa3b2;
+  --accent: #4f8cff;
+  --danger: #e5484d;
+  --success: #30a46c;
+  --warning: #f5a524;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); }
+code, .mono { font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; }
+
+.app { max-width: 960px; margin: 0 auto; padding: 24px 16px; }
+h1 { font-size: 20px; }
+h2 { font-size: 16px; }
+
+nav.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
+nav.tabs button {
+  background: none; border: none; color: var(--muted); padding: 10px 14px;
+  cursor: pointer; font-size: 14px; border-bottom: 2px solid transparent;
+}
+nav.tabs button[aria-selected='true'] { color: var(--text); border-bottom-color: var(--accent); }
+
+.panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+
+.banner { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; font-size: 14px; }
+.banner.success { background: rgba(48, 164, 108, 0.12); border: 1px solid var(--success); }
+.banner.error { background: rgba(229, 72, 77, 0.12); border: 1px solid var(--danger); }
+.banner.progress { background: rgba(79, 140, 255, 0.12); border: 1px solid var(--accent); }
+
+.badge {
+  display: inline-flex; align-items: center; gap: 4px; font-size: 12px;
+  padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border);
+}
+.badge.verified { color: var(--success); border-color: var(--success); animation: fade-in 150ms ease-in; }
+.badge.unverified { color: var(--warning); border-color: var(--warning); }
+.badge.readonly { color: var(--muted); }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+.empty-state { text-align: center; padding: 48px 16px; color: var(--muted); }
+.empty-state p { margin-bottom: 16px; }
+
+button.primary, button.danger, button.secondary {
+  padding: 10px 16px; border-radius: 6px; font-size: 14px; cursor: pointer;
+  border: 1px solid transparent; min-height: 44px; min-width: 44px;
+}
+button.primary { background: var(--accent); color: white; }
+button.danger { background: var(--danger); color: white; }
+button.secondary { background: transparent; color: var(--text); border-color: var(--border); }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+caption { text-align: left; color: var(--muted); font-size: 13px; margin-bottom: 8px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+th { color: var(--muted); font-weight: 500; }
+
+.skeleton-row td div {
+  height: 14px; border-radius: 4px; background: var(--border);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+@keyframes pulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
+
+.shake { animation: shake 200ms ease-in-out; }
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+
+dialog.confirm {
+  background: var(--panel); color: var(--text); border: 1px solid var(--border);
+  border-radius: 8px; padding: 24px; max-width: 480px; width: 90vw;
+}
+dialog.confirm::backdrop { background: rgba(0, 0, 0, 0.6); }
+dialog.confirm .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+dialog.confirm input {
+  width: 100%; padding: 10px; border-radius: 6px; border: 1px solid var(--border);
+  background: var(--bg); color: var(--text); margin-top: 8px;
+}
+
+@media (max-width: 640px) {
+  dialog.confirm { width: 100vw; max-width: none; border-radius: 0; }
+  dialog.confirm .actions { flex-direction: column-reverse; }
+  dialog.confirm .actions button { width: 100%; }
+}
+
+.spinner {
+  width: 16px; height: 16px; border: 2px solid var(--border);
+  border-top-color: var(--accent); border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }

@@ -41,6 +41,11 @@ export interface DiscoverModelsResult {
   source: DiscoverySource
 }
 
+export interface TestConnectionResult {
+  ok: true
+  latencyMs: number
+}
+
 export interface AdapterError {
   kind: 'auth' | 'timeout' | 'not_found' | 'unknown'
   statusCode?: number
@@ -64,6 +69,26 @@ export function friendlyError(e: AdapterError): string {
       return 'Connection timed out. Check the endpoint URL and retry.'
     case 'not_found':
       return 'Model not found on this provider. Use Discover Models to refresh.'
+    default:
+      return e.statusCode != null
+        ? `Error ${e.statusCode}. Check your configuration and retry.`
+        : 'An unexpected error occurred. Check your configuration and retry.'
+  }
+}
+
+/**
+ * One-line error copy for the Test Connection result region.
+ * Kept separate from friendlyError: the connectivity check has its own
+ * spec-mandated wording.
+ */
+export function testConnectionErrorMessage(e: AdapterError): string {
+  switch (e.kind) {
+    case 'auth':
+      return 'Authentication failed. Check your API key.'
+    case 'not_found':
+      return 'Model not found. Verify the model ID.'
+    case 'timeout':
+      return 'No response. Check your connection or endpoint URL.'
     default:
       return e.statusCode != null
         ? `Error ${e.statusCode}. Check your configuration and retry.`

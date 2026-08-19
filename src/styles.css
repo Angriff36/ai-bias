@@ -187,8 +187,40 @@ h2 { font-size: 17px; margin-top: 0; }
   border-color: var(--danger); color: var(--danger);
 }
 
-.conn-error { color: var(--danger); font-size: 13px; margin: 0; }
-.conn-success { color: var(--success); font-size: 13px; margin: 0; }
+.conn-error { color: var(--danger); font-size: 14px; margin: 0; }
+.conn-success { color: var(--success); font-size: 14px; margin: 0; }
+.conn-waiting { color: var(--muted); font-size: 14px; margin: 0; }
+.conn-scope-note { color: var(--muted); font-size: 12px; margin: 0; }
+.conn-result { min-height: 0; }
+
+/* Icon slot: fixed box so icon swaps cause no layout shift */
+.conn-icon-slot {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; flex: none;
+  animation: conn-fade 150ms ease-in;
+}
+.conn-icon-slot .spinner { margin: 0; }
+@keyframes conn-fade { from { opacity: 0; } to { opacity: 1; } }
+
+/* Pass: brief scale pulse on the check icon */
+.conn-icon-pass { animation: conn-pulse 200ms ease-in-out; }
+@keyframes conn-pulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+  100% { transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .conn-icon-pass { animation: none; }
+  .conn-icon-slot { animation: none; }
+}
+
+.conn-edit-link {
+  background: none; border: none; padding: 0;
+  color: var(--accent); font-size: 14px; cursor: pointer;
+  text-decoration: underline;
+}
+.conn-edit-link:focus { outline: 2px solid var(--accent); }
 
 /* ---------- Form actions ---------- */
 .form-actions { display: flex; gap: 10px; justify-content: flex-end; padding-top: 4px; }

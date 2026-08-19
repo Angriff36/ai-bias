@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import type { DiscoverySource, ModelInfo, ProviderId } from '../adapters/types'
-import { friendlyError, isAdapterError } from '../adapters/types'
+import { isAdapterError, testConnectionErrorMessage } from '../adapters/types'
 import { discoverModels, testConnection } from '../adapters/registry'
 import { getKey, hasKey, REDACTED } from '../store/keyStore'
 import type { TargetConfig } from '../store/targetStore'
@@ -46,18 +46,49 @@ function FieldError({ id, message }: { id: string; message: string }) {
 
 type ConnStatus = 'idle' | 'testing' | 'success' | 'failure'
 
+function PlugIcon() {
+  return (
+    <svg className="conn-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M5 2v3M11 2v3M4 5h8v3a4 4 0 0 1-8 0V5zM8 12v2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function CheckIcon() {
+  return (
+    <svg className="conn-icon conn-icon-pass" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M3 8.5 6.5 12 13 4.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function XIcon() {
+  return (
+    <svg className="conn-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  )
+}
+
 function TestConnectionButton({
   status,
   disabled,
   onClick,
   errorMessage,
+  latencyMs,
+  targetName,
+  onEditCredentials,
 }: {
   status: ConnStatus
   disabled: boolean
   onClick: () => void
   errorMessage: string
+  latencyMs: number | null
+  targetName: string
+  onEditCredentials: () => void
 }) {
   const btnRef = useRef<HTMLButtonElement>(null)
+  const [stillWaiting, setStillWaiting] = useState(false)
 
   // Return focus to the button after result is shown
   useEffect(() => {
@@ -66,34 +97,60 @@ function TestConnectionButton({
     }
   }, [status])
 
+  // "Still waiting…" sub-label once a test runs past 10s
+  useEffect(() => {
+    if (status !== 'testing') {
+      setStillWaiting(false)
+      return
+    }
+    const t = setTimeout(() => setStillWaiting(true), 10000)
+    return () => clearTimeout(t)
+  }, [status])
+
   const label =
     status === 'testing' ? 'Testing…'
-    : status === 'success' ? '✓ Connected'
-    : status === 'failure' ? '✕ Failed'
+    : status === 'success' ? `Connected · ${latencyMs ?? 0} ms`
+    : status === 'failure' ? 'Test failed'
     : 'Test Connection'
+
+  const icon =
+    status === 'testing' ? <Spinner />
+    : status === 'success' ? <CheckIcon />
+    : status === 'failure' ? <XIcon />
+    : <PlugIcon />
 
   return (
     <div className="conn-wrap">
       <button
         ref={btnRef}
+        type="button"
         className={`btn-test ${status}`}
         disabled={disabled || status === 'testing'}
         onClick={onClick}
         aria-busy={status === 'testing'}
+        aria-label={targetName ? `Test connection for ${targetName}` : undefined}
+        title="Checks credentials and latency only"
       >
-        {status === 'testing' && <Spinner />}
+        <span key={status} className="conn-icon-slot">{icon}</span>
         {label}
       </button>
-      {status === 'failure' && errorMessage && (
-        <p className="conn-error" aria-live="polite">
-          {errorMessage}
-        </p>
-      )}
-      {status === 'success' && (
-        <p className="conn-success" aria-live="polite">
-          Connection successful.
-        </p>
-      )}
+      <p className="conn-scope-note">Checks credentials and latency only — no response content is stored.</p>
+      <div role="status" className="conn-result">
+        {status === 'testing' && stillWaiting && (
+          <p className="conn-waiting">Still waiting…</p>
+        )}
+        {status === 'failure' && errorMessage && (
+          <p className="conn-error">
+            {errorMessage}{' '}
+            <button type="button" className="conn-edit-link" onClick={onEditCredentials}>
+              Edit credentials
+            </button>
+          </p>
+        )}
+        {status === 'success' && (
+          <p className="conn-success">Connected in {latencyMs ?? 0} ms.</p>
+        )}
+      </div>
     </div>
   )
 }
@@ -130,7 +187,17 @@ export function ProviderConfigForm({ initial, onSave, onCancel }: Props) {
   // Connection test
   const [connStatus, setConnStatus] = useState<ConnStatus>('idle')
   const [connError, setConnError] = useState('')
+  const [connLatency, setConnLatency] = useState<number | null>(null)
   const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const apiKeyInputRef = useRef<HTMLInputElement>(null)
+
+  // A failure result stays visible until the user retries or edits credentials
+  const clearConnResult = () => {
+    if (resetTimerRef.current) clearTimeout(resetTimerRef.current)
+    setConnStatus('idle')
+    setConnError('')
+    setConnLatency(null)
+  }
 
   // Abort controller for async ops
   const abortRef = useRef<AbortController | null>(null)
@@ -194,23 +261,26 @@ export function ProviderConfigForm({ initial, onSave, onCancel }: Props) {
     abortRef.current = new AbortController()
     setConnStatus('testing')
     setConnError('')
+    setConnLatency(null)
     try {
-      await testConnection(
+      const result = await testConnection(
         { provider, modelId, endpointUrl: endpointUrl || undefined },
         resolvedKey(),
         abortRef.current.signal,
       )
+      setConnLatency(result.latencyMs)
       setConnStatus('success')
-      resetTimerRef.current = setTimeout(() => setConnStatus('idle'), 3000)
+      resetTimerRef.current = setTimeout(() => setConnStatus('idle'), 8000)
     } catch (e) {
       if (isAdapterError(e)) {
-        setConnError(friendlyError(e))
+        setConnError(testConnectionErrorMessage(e))
       } else {
         setConnError('An unexpected error occurred. Check your configuration and retry.')
       }
       setConnStatus('failure')
     }
-  }, [provider, modelId, endpointUrl])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [provider, modelId, endpointUrl, apiKey])
 
   const validate = (): boolean => {
     const errs: Record<string, string> = {}
@@ -235,7 +305,8 @@ export function ProviderConfigForm({ initial, onSave, onCancel }: Props) {
     onSave(target, key)
   }
 
-  const testDisabled = !resolvedKey() || (provider === 'custom' && !endpointUrl.trim())
+  const testDisabled =
+    !resolvedKey() || !modelId.trim() || (provider === 'custom' && !endpointUrl.trim())
   const canDiscover = !!resolvedKey() && (provider !== 'custom' || !!endpointUrl.trim())
 
   return (
@@ -277,11 +348,16 @@ export function ProviderConfigForm({ initial, onSave, onCancel }: Props) {
         </label>
         <div className="key-wrap">
           <input
+            ref={apiKeyInputRef}
             id={id('apikey')}
             type={showKey ? 'text' : 'password'}
             value={apiKey}
             placeholder={keyPlaceholder || undefined}
-            onChange={(e) => { setApiKey(e.target.value); setKeyPlaceholder('') }}
+            onChange={(e) => {
+              setApiKey(e.target.value)
+              setKeyPlaceholder('')
+              if (connStatus === 'failure') clearConnResult()
+            }}
             aria-describedby={[
               errors.apiKey ? id('apikey-err') : '',
               id('apikey-hint'),
@@ -365,6 +441,9 @@ export function ProviderConfigForm({ initial, onSave, onCancel }: Props) {
         disabled={testDisabled}
         onClick={handleTest}
         errorMessage={connError}
+        latencyMs={connLatency}
+        targetName={name.trim()}
+        onEditCredentials={() => apiKeyInputRef.current?.focus()}
       />
 
       {/* Actions */}

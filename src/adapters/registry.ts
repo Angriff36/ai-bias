@@ -5,7 +5,7 @@
  * provider adapter. In production (Bolt), this module runs server-side only.
  * API keys are injected by the server — never returned to the browser.
  */
-import type { AdapterConfig, CallModelResult, DiscoverModelsResult } from './types'
+import type { AdapterConfig, CallModelResult, DiscoverModelsResult, TestConnectionResult } from './types'
 import { openaiAdapter } from './openai'
 import { anthropicAdapter } from './anthropic'
 import { googleAdapter } from './google'
@@ -43,10 +43,16 @@ export async function discoverModels(
   return getAdapter(config.provider).discoverModels(config, apiKey, signal)
 }
 
+/**
+ * Minimal ping through the provider adapter. Verifies both the credentials
+ * and the configured model ID by issuing a tiny model call. The response
+ * content is discarded — only pass/fail and latency leave this function.
+ */
 export async function testConnection(
   config: AdapterConfig,
   apiKey: string,
   signal?: AbortSignal,
-): Promise<void> {
-  return getAdapter(config.provider).testConnection(config, apiKey, signal)
+): Promise<TestConnectionResult> {
+  const result = await getAdapter(config.provider).callModel('ping', config, apiKey, signal)
+  return { ok: true, latencyMs: result.latencyMs }
 }

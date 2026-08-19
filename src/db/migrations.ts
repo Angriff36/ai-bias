@@ -163,4 +163,14 @@ export const migrations: Migration[] = [
       `)
     },
   },
+  {
+    id: '0003',
+    name: 'experiment_history',
+    up(db) {
+      db.run(`
+        ALTER TABLE experiments ADD COLUMN asymmetry_level TEXT NOT NULL DEFAULT 'none';
+        ALTER TABLE experiments ADD COLUMN last_run_at TEXT;
+      `)
+    },
+  },
 ]

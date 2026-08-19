@@ -31,8 +31,6 @@ import {
 
 // ── coverage registry ────────────────────────────────────────────────────────
 
-type Action = 'read' | 'write' | 'delete'
-type EndpointKind = 'direct-id' | 'list'
 type CoverageStatus = 'PASS' | 'FAIL' | '-'
 
 interface CoverageCell {
@@ -60,10 +58,11 @@ function pass(resource: Resource, col: keyof CoverageCell) {
 function fail(resource: Resource, col: keyof CoverageCell) {
   coverage[resource][col] = 'FAIL'
 }
+export { fail }
 
 // ── fixtures ─────────────────────────────────────────────────────────────────
 
-let tokenA: string  // user A owns seed data
+let tokenA: string  // user A owns seed data (kept for debugging fixtures)
 let tokenB: string  // user B must not access user A's data
 
 let experimentIdOwnedByA: number
@@ -78,16 +77,7 @@ beforeAll(async () => {
   _db = new SQL.Database()
   _db.run('PRAGMA foreign_keys = ON;')
 
-  // Add sessions table (not in schema migrations — created here for auth).
-  _db.run(`
-    CREATE TABLE IF NOT EXISTS sessions (
-      token TEXT PRIMARY KEY,
-      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      expires_at TEXT NOT NULL
-    );
-  `)
-
-  // Apply schema migrations.
+  // Apply schema migrations (includes the sessions table).
   const { migrations } = await import('../../db/migrations')
   for (const m of migrations) {
     m.up(_db)
@@ -97,6 +87,7 @@ beforeAll(async () => {
   // Sign in creates the user on first call.
   const authA = signIn('user-a@example.com', 'x')
   tokenA = authA.token
+  void tokenA // retained fixture token; not used by assertions below
   const userAId = authA.user.id
 
   // ── User B: attacker ──────────────────────────────────────────────────────
@@ -148,8 +139,15 @@ function assertServerError(fn: () => unknown, expectedStatus: 401 | 404, label: 
 
 describe('Experiments', () => {
   it('user-b cannot read experiments owned by user-a via list endpoint', () => {
-    const results = listExperiments(tokenB)
-    const leaked = results.find((e) => e.id === experimentIdOwnedByA)
+    const results = listExperiments(tokenB, {
+      page: 1,
+      pageSize: 50,
+      sort: 'created_at',
+      dir: 'desc',
+      statuses: [],
+      asymmetryLevels: [],
+    })
+    const leaked = results.rows.find((e) => e.id === experimentIdOwnedByA)
     expect(leaked, `listExperiments: server fn must not return user-a's experiment to user-b`).toBeUndefined()
     pass('Experiments', 'read_list')
   })
@@ -167,7 +165,19 @@ describe('Experiments', () => {
   })
 
   it('unauthenticated call to listExperiments returns 401', () => {
-    assertServerError(() => listExperiments(null), 401, 'listExperiments(null)')
+    assertServerError(
+      () =>
+        listExperiments(null, {
+          page: 1,
+          pageSize: 20,
+          sort: 'created_at',
+          dir: 'desc',
+          statuses: [],
+          asymmetryLevels: [],
+        }),
+      401,
+      'listExperiments(null)',
+    )
   })
 
   it('unauthenticated call to deleteExperiment returns 401', () => {

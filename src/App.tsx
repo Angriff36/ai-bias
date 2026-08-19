@@ -1,30 +1,18 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   openDatabase,
   getMigrationRecords,
   getSchemaVersion,
-  cascadeCounts,
-  friendlyConstraintError,
   MigrationError,
   type MigrationRecord,
   type MigrationProgress,
 } from './db/database'
-import {
-  ServerError,
-  deleteExperiment,
-  listExperiments,
-  listReports,
-  listTargets,
-  type ExperimentRow,
-  type ReportRow,
-  type TargetRow,
-} from './server/functions'
+import { listReports, listTargets, type ReportRow, type TargetRow } from './server/functions'
 import { AuthProvider, useAuth } from './auth/AuthContext'
 import { LoginPage } from './auth/LoginPage'
-import { NotFoundPage } from './components/NotFoundPage'
-import { ConfirmDeleteDialog } from './components/ConfirmDeleteDialog'
 import { EmptyState, SkeletonRows } from './components/EmptyState'
-import { HashBadge, ReadOnlyBadge, StatusBadge } from './components/StatusBadge'
+import { HashBadge, ReadOnlyBadge } from './components/StatusBadge'
+import { ExperimentHistoryList } from './components/ExperimentHistoryList'
 
 type DbState =
   | { phase: 'migrating'; progress: MigrationProgress | null }
@@ -182,90 +170,11 @@ function MainApp({ version, readyAt }: { version: number; readyAt: string }) {
           </button>
         ))}
       </nav>
-      {tab === 'experiments' && <ExperimentsList />}
+      {tab === 'experiments' && <ExperimentHistoryList />}
       {tab === 'targets' && <TargetsList />}
       {tab === 'reports' && <ReportsList />}
       {tab === 'admin' && <AdminPanel version={version} />}
     </div>
-  )
-}
-
-function ExperimentsList() {
-  const { call } = useAuth()
-  const [rows, setRows] = useState<ExperimentRow[] | null>(null)
-  const [deleting, setDeleting] = useState<ExperimentRow | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [notFound, setNotFound] = useState(false)
-
-  const load = useCallback(() => {
-    try {
-      setRows(call(listExperiments))
-    } catch {
-      // 401 already triggered the login redirect; leave the skeleton in place
-    }
-  }, [call])
-  useEffect(load, [load])
-
-  const confirmDelete = () => {
-    if (!deleting) return
-    try {
-      call((token) => deleteExperiment(token, deleting.id))
-      setDeleting(null)
-      setError(null)
-      load()
-    } catch (e) {
-      setDeleting(null)
-      if (e instanceof ServerError && e.status === 404) {
-        setNotFound(true)
-        return
-      }
-      setError(friendlyConstraintError(e instanceof Error ? e.message : String(e)))
-    }
-  }
-
-  if (notFound) {
-    return <NotFoundPage onBack={() => { setNotFound(false); load() }} />
-  }
-
-  if (rows === null) {
-    return (
-      <table>
-        <caption>Experiments</caption>
-        <thead><tr><th scope="col">Name</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead>
-        <tbody><SkeletonRows columns={3} /></tbody>
-      </table>
-    )
-  }
-
-  if (rows.length === 0) {
-    return <EmptyState message="No experiments yet — start with the New Bias Test wizard" actionLabel="New Bias Test" />
-  }
-
-  return (
-    <>
-      {error && <div className="banner error" role="alert">{error}</div>}
-      <table>
-        <caption>Experiments</caption>
-        <thead><tr><th scope="col">Name</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.id}>
-              <td>{r.name}</td>
-              <td><StatusBadge status={r.status} /></td>
-              <td><button className="danger" onClick={() => setDeleting(r)}>Delete</button></td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <ConfirmDeleteDialog
-        open={deleting !== null}
-        title={`Delete experiment "${deleting?.name ?? ''}"?`}
-        childCounts={deleting ? cascadeCounts('experiment', deleting.id) : {}}
-        requireTyped="delete"
-        onConfirm={confirmDelete}
-        onCancel={() => setDeleting(null)}
-      />
-    </>
   )
 }
 

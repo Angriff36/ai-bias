@@ -18,7 +18,36 @@ export interface SessionUser {
   displayName: string
 }
 
-export interface ExperimentRow { id: number; name: string; status: string }
+export interface ExperimentRow {
+  id: number
+  name: string
+  status: string
+  asymmetry_level: string
+  created_at: string
+  last_run_at: string | null
+}
+
+export interface ExperimentPage {
+  rows: ExperimentRow[]
+  total: number
+}
+
+export type ExperimentSortField = 'created_at' | 'last_run_at'
+export type SortDir = 'asc' | 'desc'
+
+export interface ListExperimentsOptions {
+  page: number
+  pageSize: number
+  sort: ExperimentSortField
+  dir: SortDir
+  statuses: string[]
+  asymmetryLevels: string[]
+}
+
+const SORT_COLUMNS: Record<ExperimentSortField, string> = {
+  created_at: 'created_at',
+  last_run_at: 'last_run_at',
+}
 export interface TargetRow { id: number; name: string; model_id: string }
 export interface ReportRow { id: number; title: string; hash_verified: boolean }
 
@@ -77,13 +106,48 @@ export function getCurrentUser(token: string | null): SessionUser {
   return { id: Number(id), email: String(email), displayName: String(displayName) }
 }
 
-export function listExperiments(token: string | null): ExperimentRow[] {
+/**
+ * Paginated experiment list for the signed-in user. Sorts by created_at or
+ * last_run_at (NULL last_run_at always sorts last), filters by status and
+ * asymmetry level, and returns only the requested page plus the total count
+ * so the UI can paginate without loading everything.
+ */
+export function listExperiments(token: string | null, opts: ListExperimentsOptions): ExperimentPage {
   const userId = requireUser(token)
-  const res = getDb().exec(
-    'SELECT id, name, status FROM experiments WHERE created_by = ? ORDER BY id DESC LIMIT 25',
-    [userId],
+  const db = getDb()
+  const where: string[] = ['created_by = ?']
+  const params: (string | number)[] = [userId]
+  if (opts.statuses.length > 0) {
+    where.push(`status IN (${opts.statuses.map(() => '?').join(',')})`)
+    params.push(...opts.statuses)
+  }
+  if (opts.asymmetryLevels.length > 0) {
+    where.push(`asymmetry_level IN (${opts.asymmetryLevels.map(() => '?').join(',')})`)
+    params.push(...opts.asymmetryLevels)
+  }
+  const whereSql = where.join(' AND ')
+  const col = SORT_COLUMNS[opts.sort]
+  // "col IS NULL" keeps experiments never run at the bottom in both directions.
+  const orderSql = `${col} IS NULL ASC, ${col} ${opts.dir === 'asc' ? 'ASC' : 'DESC'}, id DESC`
+
+  const total = Number(db.exec(`SELECT COUNT(*) FROM experiments WHERE ${whereSql}`, params)[0]?.values[0]?.[0] ?? 0)
+  const offset = (opts.page - 1) * opts.pageSize
+  const res = db.exec(
+    `SELECT id, name, status, asymmetry_level, created_at, last_run_at
+     FROM experiments WHERE ${whereSql}
+     ORDER BY ${orderSql}
+     LIMIT ? OFFSET ?`,
+    [...params, opts.pageSize, offset],
   )
-  return (res[0]?.values ?? []).map((r) => ({ id: Number(r[0]), name: String(r[1]), status: String(r[2]) }))
+  const rows = (res[0]?.values ?? []).map((r) => ({
+    id: Number(r[0]),
+    name: String(r[1]),
+    status: String(r[2]),
+    asymmetry_level: String(r[3]),
+    created_at: String(r[4]),
+    last_run_at: r[5] == null ? null : String(r[5]),
+  }))
+  return { rows, total }
 }
 
 export function deleteExperiment(token: string | null, id: number): void {

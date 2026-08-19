@@ -1,0 +1,16 @@
+{
+  "name": "ai-bias-access-control-tests",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/sql.js": "^1.4.9",
+    "sql.js": "^1.11.0",
+    "typescript": "^5.5.4",
+    "vitest": "^2.0.0"
+  }
+}

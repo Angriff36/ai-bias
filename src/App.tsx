@@ -1,8 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   openDatabase,
-  getDb,
-  persist,
   getMigrationRecords,
   getSchemaVersion,
   cascadeCounts,
@@ -11,6 +9,19 @@ import {
   type MigrationRecord,
   type MigrationProgress,
 } from './db/database'
+import {
+  ServerError,
+  deleteExperiment,
+  listExperiments,
+  listReports,
+  listTargets,
+  type ExperimentRow,
+  type ReportRow,
+  type TargetRow,
+} from './server/functions'
+import { AuthProvider, useAuth } from './auth/AuthContext'
+import { LoginPage } from './auth/LoginPage'
+import { NotFoundPage } from './components/NotFoundPage'
 import { ConfirmDeleteDialog } from './components/ConfirmDeleteDialog'
 import { EmptyState, SkeletonRows } from './components/EmptyState'
 import { HashBadge, ReadOnlyBadge, StatusBadge } from './components/StatusBadge'
@@ -22,13 +33,11 @@ type DbState =
 
 type Tab = 'experiments' | 'targets' | 'reports' | 'admin'
 
-interface ExperimentRow { id: number; name: string; status: string }
-interface TargetRow { id: number; name: string; model_id: string }
-interface ReportRow { id: number; title: string; hash_verified: boolean }
+const TABS: Tab[] = ['experiments', 'targets', 'reports', 'admin']
 
-function query<T>(sql: string, map: (r: unknown[]) => T): T[] {
-  const res = getDb().exec(sql)
-  return (res[0]?.values ?? []).map(map)
+function tabFromHash(): Tab {
+  const t = window.location.hash.replace(/^#\//, '')
+  return (TABS as string[]).includes(t) ? (t as Tab) : 'experiments'
 }
 
 export default function App() {
@@ -94,11 +103,61 @@ export default function App() {
     )
   }
 
-  return <MainApp version={state.version} readyAt={state.readyAt} />
+  return (
+    <AuthProvider>
+      <AuthGate version={state.version} readyAt={state.readyAt} />
+    </AuthProvider>
+  )
+}
+
+/**
+ * Gates rendering on the auth check so unauthenticated content never
+ * flashes. While checking, the existing skeleton pattern is shown.
+ */
+function AuthGate({ version, readyAt }: { version: number; readyAt: string }) {
+  const { state, consumeReturnTo } = useAuth()
+
+  useEffect(() => {
+    if (state.phase === 'signedIn') {
+      const returnTo = consumeReturnTo()
+      if (returnTo) window.location.hash = returnTo
+    }
+  }, [state.phase, consumeReturnTo])
+
+  if (state.phase === 'checking') {
+    return (
+      <div className="app">
+        <table>
+          <caption>Loading</caption>
+          <tbody><SkeletonRows columns={3} /></tbody>
+        </table>
+      </div>
+    )
+  }
+
+  if (state.phase === 'signedOut') {
+    return <LoginPage notice={state.notice} />
+  }
+
+  return <MainApp version={version} readyAt={readyAt} />
 }
 
 function MainApp({ version, readyAt }: { version: number; readyAt: string }) {
-  const [tab, setTab] = useState<Tab>('experiments')
+  const { signOut, state } = useAuth()
+  const [tab, setTab] = useState<Tab>(tabFromHash)
+
+  useEffect(() => {
+    document.title = 'AI Bias Lab'
+    const onHash = () => setTab(tabFromHash())
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+  }, [])
+
+  const selectTab = (t: Tab) => {
+    window.location.hash = `#/${t}`
+    setTab(t)
+  }
+
   const tabs: { id: Tab; label: string }[] = [
     { id: 'experiments', label: 'Experiments' },
     { id: 'targets', label: 'Targets' },
@@ -107,13 +166,18 @@ function MainApp({ version, readyAt }: { version: number; readyAt: string }) {
   ]
   return (
     <div className="app">
-      <h1>AI Bias Lab</h1>
+      <header className="app-header">
+        <h1>AI Bias Lab</h1>
+        <button className="secondary" onClick={signOut}>
+          Sign out{state.phase === 'signedIn' ? ` (${state.user.email})` : ''}
+        </button>
+      </header>
       <div className="banner success" role="status">
         Database ready — schema v{version} · {readyAt}
       </div>
       <nav className="tabs" role="tablist" aria-label="Main sections">
         {tabs.map((t) => (
-          <button key={t.id} role="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)}>
+          <button key={t.id} role="tab" aria-selected={tab === t.id} onClick={() => selectTab(t.id)}>
             {t.label}
           </button>
         ))}
@@ -127,28 +191,40 @@ function MainApp({ version, readyAt }: { version: number; readyAt: string }) {
 }
 
 function ExperimentsList() {
+  const { call } = useAuth()
   const [rows, setRows] = useState<ExperimentRow[] | null>(null)
   const [deleting, setDeleting] = useState<ExperimentRow | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [notFound, setNotFound] = useState(false)
 
-  const load = () =>
-    setRows(query('SELECT id, name, status FROM experiments ORDER BY id DESC LIMIT 25', (r) => ({
-      id: Number(r[0]), name: String(r[1]), status: String(r[2]),
-    })))
-  useEffect(load, [])
+  const load = useCallback(() => {
+    try {
+      setRows(call(listExperiments))
+    } catch {
+      // 401 already triggered the login redirect; leave the skeleton in place
+    }
+  }, [call])
+  useEffect(load, [load])
 
   const confirmDelete = () => {
     if (!deleting) return
     try {
-      getDb().run('DELETE FROM experiments WHERE id = ?', [deleting.id])
-      persist()
+      call((token) => deleteExperiment(token, deleting.id))
       setDeleting(null)
       setError(null)
       load()
     } catch (e) {
-      setError(friendlyConstraintError(e instanceof Error ? e.message : String(e)))
       setDeleting(null)
+      if (e instanceof ServerError && e.status === 404) {
+        setNotFound(true)
+        return
+      }
+      setError(friendlyConstraintError(e instanceof Error ? e.message : String(e)))
     }
+  }
+
+  if (notFound) {
+    return <NotFoundPage onBack={() => { setNotFound(false); load() }} />
   }
 
   if (rows === null) {
@@ -194,12 +270,15 @@ function ExperimentsList() {
 }
 
 function TargetsList() {
+  const { call } = useAuth()
   const [rows, setRows] = useState<TargetRow[] | null>(null)
   useEffect(() => {
-    setRows(query('SELECT id, name, model_id FROM targets ORDER BY id DESC LIMIT 25', (r) => ({
-      id: Number(r[0]), name: String(r[1]), model_id: String(r[2]),
-    })))
-  }, [])
+    try {
+      setRows(call(listTargets))
+    } catch {
+      // 401 already triggered the login redirect
+    }
+  }, [call])
 
   if (rows === null) {
     return (
@@ -227,12 +306,15 @@ function TargetsList() {
 }
 
 function ReportsList() {
+  const { call } = useAuth()
   const [rows, setRows] = useState<ReportRow[] | null>(null)
   useEffect(() => {
-    setRows(query('SELECT id, title, hash_verified FROM reports ORDER BY id DESC LIMIT 25', (r) => ({
-      id: Number(r[0]), title: String(r[1]), hash_verified: Number(r[2]) === 1,
-    })))
-  }, [])
+    try {
+      setRows(call(listReports))
+    } catch {
+      // 401 already triggered the login redirect
+    }
+  }, [call])
 
   if (rows === null) {
     return (

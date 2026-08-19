@@ -147,4 +147,20 @@ export const migrations: Migration[] = [
       `)
     },
   },
+  {
+    id: '0002',
+    name: 'auth_sessions',
+    up(db) {
+      db.run(`
+        CREATE TABLE sessions (
+          token TEXT PRIMARY KEY,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          expires_at TEXT NOT NULL
+        );
+        CREATE INDEX idx_targets_created_by ON targets(created_by);
+        CREATE INDEX idx_experiments_created_by ON experiments(created_by);
+      `)
+    },
+  },
 ]

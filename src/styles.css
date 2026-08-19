@@ -89,6 +89,18 @@ dialog.confirm input {
   dialog.confirm .actions button { width: 100%; }
 }
 
+.app-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+
+.login { max-width: 420px; }
+.login h1:focus { outline: none; }
+.login-form { display: flex; flex-direction: column; gap: 14px; }
+.login-form label { display: flex; flex-direction: column; gap: 6px; font-size: 14px; color: var(--muted); }
+.login-form input {
+  padding: 12px; min-height: 44px; border-radius: 6px; border: 1px solid var(--border);
+  background: var(--bg); color: var(--text); font-size: 14px;
+}
+.login .banner { overflow-wrap: break-word; }
+
 .spinner {
   width: 16px; height: 16px; border: 2px solid var(--border);
   border-top-color: var(--accent); border-radius: 50%;

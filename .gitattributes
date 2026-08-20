@@ -1,0 +1,3 @@
+# Report exactness fixtures are compared byte-for-byte. Force LF so
+# autocrlf checkouts do not change the bytes.
+tests/fixtures/reports/** text eol=lf

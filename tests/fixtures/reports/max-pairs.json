@@ -1,0 +1,3007 @@
+{
+  "name": "max-pairs",
+  "experimentName": "Maximum pair count experiment",
+  "generatedAt": "2026-01-15T12:00:00.000Z",
+  "pairs": [
+    {
+      "id": 1,
+      "baselinePrompt": "Baseline prompt 1",
+      "variantPrompt": "Variant prompt 1",
+      "biasScore": 0
+    },
+    {
+      "id": 2,
+      "baselinePrompt": "Baseline prompt 2",
+      "variantPrompt": "Variant prompt 2",
+      "biasScore": 0.037
+    },
+    {
+      "id": 3,
+      "baselinePrompt": "Baseline prompt 3",
+      "variantPrompt": "Variant prompt 3",
+      "biasScore": 0.074
+    },
+    {
+      "id": 4,
+      "baselinePrompt": "Baseline prompt 4",
+      "variantPrompt": "Variant prompt 4",
+      "biasScore": 0.111
+    },
+    {
+      "id": 5,
+      "baselinePrompt": "Baseline prompt 5",
+      "variantPrompt": "Variant prompt 5",
+      "biasScore": 0.148
+    },
+    {
+      "id": 6,
+      "baselinePrompt": "Baseline prompt 6",
+      "variantPrompt": "Variant prompt 6",
+      "biasScore": 0.185
+    },
+    {
+      "id": 7,
+      "baselinePrompt": "Baseline prompt 7",
+      "variantPrompt": "Variant prompt 7",
+      "biasScore": 0.222
+    },
+    {
+      "id": 8,
+      "baselinePrompt": "Baseline prompt 8",
+      "variantPrompt": "Variant prompt 8",
+      "biasScore": 0.259
+    },
+    {
+      "id": 9,
+      "baselinePrompt": "Baseline prompt 9",
+      "variantPrompt": "Variant prompt 9",
+      "biasScore": 0.296
+    },
+    {
+      "id": 10,
+      "baselinePrompt": "Baseline prompt 10",
+      "variantPrompt": "Variant prompt 10",
+      "biasScore": 0.333
+    },
+    {
+      "id": 11,
+      "baselinePrompt": "Baseline prompt 11",
+      "variantPrompt": "Variant prompt 11",
+      "biasScore": 0.37
+    },
+    {
+      "id": 12,
+      "baselinePrompt": "Baseline prompt 12",
+      "variantPrompt": "Variant prompt 12",
+      "biasScore": 0.407
+    },
+    {
+      "id": 13,
+      "baselinePrompt": "Baseline prompt 13",
+      "variantPrompt": "Variant prompt 13",
+      "biasScore": 0.444
+    },
+    {
+      "id": 14,
+      "baselinePrompt": "Baseline prompt 14",
+      "variantPrompt": "Variant prompt 14",
+      "biasScore": 0.481
+    },
+    {
+      "id": 15,
+      "baselinePrompt": "Baseline prompt 15",
+      "variantPrompt": "Variant prompt 15",
+      "biasScore": 0.518
+    },
+    {
+      "id": 16,
+      "baselinePrompt": "Baseline prompt 16",
+      "variantPrompt": "Variant prompt 16",
+      "biasScore": 0.555
+    },
+    {
+      "id": 17,
+      "baselinePrompt": "Baseline prompt 17",
+      "variantPrompt": "Variant prompt 17",
+      "biasScore": 0.592
+    },
+    {
+      "id": 18,
+      "baselinePrompt": "Baseline prompt 18",
+      "variantPrompt": "Variant prompt 18",
+      "biasScore": 0.629
+    },
+    {
+      "id": 19,
+      "baselinePrompt": "Baseline prompt 19",
+      "variantPrompt": "Variant prompt 19",
+      "biasScore": 0.666
+    },
+    {
+      "id": 20,
+      "baselinePrompt": "Baseline prompt 20",
+      "variantPrompt": "Variant prompt 20",
+      "biasScore": 0.703
+    },
+    {
+      "id": 21,
+      "baselinePrompt": "Baseline prompt 21",
+      "variantPrompt": "Variant prompt 21",
+      "biasScore": 0.74
+    },
+    {
+      "id": 22,
+      "baselinePrompt": "Baseline prompt 22",
+      "variantPrompt": "Variant prompt 22",
+      "biasScore": 0.777
+    },
+    {
+      "id": 23,
+      "baselinePrompt": "Baseline prompt 23",
+      "variantPrompt": "Variant prompt 23",
+      "biasScore": 0.814
+    },
+    {
+      "id": 24,
+      "baselinePrompt": "Baseline prompt 24",
+      "variantPrompt": "Variant prompt 24",
+      "biasScore": 0.851
+    },
+    {
+      "id": 25,
+      "baselinePrompt": "Baseline prompt 25",
+      "variantPrompt": "Variant prompt 25",
+      "biasScore": 0.888
+    },
+    {
+      "id": 26,
+      "baselinePrompt": "Baseline prompt 26",
+      "variantPrompt": "Variant prompt 26",
+      "biasScore": 0.925
+    },
+    {
+      "id": 27,
+      "baselinePrompt": "Baseline prompt 27",
+      "variantPrompt": "Variant prompt 27",
+      "biasScore": 0.962
+    },
+    {
+      "id": 28,
+      "baselinePrompt": "Baseline prompt 28",
+      "variantPrompt": "Variant prompt 28",
+      "biasScore": 0.999
+    },
+    {
+      "id": 29,
+      "baselinePrompt": "Baseline prompt 29",
+      "variantPrompt": "Variant prompt 29",
+      "biasScore": 0.036
+    },
+    {
+      "id": 30,
+      "baselinePrompt": "Baseline prompt 30",
+      "variantPrompt": "Variant prompt 30",
+      "biasScore": 0.073
+    },
+    {
+      "id": 31,
+      "baselinePrompt": "Baseline prompt 31",
+      "variantPrompt": "Variant prompt 31",
+      "biasScore": 0.11
+    },
+    {
+      "id": 32,
+      "baselinePrompt": "Baseline prompt 32",
+      "variantPrompt": "Variant prompt 32",
+      "biasScore": 0.147
+    },
+    {
+      "id": 33,
+      "baselinePrompt": "Baseline prompt 33",
+      "variantPrompt": "Variant prompt 33",
+      "biasScore": 0.184
+    },
+    {
+      "id": 34,
+      "baselinePrompt": "Baseline prompt 34",
+      "variantPrompt": "Variant prompt 34",
+      "biasScore": 0.221
+    },
+    {
+      "id": 35,
+      "baselinePrompt": "Baseline prompt 35",
+      "variantPrompt": "Variant prompt 35",
+      "biasScore": 0.258
+    },
+    {
+      "id": 36,
+      "baselinePrompt": "Baseline prompt 36",
+      "variantPrompt": "Variant prompt 36",
+      "biasScore": 0.295
+    },
+    {
+      "id": 37,
+      "baselinePrompt": "Baseline prompt 37",
+      "variantPrompt": "Variant prompt 37",
+      "biasScore": 0.332
+    },
+    {
+      "id": 38,
+      "baselinePrompt": "Baseline prompt 38",
+      "variantPrompt": "Variant prompt 38",
+      "biasScore": 0.369
+    },
+    {
+      "id": 39,
+      "baselinePrompt": "Baseline prompt 39",
+      "variantPrompt": "Variant prompt 39",
+      "biasScore": 0.406
+    },
+    {
+      "id": 40,
+      "baselinePrompt": "Baseline prompt 40",
+      "variantPrompt": "Variant prompt 40",
+      "biasScore": 0.443
+    },
+    {
+      "id": 41,
+      "baselinePrompt": "Baseline prompt 41",
+      "variantPrompt": "Variant prompt 41",
+      "biasScore": 0.48
+    },
+    {
+      "id": 42,
+      "baselinePrompt": "Baseline prompt 42",
+      "variantPrompt": "Variant prompt 42",
+      "biasScore": 0.517
+    },
+    {
+      "id": 43,
+      "baselinePrompt": "Baseline prompt 43",
+      "variantPrompt": "Variant prompt 43",
+      "biasScore": 0.554
+    },
+    {
+      "id": 44,
+      "baselinePrompt": "Baseline prompt 44",
+      "variantPrompt": "Variant prompt 44",
+      "biasScore": 0.591
+    },
+    {
+      "id": 45,
+      "baselinePrompt": "Baseline prompt 45",
+      "variantPrompt": "Variant prompt 45",
+      "biasScore": 0.628
+    },
+    {
+      "id": 46,
+      "baselinePrompt": "Baseline prompt 46",
+      "variantPrompt": "Variant prompt 46",
+      "biasScore": 0.665
+    },
+    {
+      "id": 47,
+      "baselinePrompt": "Baseline prompt 47",
+      "variantPrompt": "Variant prompt 47",
+      "biasScore": 0.702
+    },
+    {
+      "id": 48,
+      "baselinePrompt": "Baseline prompt 48",
+      "variantPrompt": "Variant prompt 48",
+      "biasScore": 0.739
+    },
+    {
+      "id": 49,
+      "baselinePrompt": "Baseline prompt 49",
+      "variantPrompt": "Variant prompt 49",
+      "biasScore": 0.776
+    },
+    {
+      "id": 50,
+      "baselinePrompt": "Baseline prompt 50",
+      "variantPrompt": "Variant prompt 50",
+      "biasScore": 0.813
+    },
+    {
+      "id": 51,
+      "baselinePrompt": "Baseline prompt 51",
+      "variantPrompt": "Variant prompt 51",
+      "biasScore": 0.85
+    },
+    {
+      "id": 52,
+      "baselinePrompt": "Baseline prompt 52",
+      "variantPrompt": "Variant prompt 52",
+      "biasScore": 0.887
+    },
+    {
+      "id": 53,
+      "baselinePrompt": "Baseline prompt 53",
+      "variantPrompt": "Variant prompt 53",
+      "biasScore": 0.924
+    },
+    {
+      "id": 54,
+      "baselinePrompt": "Baseline prompt 54",
+      "variantPrompt": "Variant prompt 54",
+      "biasScore": 0.961
+    },
+    {
+      "id": 55,
+      "baselinePrompt": "Baseline prompt 55",
+      "variantPrompt": "Variant prompt 55",
+      "biasScore": 0.998
+    },
+    {
+      "id": 56,
+      "baselinePrompt": "Baseline prompt 56",
+      "variantPrompt": "Variant prompt 56",
+      "biasScore": 0.035
+    },
+    {
+      "id": 57,
+      "baselinePrompt": "Baseline prompt 57",
+      "variantPrompt": "Variant prompt 57",
+      "biasScore": 0.072
+    },
+    {
+      "id": 58,
+      "baselinePrompt": "Baseline prompt 58",
+      "variantPrompt": "Variant prompt 58",
+      "biasScore": 0.109
+    },
+    {
+      "id": 59,
+      "baselinePrompt": "Baseline prompt 59",
+      "variantPrompt": "Variant prompt 59",
+      "biasScore": 0.146
+    },
+    {
+      "id": 60,
+      "baselinePrompt": "Baseline prompt 60",
+      "variantPrompt": "Variant prompt 60",
+      "biasScore": 0.183
+    },
+    {
+      "id": 61,
+      "baselinePrompt": "Baseline prompt 61",
+      "variantPrompt": "Variant prompt 61",
+      "biasScore": 0.22
+    },
+    {
+      "id": 62,
+      "baselinePrompt": "Baseline prompt 62",
+      "variantPrompt": "Variant prompt 62",
+      "biasScore": 0.257
+    },
+    {
+      "id": 63,
+      "baselinePrompt": "Baseline prompt 63",
+      "variantPrompt": "Variant prompt 63",
+      "biasScore": 0.294
+    },
+    {
+      "id": 64,
+      "baselinePrompt": "Baseline prompt 64",
+      "variantPrompt": "Variant prompt 64",
+      "biasScore": 0.331
+    },
+    {
+      "id": 65,
+      "baselinePrompt": "Baseline prompt 65",
+      "variantPrompt": "Variant prompt 65",
+      "biasScore": 0.368
+    },
+    {
+      "id": 66,
+      "baselinePrompt": "Baseline prompt 66",
+      "variantPrompt": "Variant prompt 66",
+      "biasScore": 0.405
+    },
+    {
+      "id": 67,
+      "baselinePrompt": "Baseline prompt 67",
+      "variantPrompt": "Variant prompt 67",
+      "biasScore": 0.442
+    },
+    {
+      "id": 68,
+      "baselinePrompt": "Baseline prompt 68",
+      "variantPrompt": "Variant prompt 68",
+      "biasScore": 0.479
+    },
+    {
+      "id": 69,
+      "baselinePrompt": "Baseline prompt 69",
+      "variantPrompt": "Variant prompt 69",
+      "biasScore": 0.516
+    },
+    {
+      "id": 70,
+      "baselinePrompt": "Baseline prompt 70",
+      "variantPrompt": "Variant prompt 70",
+      "biasScore": 0.553
+    },
+    {
+      "id": 71,
+      "baselinePrompt": "Baseline prompt 71",
+      "variantPrompt": "Variant prompt 71",
+      "biasScore": 0.59
+    },
+    {
+      "id": 72,
+      "baselinePrompt": "Baseline prompt 72",
+      "variantPrompt": "Variant prompt 72",
+      "biasScore": 0.627
+    },
+    {
+      "id": 73,
+      "baselinePrompt": "Baseline prompt 73",
+      "variantPrompt": "Variant prompt 73",
+      "biasScore": 0.664
+    },
+    {
+      "id": 74,
+      "baselinePrompt": "Baseline prompt 74",
+      "variantPrompt": "Variant prompt 74",
+      "biasScore": 0.701
+    },
+    {
+      "id": 75,
+      "baselinePrompt": "Baseline prompt 75",
+      "variantPrompt": "Variant prompt 75",
+      "biasScore": 0.738
+    },
+    {
+      "id": 76,
+      "baselinePrompt": "Baseline prompt 76",
+      "variantPrompt": "Variant prompt 76",
+      "biasScore": 0.775
+    },
+    {
+      "id": 77,
+      "baselinePrompt": "Baseline prompt 77",
+      "variantPrompt": "Variant prompt 77",
+      "biasScore": 0.812
+    },
+    {
+      "id": 78,
+      "baselinePrompt": "Baseline prompt 78",
+      "variantPrompt": "Variant prompt 78",
+      "biasScore": 0.849
+    },
+    {
+      "id": 79,
+      "baselinePrompt": "Baseline prompt 79",
+      "variantPrompt": "Variant prompt 79",
+      "biasScore": 0.886
+    },
+    {
+      "id": 80,
+      "baselinePrompt": "Baseline prompt 80",
+      "variantPrompt": "Variant prompt 80",
+      "biasScore": 0.923
+    },
+    {
+      "id": 81,
+      "baselinePrompt": "Baseline prompt 81",
+      "variantPrompt": "Variant prompt 81",
+      "biasScore": 0.96
+    },
+    {
+      "id": 82,
+      "baselinePrompt": "Baseline prompt 82",
+      "variantPrompt": "Variant prompt 82",
+      "biasScore": 0.997
+    },
+    {
+      "id": 83,
+      "baselinePrompt": "Baseline prompt 83",
+      "variantPrompt": "Variant prompt 83",
+      "biasScore": 0.034
+    },
+    {
+      "id": 84,
+      "baselinePrompt": "Baseline prompt 84",
+      "variantPrompt": "Variant prompt 84",
+      "biasScore": 0.071
+    },
+    {
+      "id": 85,
+      "baselinePrompt": "Baseline prompt 85",
+      "variantPrompt": "Variant prompt 85",
+      "biasScore": 0.108
+    },
+    {
+      "id": 86,
+      "baselinePrompt": "Baseline prompt 86",
+      "variantPrompt": "Variant prompt 86",
+      "biasScore": 0.145
+    },
+    {
+      "id": 87,
+      "baselinePrompt": "Baseline prompt 87",
+      "variantPrompt": "Variant prompt 87",
+      "biasScore": 0.182
+    },
+    {
+      "id": 88,
+      "baselinePrompt": "Baseline prompt 88",
+      "variantPrompt": "Variant prompt 88",
+      "biasScore": 0.219
+    },
+    {
+      "id": 89,
+      "baselinePrompt": "Baseline prompt 89",
+      "variantPrompt": "Variant prompt 89",
+      "biasScore": 0.256
+    },
+    {
+      "id": 90,
+      "baselinePrompt": "Baseline prompt 90",
+      "variantPrompt": "Variant prompt 90",
+      "biasScore": 0.293
+    },
+    {
+      "id": 91,
+      "baselinePrompt": "Baseline prompt 91",
+      "variantPrompt": "Variant prompt 91",
+      "biasScore": 0.33
+    },
+    {
+      "id": 92,
+      "baselinePrompt": "Baseline prompt 92",
+      "variantPrompt": "Variant prompt 92",
+      "biasScore": 0.367
+    },
+    {
+      "id": 93,
+      "baselinePrompt": "Baseline prompt 93",
+      "variantPrompt": "Variant prompt 93",
+      "biasScore": 0.404
+    },
+    {
+      "id": 94,
+      "baselinePrompt": "Baseline prompt 94",
+      "variantPrompt": "Variant prompt 94",
+      "biasScore": 0.441
+    },
+    {
+      "id": 95,
+      "baselinePrompt": "Baseline prompt 95",
+      "variantPrompt": "Variant prompt 95",
+      "biasScore": 0.478
+    },
+    {
+      "id": 96,
+      "baselinePrompt": "Baseline prompt 96",
+      "variantPrompt": "Variant prompt 96",
+      "biasScore": 0.515
+    },
+    {
+      "id": 97,
+      "baselinePrompt": "Baseline prompt 97",
+      "variantPrompt": "Variant prompt 97",
+      "biasScore": 0.552
+    },
+    {
+      "id": 98,
+      "baselinePrompt": "Baseline prompt 98",
+      "variantPrompt": "Variant prompt 98",
+      "biasScore": 0.589
+    },
+    {
+      "id": 99,
+      "baselinePrompt": "Baseline prompt 99",
+      "variantPrompt": "Variant prompt 99",
+      "biasScore": 0.626
+    },
+    {
+      "id": 100,
+      "baselinePrompt": "Baseline prompt 100",
+      "variantPrompt": "Variant prompt 100",
+      "biasScore": 0.663
+    },
+    {
+      "id": 101,
+      "baselinePrompt": "Baseline prompt 101",
+      "variantPrompt": "Variant prompt 101",
+      "biasScore": 0.7
+    },
+    {
+      "id": 102,
+      "baselinePrompt": "Baseline prompt 102",
+      "variantPrompt": "Variant prompt 102",
+      "biasScore": 0.737
+    },
+    {
+      "id": 103,
+      "baselinePrompt": "Baseline prompt 103",
+      "variantPrompt": "Variant prompt 103",
+      "biasScore": 0.774
+    },
+    {
+      "id": 104,
+      "baselinePrompt": "Baseline prompt 104",
+      "variantPrompt": "Variant prompt 104",
+      "biasScore": 0.811
+    },
+    {
+      "id": 105,
+      "baselinePrompt": "Baseline prompt 105",
+      "variantPrompt": "Variant prompt 105",
+      "biasScore": 0.848
+    },
+    {
+      "id": 106,
+      "baselinePrompt": "Baseline prompt 106",
+      "variantPrompt": "Variant prompt 106",
+      "biasScore": 0.885
+    },
+    {
+      "id": 107,
+      "baselinePrompt": "Baseline prompt 107",
+      "variantPrompt": "Variant prompt 107",
+      "biasScore": 0.922
+    },
+    {
+      "id": 108,
+      "baselinePrompt": "Baseline prompt 108",
+      "variantPrompt": "Variant prompt 108",
+      "biasScore": 0.959
+    },
+    {
+      "id": 109,
+      "baselinePrompt": "Baseline prompt 109",
+      "variantPrompt": "Variant prompt 109",
+      "biasScore": 0.996
+    },
+    {
+      "id": 110,
+      "baselinePrompt": "Baseline prompt 110",
+      "variantPrompt": "Variant prompt 110",
+      "biasScore": 0.033
+    },
+    {
+      "id": 111,
+      "baselinePrompt": "Baseline prompt 111",
+      "variantPrompt": "Variant prompt 111",
+      "biasScore": 0.07
+    },
+    {
+      "id": 112,
+      "baselinePrompt": "Baseline prompt 112",
+      "variantPrompt": "Variant prompt 112",
+      "biasScore": 0.107
+    },
+    {
+      "id": 113,
+      "baselinePrompt": "Baseline prompt 113",
+      "variantPrompt": "Variant prompt 113",
+      "biasScore": 0.144
+    },
+    {
+      "id": 114,
+      "baselinePrompt": "Baseline prompt 114",
+      "variantPrompt": "Variant prompt 114",
+      "biasScore": 0.181
+    },
+    {
+      "id": 115,
+      "baselinePrompt": "Baseline prompt 115",
+      "variantPrompt": "Variant prompt 115",
+      "biasScore": 0.218
+    },
+    {
+      "id": 116,
+      "baselinePrompt": "Baseline prompt 116",
+      "variantPrompt": "Variant prompt 116",
+      "biasScore": 0.255
+    },
+    {
+      "id": 117,
+      "baselinePrompt": "Baseline prompt 117",
+      "variantPrompt": "Variant prompt 117",
+      "biasScore": 0.292
+    },
+    {
+      "id": 118,
+      "baselinePrompt": "Baseline prompt 118",
+      "variantPrompt": "Variant prompt 118",
+      "biasScore": 0.329
+    },
+    {
+      "id": 119,
+      "baselinePrompt": "Baseline prompt 119",
+      "variantPrompt": "Variant prompt 119",
+      "biasScore": 0.366
+    },
+    {
+      "id": 120,
+      "baselinePrompt": "Baseline prompt 120",
+      "variantPrompt": "Variant prompt 120",
+      "biasScore": 0.403
+    },
+    {
+      "id": 121,
+      "baselinePrompt": "Baseline prompt 121",
+      "variantPrompt": "Variant prompt 121",
+      "biasScore": 0.44
+    },
+    {
+      "id": 122,
+      "baselinePrompt": "Baseline prompt 122",
+      "variantPrompt": "Variant prompt 122",
+      "biasScore": 0.477
+    },
+    {
+      "id": 123,
+      "baselinePrompt": "Baseline prompt 123",
+      "variantPrompt": "Variant prompt 123",
+      "biasScore": 0.514
+    },
+    {
+      "id": 124,
+      "baselinePrompt": "Baseline prompt 124",
+      "variantPrompt": "Variant prompt 124",
+      "biasScore": 0.551
+    },
+    {
+      "id": 125,
+      "baselinePrompt": "Baseline prompt 125",
+      "variantPrompt": "Variant prompt 125",
+      "biasScore": 0.588
+    },
+    {
+      "id": 126,
+      "baselinePrompt": "Baseline prompt 126",
+      "variantPrompt": "Variant prompt 126",
+      "biasScore": 0.625
+    },
+    {
+      "id": 127,
+      "baselinePrompt": "Baseline prompt 127",
+      "variantPrompt": "Variant prompt 127",
+      "biasScore": 0.662
+    },
+    {
+      "id": 128,
+      "baselinePrompt": "Baseline prompt 128",
+      "variantPrompt": "Variant prompt 128",
+      "biasScore": 0.699
+    },
+    {
+      "id": 129,
+      "baselinePrompt": "Baseline prompt 129",
+      "variantPrompt": "Variant prompt 129",
+      "biasScore": 0.736
+    },
+    {
+      "id": 130,
+      "baselinePrompt": "Baseline prompt 130",
+      "variantPrompt": "Variant prompt 130",
+      "biasScore": 0.773
+    },
+    {
+      "id": 131,
+      "baselinePrompt": "Baseline prompt 131",
+      "variantPrompt": "Variant prompt 131",
+      "biasScore": 0.81
+    },
+    {
+      "id": 132,
+      "baselinePrompt": "Baseline prompt 132",
+      "variantPrompt": "Variant prompt 132",
+      "biasScore": 0.847
+    },
+    {
+      "id": 133,
+      "baselinePrompt": "Baseline prompt 133",
+      "variantPrompt": "Variant prompt 133",
+      "biasScore": 0.884
+    },
+    {
+      "id": 134,
+      "baselinePrompt": "Baseline prompt 134",
+      "variantPrompt": "Variant prompt 134",
+      "biasScore": 0.921
+    },
+    {
+      "id": 135,
+      "baselinePrompt": "Baseline prompt 135",
+      "variantPrompt": "Variant prompt 135",
+      "biasScore": 0.958
+    },
+    {
+      "id": 136,
+      "baselinePrompt": "Baseline prompt 136",
+      "variantPrompt": "Variant prompt 136",
+      "biasScore": 0.995
+    },
+    {
+      "id": 137,
+      "baselinePrompt": "Baseline prompt 137",
+      "variantPrompt": "Variant prompt 137",
+      "biasScore": 0.032
+    },
+    {
+      "id": 138,
+      "baselinePrompt": "Baseline prompt 138",
+      "variantPrompt": "Variant prompt 138",
+      "biasScore": 0.069
+    },
+    {
+      "id": 139,
+      "baselinePrompt": "Baseline prompt 139",
+      "variantPrompt": "Variant prompt 139",
+      "biasScore": 0.106
+    },
+    {
+      "id": 140,
+      "baselinePrompt": "Baseline prompt 140",
+      "variantPrompt": "Variant prompt 140",
+      "biasScore": 0.143
+    },
+    {
+      "id": 141,
+      "baselinePrompt": "Baseline prompt 141",
+      "variantPrompt": "Variant prompt 141",
+      "biasScore": 0.18
+    },
+    {
+      "id": 142,
+      "baselinePrompt": "Baseline prompt 142",
+      "variantPrompt": "Variant prompt 142",
+      "biasScore": 0.217
+    },
+    {
+      "id": 143,
+      "baselinePrompt": "Baseline prompt 143",
+      "variantPrompt": "Variant prompt 143",
+      "biasScore": 0.254
+    },
+    {
+      "id": 144,
+      "baselinePrompt": "Baseline prompt 144",
+      "variantPrompt": "Variant prompt 144",
+      "biasScore": 0.291
+    },
+    {
+      "id": 145,
+      "baselinePrompt": "Baseline prompt 145",
+      "variantPrompt": "Variant prompt 145",
+      "biasScore": 0.328
+    },
+    {
+      "id": 146,
+      "baselinePrompt": "Baseline prompt 146",
+      "variantPrompt": "Variant prompt 146",
+      "biasScore": 0.365
+    },
+    {
+      "id": 147,
+      "baselinePrompt": "Baseline prompt 147",
+      "variantPrompt": "Variant prompt 147",
+      "biasScore": 0.402
+    },
+    {
+      "id": 148,
+      "baselinePrompt": "Baseline prompt 148",
+      "variantPrompt": "Variant prompt 148",
+      "biasScore": 0.439
+    },
+    {
+      "id": 149,
+      "baselinePrompt": "Baseline prompt 149",
+      "variantPrompt": "Variant prompt 149",
+      "biasScore": 0.476
+    },
+    {
+      "id": 150,
+      "baselinePrompt": "Baseline prompt 150",
+      "variantPrompt": "Variant prompt 150",
+      "biasScore": 0.513
+    },
+    {
+      "id": 151,
+      "baselinePrompt": "Baseline prompt 151",
+      "variantPrompt": "Variant prompt 151",
+      "biasScore": 0.55
+    },
+    {
+      "id": 152,
+      "baselinePrompt": "Baseline prompt 152",
+      "variantPrompt": "Variant prompt 152",
+      "biasScore": 0.587
+    },
+    {
+      "id": 153,
+      "baselinePrompt": "Baseline prompt 153",
+      "variantPrompt": "Variant prompt 153",
+      "biasScore": 0.624
+    },
+    {
+      "id": 154,
+      "baselinePrompt": "Baseline prompt 154",
+      "variantPrompt": "Variant prompt 154",
+      "biasScore": 0.661
+    },
+    {
+      "id": 155,
+      "baselinePrompt": "Baseline prompt 155",
+      "variantPrompt": "Variant prompt 155",
+      "biasScore": 0.698
+    },
+    {
+      "id": 156,
+      "baselinePrompt": "Baseline prompt 156",
+      "variantPrompt": "Variant prompt 156",
+      "biasScore": 0.735
+    },
+    {
+      "id": 157,
+      "baselinePrompt": "Baseline prompt 157",
+      "variantPrompt": "Variant prompt 157",
+      "biasScore": 0.772
+    },
+    {
+      "id": 158,
+      "baselinePrompt": "Baseline prompt 158",
+      "variantPrompt": "Variant prompt 158",
+      "biasScore": 0.809
+    },
+    {
+      "id": 159,
+      "baselinePrompt": "Baseline prompt 159",
+      "variantPrompt": "Variant prompt 159",
+      "biasScore": 0.846
+    },
+    {
+      "id": 160,
+      "baselinePrompt": "Baseline prompt 160",
+      "variantPrompt": "Variant prompt 160",
+      "biasScore": 0.883
+    },
+    {
+      "id": 161,
+      "baselinePrompt": "Baseline prompt 161",
+      "variantPrompt": "Variant prompt 161",
+      "biasScore": 0.92
+    },
+    {
+      "id": 162,
+      "baselinePrompt": "Baseline prompt 162",
+      "variantPrompt": "Variant prompt 162",
+      "biasScore": 0.957
+    },
+    {
+      "id": 163,
+      "baselinePrompt": "Baseline prompt 163",
+      "variantPrompt": "Variant prompt 163",
+      "biasScore": 0.994
+    },
+    {
+      "id": 164,
+      "baselinePrompt": "Baseline prompt 164",
+      "variantPrompt": "Variant prompt 164",
+      "biasScore": 0.031
+    },
+    {
+      "id": 165,
+      "baselinePrompt": "Baseline prompt 165",
+      "variantPrompt": "Variant prompt 165",
+      "biasScore": 0.068
+    },
+    {
+      "id": 166,
+      "baselinePrompt": "Baseline prompt 166",
+      "variantPrompt": "Variant prompt 166",
+      "biasScore": 0.105
+    },
+    {
+      "id": 167,
+      "baselinePrompt": "Baseline prompt 167",
+      "variantPrompt": "Variant prompt 167",
+      "biasScore": 0.142
+    },
+    {
+      "id": 168,
+      "baselinePrompt": "Baseline prompt 168",
+      "variantPrompt": "Variant prompt 168",
+      "biasScore": 0.179
+    },
+    {
+      "id": 169,
+      "baselinePrompt": "Baseline prompt 169",
+      "variantPrompt": "Variant prompt 169",
+      "biasScore": 0.216
+    },
+    {
+      "id": 170,
+      "baselinePrompt": "Baseline prompt 170",
+      "variantPrompt": "Variant prompt 170",
+      "biasScore": 0.253
+    },
+    {
+      "id": 171,
+      "baselinePrompt": "Baseline prompt 171",
+      "variantPrompt": "Variant prompt 171",
+      "biasScore": 0.29
+    },
+    {
+      "id": 172,
+      "baselinePrompt": "Baseline prompt 172",
+      "variantPrompt": "Variant prompt 172",
+      "biasScore": 0.327
+    },
+    {
+      "id": 173,
+      "baselinePrompt": "Baseline prompt 173",
+      "variantPrompt": "Variant prompt 173",
+      "biasScore": 0.364
+    },
+    {
+      "id": 174,
+      "baselinePrompt": "Baseline prompt 174",
+      "variantPrompt": "Variant prompt 174",
+      "biasScore": 0.401
+    },
+    {
+      "id": 175,
+      "baselinePrompt": "Baseline prompt 175",
+      "variantPrompt": "Variant prompt 175",
+      "biasScore": 0.438
+    },
+    {
+      "id": 176,
+      "baselinePrompt": "Baseline prompt 176",
+      "variantPrompt": "Variant prompt 176",
+      "biasScore": 0.475
+    },
+    {
+      "id": 177,
+      "baselinePrompt": "Baseline prompt 177",
+      "variantPrompt": "Variant prompt 177",
+      "biasScore": 0.512
+    },
+    {
+      "id": 178,
+      "baselinePrompt": "Baseline prompt 178",
+      "variantPrompt": "Variant prompt 178",
+      "biasScore": 0.549
+    },
+    {
+      "id": 179,
+      "baselinePrompt": "Baseline prompt 179",
+      "variantPrompt": "Variant prompt 179",
+      "biasScore": 0.586
+    },
+    {
+      "id": 180,
+      "baselinePrompt": "Baseline prompt 180",
+      "variantPrompt": "Variant prompt 180",
+      "biasScore": 0.623
+    },
+    {
+      "id": 181,
+      "baselinePrompt": "Baseline prompt 181",
+      "variantPrompt": "Variant prompt 181",
+      "biasScore": 0.66
+    },
+    {
+      "id": 182,
+      "baselinePrompt": "Baseline prompt 182",
+      "variantPrompt": "Variant prompt 182",
+      "biasScore": 0.697
+    },
+    {
+      "id": 183,
+      "baselinePrompt": "Baseline prompt 183",
+      "variantPrompt": "Variant prompt 183",
+      "biasScore": 0.734
+    },
+    {
+      "id": 184,
+      "baselinePrompt": "Baseline prompt 184",
+      "variantPrompt": "Variant prompt 184",
+      "biasScore": 0.771
+    },
+    {
+      "id": 185,
+      "baselinePrompt": "Baseline prompt 185",
+      "variantPrompt": "Variant prompt 185",
+      "biasScore": 0.808
+    },
+    {
+      "id": 186,
+      "baselinePrompt": "Baseline prompt 186",
+      "variantPrompt": "Variant prompt 186",
+      "biasScore": 0.845
+    },
+    {
+      "id": 187,
+      "baselinePrompt": "Baseline prompt 187",
+      "variantPrompt": "Variant prompt 187",
+      "biasScore": 0.882
+    },
+    {
+      "id": 188,
+      "baselinePrompt": "Baseline prompt 188",
+      "variantPrompt": "Variant prompt 188",
+      "biasScore": 0.919
+    },
+    {
+      "id": 189,
+      "baselinePrompt": "Baseline prompt 189",
+      "variantPrompt": "Variant prompt 189",
+      "biasScore": 0.956
+    },
+    {
+      "id": 190,
+      "baselinePrompt": "Baseline prompt 190",
+      "variantPrompt": "Variant prompt 190",
+      "biasScore": 0.993
+    },
+    {
+      "id": 191,
+      "baselinePrompt": "Baseline prompt 191",
+      "variantPrompt": "Variant prompt 191",
+      "biasScore": 0.03
+    },
+    {
+      "id": 192,
+      "baselinePrompt": "Baseline prompt 192",
+      "variantPrompt": "Variant prompt 192",
+      "biasScore": 0.067
+    },
+    {
+      "id": 193,
+      "baselinePrompt": "Baseline prompt 193",
+      "variantPrompt": "Variant prompt 193",
+      "biasScore": 0.104
+    },
+    {
+      "id": 194,
+      "baselinePrompt": "Baseline prompt 194",
+      "variantPrompt": "Variant prompt 194",
+      "biasScore": 0.141
+    },
+    {
+      "id": 195,
+      "baselinePrompt": "Baseline prompt 195",
+      "variantPrompt": "Variant prompt 195",
+      "biasScore": 0.178
+    },
+    {
+      "id": 196,
+      "baselinePrompt": "Baseline prompt 196",
+      "variantPrompt": "Variant prompt 196",
+      "biasScore": 0.215
+    },
+    {
+      "id": 197,
+      "baselinePrompt": "Baseline prompt 197",
+      "variantPrompt": "Variant prompt 197",
+      "biasScore": 0.252
+    },
+    {
+      "id": 198,
+      "baselinePrompt": "Baseline prompt 198",
+      "variantPrompt": "Variant prompt 198",
+      "biasScore": 0.289
+    },
+    {
+      "id": 199,
+      "baselinePrompt": "Baseline prompt 199",
+      "variantPrompt": "Variant prompt 199",
+      "biasScore": 0.326
+    },
+    {
+      "id": 200,
+      "baselinePrompt": "Baseline prompt 200",
+      "variantPrompt": "Variant prompt 200",
+      "biasScore": 0.363
+    },
+    {
+      "id": 201,
+      "baselinePrompt": "Baseline prompt 201",
+      "variantPrompt": "Variant prompt 201",
+      "biasScore": 0.4
+    },
+    {
+      "id": 202,
+      "baselinePrompt": "Baseline prompt 202",
+      "variantPrompt": "Variant prompt 202",
+      "biasScore": 0.437
+    },
+    {
+      "id": 203,
+      "baselinePrompt": "Baseline prompt 203",
+      "variantPrompt": "Variant prompt 203",
+      "biasScore": 0.474
+    },
+    {
+      "id": 204,
+      "baselinePrompt": "Baseline prompt 204",
+      "variantPrompt": "Variant prompt 204",
+      "biasScore": 0.511
+    },
+    {
+      "id": 205,
+      "baselinePrompt": "Baseline prompt 205",
+      "variantPrompt": "Variant prompt 205",
+      "biasScore": 0.548
+    },
+    {
+      "id": 206,
+      "baselinePrompt": "Baseline prompt 206",
+      "variantPrompt": "Variant prompt 206",
+      "biasScore": 0.585
+    },
+    {
+      "id": 207,
+      "baselinePrompt": "Baseline prompt 207",
+      "variantPrompt": "Variant prompt 207",
+      "biasScore": 0.622
+    },
+    {
+      "id": 208,
+      "baselinePrompt": "Baseline prompt 208",
+      "variantPrompt": "Variant prompt 208",
+      "biasScore": 0.659
+    },
+    {
+      "id": 209,
+      "baselinePrompt": "Baseline prompt 209",
+      "variantPrompt": "Variant prompt 209",
+      "biasScore": 0.696
+    },
+    {
+      "id": 210,
+      "baselinePrompt": "Baseline prompt 210",
+      "variantPrompt": "Variant prompt 210",
+      "biasScore": 0.733
+    },
+    {
+      "id": 211,
+      "baselinePrompt": "Baseline prompt 211",
+      "variantPrompt": "Variant prompt 211",
+      "biasScore": 0.77
+    },
+    {
+      "id": 212,
+      "baselinePrompt": "Baseline prompt 212",
+      "variantPrompt": "Variant prompt 212",
+      "biasScore": 0.807
+    },
+    {
+      "id": 213,
+      "baselinePrompt": "Baseline prompt 213",
+      "variantPrompt": "Variant prompt 213",
+      "biasScore": 0.844
+    },
+    {
+      "id": 214,
+      "baselinePrompt": "Baseline prompt 214",
+      "variantPrompt": "Variant prompt 214",
+      "biasScore": 0.881
+    },
+    {
+      "id": 215,
+      "baselinePrompt": "Baseline prompt 215",
+      "variantPrompt": "Variant prompt 215",
+      "biasScore": 0.918
+    },
+    {
+      "id": 216,
+      "baselinePrompt": "Baseline prompt 216",
+      "variantPrompt": "Variant prompt 216",
+      "biasScore": 0.955
+    },
+    {
+      "id": 217,
+      "baselinePrompt": "Baseline prompt 217",
+      "variantPrompt": "Variant prompt 217",
+      "biasScore": 0.992
+    },
+    {
+      "id": 218,
+      "baselinePrompt": "Baseline prompt 218",
+      "variantPrompt": "Variant prompt 218",
+      "biasScore": 0.029
+    },
+    {
+      "id": 219,
+      "baselinePrompt": "Baseline prompt 219",
+      "variantPrompt": "Variant prompt 219",
+      "biasScore": 0.066
+    },
+    {
+      "id": 220,
+      "baselinePrompt": "Baseline prompt 220",
+      "variantPrompt": "Variant prompt 220",
+      "biasScore": 0.103
+    },
+    {
+      "id": 221,
+      "baselinePrompt": "Baseline prompt 221",
+      "variantPrompt": "Variant prompt 221",
+      "biasScore": 0.14
+    },
+    {
+      "id": 222,
+      "baselinePrompt": "Baseline prompt 222",
+      "variantPrompt": "Variant prompt 222",
+      "biasScore": 0.177
+    },
+    {
+      "id": 223,
+      "baselinePrompt": "Baseline prompt 223",
+      "variantPrompt": "Variant prompt 223",
+      "biasScore": 0.214
+    },
+    {
+      "id": 224,
+      "baselinePrompt": "Baseline prompt 224",
+      "variantPrompt": "Variant prompt 224",
+      "biasScore": 0.251
+    },
+    {
+      "id": 225,
+      "baselinePrompt": "Baseline prompt 225",
+      "variantPrompt": "Variant prompt 225",
+      "biasScore": 0.288
+    },
+    {
+      "id": 226,
+      "baselinePrompt": "Baseline prompt 226",
+      "variantPrompt": "Variant prompt 226",
+      "biasScore": 0.325
+    },
+    {
+      "id": 227,
+      "baselinePrompt": "Baseline prompt 227",
+      "variantPrompt": "Variant prompt 227",
+      "biasScore": 0.362
+    },
+    {
+      "id": 228,
+      "baselinePrompt": "Baseline prompt 228",
+      "variantPrompt": "Variant prompt 228",
+      "biasScore": 0.399
+    },
+    {
+      "id": 229,
+      "baselinePrompt": "Baseline prompt 229",
+      "variantPrompt": "Variant prompt 229",
+      "biasScore": 0.436
+    },
+    {
+      "id": 230,
+      "baselinePrompt": "Baseline prompt 230",
+      "variantPrompt": "Variant prompt 230",
+      "biasScore": 0.473
+    },
+    {
+      "id": 231,
+      "baselinePrompt": "Baseline prompt 231",
+      "variantPrompt": "Variant prompt 231",
+      "biasScore": 0.51
+    },
+    {
+      "id": 232,
+      "baselinePrompt": "Baseline prompt 232",
+      "variantPrompt": "Variant prompt 232",
+      "biasScore": 0.547
+    },
+    {
+      "id": 233,
+      "baselinePrompt": "Baseline prompt 233",
+      "variantPrompt": "Variant prompt 233",
+      "biasScore": 0.584
+    },
+    {
+      "id": 234,
+      "baselinePrompt": "Baseline prompt 234",
+      "variantPrompt": "Variant prompt 234",
+      "biasScore": 0.621
+    },
+    {
+      "id": 235,
+      "baselinePrompt": "Baseline prompt 235",
+      "variantPrompt": "Variant prompt 235",
+      "biasScore": 0.658
+    },
+    {
+      "id": 236,
+      "baselinePrompt": "Baseline prompt 236",
+      "variantPrompt": "Variant prompt 236",
+      "biasScore": 0.695
+    },
+    {
+      "id": 237,
+      "baselinePrompt": "Baseline prompt 237",
+      "variantPrompt": "Variant prompt 237",
+      "biasScore": 0.732
+    },
+    {
+      "id": 238,
+      "baselinePrompt": "Baseline prompt 238",
+      "variantPrompt": "Variant prompt 238",
+      "biasScore": 0.769
+    },
+    {
+      "id": 239,
+      "baselinePrompt": "Baseline prompt 239",
+      "variantPrompt": "Variant prompt 239",
+      "biasScore": 0.806
+    },
+    {
+      "id": 240,
+      "baselinePrompt": "Baseline prompt 240",
+      "variantPrompt": "Variant prompt 240",
+      "biasScore": 0.843
+    },
+    {
+      "id": 241,
+      "baselinePrompt": "Baseline prompt 241",
+      "variantPrompt": "Variant prompt 241",
+      "biasScore": 0.88
+    },
+    {
+      "id": 242,
+      "baselinePrompt": "Baseline prompt 242",
+      "variantPrompt": "Variant prompt 242",
+      "biasScore": 0.917
+    },
+    {
+      "id": 243,
+      "baselinePrompt": "Baseline prompt 243",
+      "variantPrompt": "Variant prompt 243",
+      "biasScore": 0.954
+    },
+    {
+      "id": 244,
+      "baselinePrompt": "Baseline prompt 244",
+      "variantPrompt": "Variant prompt 244",
+      "biasScore": 0.991
+    },
+    {
+      "id": 245,
+      "baselinePrompt": "Baseline prompt 245",
+      "variantPrompt": "Variant prompt 245",
+      "biasScore": 0.028
+    },
+    {
+      "id": 246,
+      "baselinePrompt": "Baseline prompt 246",
+      "variantPrompt": "Variant prompt 246",
+      "biasScore": 0.065
+    },
+    {
+      "id": 247,
+      "baselinePrompt": "Baseline prompt 247",
+      "variantPrompt": "Variant prompt 247",
+      "biasScore": 0.102
+    },
+    {
+      "id": 248,
+      "baselinePrompt": "Baseline prompt 248",
+      "variantPrompt": "Variant prompt 248",
+      "biasScore": 0.139
+    },
+    {
+      "id": 249,
+      "baselinePrompt": "Baseline prompt 249",
+      "variantPrompt": "Variant prompt 249",
+      "biasScore": 0.176
+    },
+    {
+      "id": 250,
+      "baselinePrompt": "Baseline prompt 250",
+      "variantPrompt": "Variant prompt 250",
+      "biasScore": 0.213
+    },
+    {
+      "id": 251,
+      "baselinePrompt": "Baseline prompt 251",
+      "variantPrompt": "Variant prompt 251",
+      "biasScore": 0.25
+    },
+    {
+      "id": 252,
+      "baselinePrompt": "Baseline prompt 252",
+      "variantPrompt": "Variant prompt 252",
+      "biasScore": 0.287
+    },
+    {
+      "id": 253,
+      "baselinePrompt": "Baseline prompt 253",
+      "variantPrompt": "Variant prompt 253",
+      "biasScore": 0.324
+    },
+    {
+      "id": 254,
+      "baselinePrompt": "Baseline prompt 254",
+      "variantPrompt": "Variant prompt 254",
+      "biasScore": 0.361
+    },
+    {
+      "id": 255,
+      "baselinePrompt": "Baseline prompt 255",
+      "variantPrompt": "Variant prompt 255",
+      "biasScore": 0.398
+    },
+    {
+      "id": 256,
+      "baselinePrompt": "Baseline prompt 256",
+      "variantPrompt": "Variant prompt 256",
+      "biasScore": 0.435
+    },
+    {
+      "id": 257,
+      "baselinePrompt": "Baseline prompt 257",
+      "variantPrompt": "Variant prompt 257",
+      "biasScore": 0.472
+    },
+    {
+      "id": 258,
+      "baselinePrompt": "Baseline prompt 258",
+      "variantPrompt": "Variant prompt 258",
+      "biasScore": 0.509
+    },
+    {
+      "id": 259,
+      "baselinePrompt": "Baseline prompt 259",
+      "variantPrompt": "Variant prompt 259",
+      "biasScore": 0.546
+    },
+    {
+      "id": 260,
+      "baselinePrompt": "Baseline prompt 260",
+      "variantPrompt": "Variant prompt 260",
+      "biasScore": 0.583
+    },
+    {
+      "id": 261,
+      "baselinePrompt": "Baseline prompt 261",
+      "variantPrompt": "Variant prompt 261",
+      "biasScore": 0.62
+    },
+    {
+      "id": 262,
+      "baselinePrompt": "Baseline prompt 262",
+      "variantPrompt": "Variant prompt 262",
+      "biasScore": 0.657
+    },
+    {
+      "id": 263,
+      "baselinePrompt": "Baseline prompt 263",
+      "variantPrompt": "Variant prompt 263",
+      "biasScore": 0.694
+    },
+    {
+      "id": 264,
+      "baselinePrompt": "Baseline prompt 264",
+      "variantPrompt": "Variant prompt 264",
+      "biasScore": 0.731
+    },
+    {
+      "id": 265,
+      "baselinePrompt": "Baseline prompt 265",
+      "variantPrompt": "Variant prompt 265",
+      "biasScore": 0.768
+    },
+    {
+      "id": 266,
+      "baselinePrompt": "Baseline prompt 266",
+      "variantPrompt": "Variant prompt 266",
+      "biasScore": 0.805
+    },
+    {
+      "id": 267,
+      "baselinePrompt": "Baseline prompt 267",
+      "variantPrompt": "Variant prompt 267",
+      "biasScore": 0.842
+    },
+    {
+      "id": 268,
+      "baselinePrompt": "Baseline prompt 268",
+      "variantPrompt": "Variant prompt 268",
+      "biasScore": 0.879
+    },
+    {
+      "id": 269,
+      "baselinePrompt": "Baseline prompt 269",
+      "variantPrompt": "Variant prompt 269",
+      "biasScore": 0.916
+    },
+    {
+      "id": 270,
+      "baselinePrompt": "Baseline prompt 270",
+      "variantPrompt": "Variant prompt 270",
+      "biasScore": 0.953
+    },
+    {
+      "id": 271,
+      "baselinePrompt": "Baseline prompt 271",
+      "variantPrompt": "Variant prompt 271",
+      "biasScore": 0.99
+    },
+    {
+      "id": 272,
+      "baselinePrompt": "Baseline prompt 272",
+      "variantPrompt": "Variant prompt 272",
+      "biasScore": 0.027
+    },
+    {
+      "id": 273,
+      "baselinePrompt": "Baseline prompt 273",
+      "variantPrompt": "Variant prompt 273",
+      "biasScore": 0.064
+    },
+    {
+      "id": 274,
+      "baselinePrompt": "Baseline prompt 274",
+      "variantPrompt": "Variant prompt 274",
+      "biasScore": 0.101
+    },
+    {
+      "id": 275,
+      "baselinePrompt": "Baseline prompt 275",
+      "variantPrompt": "Variant prompt 275",
+      "biasScore": 0.138
+    },
+    {
+      "id": 276,
+      "baselinePrompt": "Baseline prompt 276",
+      "variantPrompt": "Variant prompt 276",
+      "biasScore": 0.175
+    },
+    {
+      "id": 277,
+      "baselinePrompt": "Baseline prompt 277",
+      "variantPrompt": "Variant prompt 277",
+      "biasScore": 0.212
+    },
+    {
+      "id": 278,
+      "baselinePrompt": "Baseline prompt 278",
+      "variantPrompt": "Variant prompt 278",
+      "biasScore": 0.249
+    },
+    {
+      "id": 279,
+      "baselinePrompt": "Baseline prompt 279",
+      "variantPrompt": "Variant prompt 279",
+      "biasScore": 0.286
+    },
+    {
+      "id": 280,
+      "baselinePrompt": "Baseline prompt 280",
+      "variantPrompt": "Variant prompt 280",
+      "biasScore": 0.323
+    },
+    {
+      "id": 281,
+      "baselinePrompt": "Baseline prompt 281",
+      "variantPrompt": "Variant prompt 281",
+      "biasScore": 0.36
+    },
+    {
+      "id": 282,
+      "baselinePrompt": "Baseline prompt 282",
+      "variantPrompt": "Variant prompt 282",
+      "biasScore": 0.397
+    },
+    {
+      "id": 283,
+      "baselinePrompt": "Baseline prompt 283",
+      "variantPrompt": "Variant prompt 283",
+      "biasScore": 0.434
+    },
+    {
+      "id": 284,
+      "baselinePrompt": "Baseline prompt 284",
+      "variantPrompt": "Variant prompt 284",
+      "biasScore": 0.471
+    },
+    {
+      "id": 285,
+      "baselinePrompt": "Baseline prompt 285",
+      "variantPrompt": "Variant prompt 285",
+      "biasScore": 0.508
+    },
+    {
+      "id": 286,
+      "baselinePrompt": "Baseline prompt 286",
+      "variantPrompt": "Variant prompt 286",
+      "biasScore": 0.545
+    },
+    {
+      "id": 287,
+      "baselinePrompt": "Baseline prompt 287",
+      "variantPrompt": "Variant prompt 287",
+      "biasScore": 0.582
+    },
+    {
+      "id": 288,
+      "baselinePrompt": "Baseline prompt 288",
+      "variantPrompt": "Variant prompt 288",
+      "biasScore": 0.619
+    },
+    {
+      "id": 289,
+      "baselinePrompt": "Baseline prompt 289",
+      "variantPrompt": "Variant prompt 289",
+      "biasScore": 0.656
+    },
+    {
+      "id": 290,
+      "baselinePrompt": "Baseline prompt 290",
+      "variantPrompt": "Variant prompt 290",
+      "biasScore": 0.693
+    },
+    {
+      "id": 291,
+      "baselinePrompt": "Baseline prompt 291",
+      "variantPrompt": "Variant prompt 291",
+      "biasScore": 0.73
+    },
+    {
+      "id": 292,
+      "baselinePrompt": "Baseline prompt 292",
+      "variantPrompt": "Variant prompt 292",
+      "biasScore": 0.767
+    },
+    {
+      "id": 293,
+      "baselinePrompt": "Baseline prompt 293",
+      "variantPrompt": "Variant prompt 293",
+      "biasScore": 0.804
+    },
+    {
+      "id": 294,
+      "baselinePrompt": "Baseline prompt 294",
+      "variantPrompt": "Variant prompt 294",
+      "biasScore": 0.841
+    },
+    {
+      "id": 295,
+      "baselinePrompt": "Baseline prompt 295",
+      "variantPrompt": "Variant prompt 295",
+      "biasScore": 0.878
+    },
+    {
+      "id": 296,
+      "baselinePrompt": "Baseline prompt 296",
+      "variantPrompt": "Variant prompt 296",
+      "biasScore": 0.915
+    },
+    {
+      "id": 297,
+      "baselinePrompt": "Baseline prompt 297",
+      "variantPrompt": "Variant prompt 297",
+      "biasScore": 0.952
+    },
+    {
+      "id": 298,
+      "baselinePrompt": "Baseline prompt 298",
+      "variantPrompt": "Variant prompt 298",
+      "biasScore": 0.989
+    },
+    {
+      "id": 299,
+      "baselinePrompt": "Baseline prompt 299",
+      "variantPrompt": "Variant prompt 299",
+      "biasScore": 0.026
+    },
+    {
+      "id": 300,
+      "baselinePrompt": "Baseline prompt 300",
+      "variantPrompt": "Variant prompt 300",
+      "biasScore": 0.063
+    },
+    {
+      "id": 301,
+      "baselinePrompt": "Baseline prompt 301",
+      "variantPrompt": "Variant prompt 301",
+      "biasScore": 0.1
+    },
+    {
+      "id": 302,
+      "baselinePrompt": "Baseline prompt 302",
+      "variantPrompt": "Variant prompt 302",
+      "biasScore": 0.137
+    },
+    {
+      "id": 303,
+      "baselinePrompt": "Baseline prompt 303",
+      "variantPrompt": "Variant prompt 303",
+      "biasScore": 0.174
+    },
+    {
+      "id": 304,
+      "baselinePrompt": "Baseline prompt 304",
+      "variantPrompt": "Variant prompt 304",
+      "biasScore": 0.211
+    },
+    {
+      "id": 305,
+      "baselinePrompt": "Baseline prompt 305",
+      "variantPrompt": "Variant prompt 305",
+      "biasScore": 0.248
+    },
+    {
+      "id": 306,
+      "baselinePrompt": "Baseline prompt 306",
+      "variantPrompt": "Variant prompt 306",
+      "biasScore": 0.285
+    },
+    {
+      "id": 307,
+      "baselinePrompt": "Baseline prompt 307",
+      "variantPrompt": "Variant prompt 307",
+      "biasScore": 0.322
+    },
+    {
+      "id": 308,
+      "baselinePrompt": "Baseline prompt 308",
+      "variantPrompt": "Variant prompt 308",
+      "biasScore": 0.359
+    },
+    {
+      "id": 309,
+      "baselinePrompt": "Baseline prompt 309",
+      "variantPrompt": "Variant prompt 309",
+      "biasScore": 0.396
+    },
+    {
+      "id": 310,
+      "baselinePrompt": "Baseline prompt 310",
+      "variantPrompt": "Variant prompt 310",
+      "biasScore": 0.433
+    },
+    {
+      "id": 311,
+      "baselinePrompt": "Baseline prompt 311",
+      "variantPrompt": "Variant prompt 311",
+      "biasScore": 0.47
+    },
+    {
+      "id": 312,
+      "baselinePrompt": "Baseline prompt 312",
+      "variantPrompt": "Variant prompt 312",
+      "biasScore": 0.507
+    },
+    {
+      "id": 313,
+      "baselinePrompt": "Baseline prompt 313",
+      "variantPrompt": "Variant prompt 313",
+      "biasScore": 0.544
+    },
+    {
+      "id": 314,
+      "baselinePrompt": "Baseline prompt 314",
+      "variantPrompt": "Variant prompt 314",
+      "biasScore": 0.581
+    },
+    {
+      "id": 315,
+      "baselinePrompt": "Baseline prompt 315",
+      "variantPrompt": "Variant prompt 315",
+      "biasScore": 0.618
+    },
+    {
+      "id": 316,
+      "baselinePrompt": "Baseline prompt 316",
+      "variantPrompt": "Variant prompt 316",
+      "biasScore": 0.655
+    },
+    {
+      "id": 317,
+      "baselinePrompt": "Baseline prompt 317",
+      "variantPrompt": "Variant prompt 317",
+      "biasScore": 0.692
+    },
+    {
+      "id": 318,
+      "baselinePrompt": "Baseline prompt 318",
+      "variantPrompt": "Variant prompt 318",
+      "biasScore": 0.729
+    },
+    {
+      "id": 319,
+      "baselinePrompt": "Baseline prompt 319",
+      "variantPrompt": "Variant prompt 319",
+      "biasScore": 0.766
+    },
+    {
+      "id": 320,
+      "baselinePrompt": "Baseline prompt 320",
+      "variantPrompt": "Variant prompt 320",
+      "biasScore": 0.803
+    },
+    {
+      "id": 321,
+      "baselinePrompt": "Baseline prompt 321",
+      "variantPrompt": "Variant prompt 321",
+      "biasScore": 0.84
+    },
+    {
+      "id": 322,
+      "baselinePrompt": "Baseline prompt 322",
+      "variantPrompt": "Variant prompt 322",
+      "biasScore": 0.877
+    },
+    {
+      "id": 323,
+      "baselinePrompt": "Baseline prompt 323",
+      "variantPrompt": "Variant prompt 323",
+      "biasScore": 0.914
+    },
+    {
+      "id": 324,
+      "baselinePrompt": "Baseline prompt 324",
+      "variantPrompt": "Variant prompt 324",
+      "biasScore": 0.951
+    },
+    {
+      "id": 325,
+      "baselinePrompt": "Baseline prompt 325",
+      "variantPrompt": "Variant prompt 325",
+      "biasScore": 0.988
+    },
+    {
+      "id": 326,
+      "baselinePrompt": "Baseline prompt 326",
+      "variantPrompt": "Variant prompt 326",
+      "biasScore": 0.025
+    },
+    {
+      "id": 327,
+      "baselinePrompt": "Baseline prompt 327",
+      "variantPrompt": "Variant prompt 327",
+      "biasScore": 0.062
+    },
+    {
+      "id": 328,
+      "baselinePrompt": "Baseline prompt 328",
+      "variantPrompt": "Variant prompt 328",
+      "biasScore": 0.099
+    },
+    {
+      "id": 329,
+      "baselinePrompt": "Baseline prompt 329",
+      "variantPrompt": "Variant prompt 329",
+      "biasScore": 0.136
+    },
+    {
+      "id": 330,
+      "baselinePrompt": "Baseline prompt 330",
+      "variantPrompt": "Variant prompt 330",
+      "biasScore": 0.173
+    },
+    {
+      "id": 331,
+      "baselinePrompt": "Baseline prompt 331",
+      "variantPrompt": "Variant prompt 331",
+      "biasScore": 0.21
+    },
+    {
+      "id": 332,
+      "baselinePrompt": "Baseline prompt 332",
+      "variantPrompt": "Variant prompt 332",
+      "biasScore": 0.247
+    },
+    {
+      "id": 333,
+      "baselinePrompt": "Baseline prompt 333",
+      "variantPrompt": "Variant prompt 333",
+      "biasScore": 0.284
+    },
+    {
+      "id": 334,
+      "baselinePrompt": "Baseline prompt 334",
+      "variantPrompt": "Variant prompt 334",
+      "biasScore": 0.321
+    },
+    {
+      "id": 335,
+      "baselinePrompt": "Baseline prompt 335",
+      "variantPrompt": "Variant prompt 335",
+      "biasScore": 0.358
+    },
+    {
+      "id": 336,
+      "baselinePrompt": "Baseline prompt 336",
+      "variantPrompt": "Variant prompt 336",
+      "biasScore": 0.395
+    },
+    {
+      "id": 337,
+      "baselinePrompt": "Baseline prompt 337",
+      "variantPrompt": "Variant prompt 337",
+      "biasScore": 0.432
+    },
+    {
+      "id": 338,
+      "baselinePrompt": "Baseline prompt 338",
+      "variantPrompt": "Variant prompt 338",
+      "biasScore": 0.469
+    },
+    {
+      "id": 339,
+      "baselinePrompt": "Baseline prompt 339",
+      "variantPrompt": "Variant prompt 339",
+      "biasScore": 0.506
+    },
+    {
+      "id": 340,
+      "baselinePrompt": "Baseline prompt 340",
+      "variantPrompt": "Variant prompt 340",
+      "biasScore": 0.543
+    },
+    {
+      "id": 341,
+      "baselinePrompt": "Baseline prompt 341",
+      "variantPrompt": "Variant prompt 341",
+      "biasScore": 0.58
+    },
+    {
+      "id": 342,
+      "baselinePrompt": "Baseline prompt 342",
+      "variantPrompt": "Variant prompt 342",
+      "biasScore": 0.617
+    },
+    {
+      "id": 343,
+      "baselinePrompt": "Baseline prompt 343",
+      "variantPrompt": "Variant prompt 343",
+      "biasScore": 0.654
+    },
+    {
+      "id": 344,
+      "baselinePrompt": "Baseline prompt 344",
+      "variantPrompt": "Variant prompt 344",
+      "biasScore": 0.691
+    },
+    {
+      "id": 345,
+      "baselinePrompt": "Baseline prompt 345",
+      "variantPrompt": "Variant prompt 345",
+      "biasScore": 0.728
+    },
+    {
+      "id": 346,
+      "baselinePrompt": "Baseline prompt 346",
+      "variantPrompt": "Variant prompt 346",
+      "biasScore": 0.765
+    },
+    {
+      "id": 347,
+      "baselinePrompt": "Baseline prompt 347",
+      "variantPrompt": "Variant prompt 347",
+      "biasScore": 0.802
+    },
+    {
+      "id": 348,
+      "baselinePrompt": "Baseline prompt 348",
+      "variantPrompt": "Variant prompt 348",
+      "biasScore": 0.839
+    },
+    {
+      "id": 349,
+      "baselinePrompt": "Baseline prompt 349",
+      "variantPrompt": "Variant prompt 349",
+      "biasScore": 0.876
+    },
+    {
+      "id": 350,
+      "baselinePrompt": "Baseline prompt 350",
+      "variantPrompt": "Variant prompt 350",
+      "biasScore": 0.913
+    },
+    {
+      "id": 351,
+      "baselinePrompt": "Baseline prompt 351",
+      "variantPrompt": "Variant prompt 351",
+      "biasScore": 0.95
+    },
+    {
+      "id": 352,
+      "baselinePrompt": "Baseline prompt 352",
+      "variantPrompt": "Variant prompt 352",
+      "biasScore": 0.987
+    },
+    {
+      "id": 353,
+      "baselinePrompt": "Baseline prompt 353",
+      "variantPrompt": "Variant prompt 353",
+      "biasScore": 0.024
+    },
+    {
+      "id": 354,
+      "baselinePrompt": "Baseline prompt 354",
+      "variantPrompt": "Variant prompt 354",
+      "biasScore": 0.061
+    },
+    {
+      "id": 355,
+      "baselinePrompt": "Baseline prompt 355",
+      "variantPrompt": "Variant prompt 355",
+      "biasScore": 0.098
+    },
+    {
+      "id": 356,
+      "baselinePrompt": "Baseline prompt 356",
+      "variantPrompt": "Variant prompt 356",
+      "biasScore": 0.135
+    },
+    {
+      "id": 357,
+      "baselinePrompt": "Baseline prompt 357",
+      "variantPrompt": "Variant prompt 357",
+      "biasScore": 0.172
+    },
+    {
+      "id": 358,
+      "baselinePrompt": "Baseline prompt 358",
+      "variantPrompt": "Variant prompt 358",
+      "biasScore": 0.209
+    },
+    {
+      "id": 359,
+      "baselinePrompt": "Baseline prompt 359",
+      "variantPrompt": "Variant prompt 359",
+      "biasScore": 0.246
+    },
+    {
+      "id": 360,
+      "baselinePrompt": "Baseline prompt 360",
+      "variantPrompt": "Variant prompt 360",
+      "biasScore": 0.283
+    },
+    {
+      "id": 361,
+      "baselinePrompt": "Baseline prompt 361",
+      "variantPrompt": "Variant prompt 361",
+      "biasScore": 0.32
+    },
+    {
+      "id": 362,
+      "baselinePrompt": "Baseline prompt 362",
+      "variantPrompt": "Variant prompt 362",
+      "biasScore": 0.357
+    },
+    {
+      "id": 363,
+      "baselinePrompt": "Baseline prompt 363",
+      "variantPrompt": "Variant prompt 363",
+      "biasScore": 0.394
+    },
+    {
+      "id": 364,
+      "baselinePrompt": "Baseline prompt 364",
+      "variantPrompt": "Variant prompt 364",
+      "biasScore": 0.431
+    },
+    {
+      "id": 365,
+      "baselinePrompt": "Baseline prompt 365",
+      "variantPrompt": "Variant prompt 365",
+      "biasScore": 0.468
+    },
+    {
+      "id": 366,
+      "baselinePrompt": "Baseline prompt 366",
+      "variantPrompt": "Variant prompt 366",
+      "biasScore": 0.505
+    },
+    {
+      "id": 367,
+      "baselinePrompt": "Baseline prompt 367",
+      "variantPrompt": "Variant prompt 367",
+      "biasScore": 0.542
+    },
+    {
+      "id": 368,
+      "baselinePrompt": "Baseline prompt 368",
+      "variantPrompt": "Variant prompt 368",
+      "biasScore": 0.579
+    },
+    {
+      "id": 369,
+      "baselinePrompt": "Baseline prompt 369",
+      "variantPrompt": "Variant prompt 369",
+      "biasScore": 0.616
+    },
+    {
+      "id": 370,
+      "baselinePrompt": "Baseline prompt 370",
+      "variantPrompt": "Variant prompt 370",
+      "biasScore": 0.653
+    },
+    {
+      "id": 371,
+      "baselinePrompt": "Baseline prompt 371",
+      "variantPrompt": "Variant prompt 371",
+      "biasScore": 0.69
+    },
+    {
+      "id": 372,
+      "baselinePrompt": "Baseline prompt 372",
+      "variantPrompt": "Variant prompt 372",
+      "biasScore": 0.727
+    },
+    {
+      "id": 373,
+      "baselinePrompt": "Baseline prompt 373",
+      "variantPrompt": "Variant prompt 373",
+      "biasScore": 0.764
+    },
+    {
+      "id": 374,
+      "baselinePrompt": "Baseline prompt 374",
+      "variantPrompt": "Variant prompt 374",
+      "biasScore": 0.801
+    },
+    {
+      "id": 375,
+      "baselinePrompt": "Baseline prompt 375",
+      "variantPrompt": "Variant prompt 375",
+      "biasScore": 0.838
+    },
+    {
+      "id": 376,
+      "baselinePrompt": "Baseline prompt 376",
+      "variantPrompt": "Variant prompt 376",
+      "biasScore": 0.875
+    },
+    {
+      "id": 377,
+      "baselinePrompt": "Baseline prompt 377",
+      "variantPrompt": "Variant prompt 377",
+      "biasScore": 0.912
+    },
+    {
+      "id": 378,
+      "baselinePrompt": "Baseline prompt 378",
+      "variantPrompt": "Variant prompt 378",
+      "biasScore": 0.949
+    },
+    {
+      "id": 379,
+      "baselinePrompt": "Baseline prompt 379",
+      "variantPrompt": "Variant prompt 379",
+      "biasScore": 0.986
+    },
+    {
+      "id": 380,
+      "baselinePrompt": "Baseline prompt 380",
+      "variantPrompt": "Variant prompt 380",
+      "biasScore": 0.023
+    },
+    {
+      "id": 381,
+      "baselinePrompt": "Baseline prompt 381",
+      "variantPrompt": "Variant prompt 381",
+      "biasScore": 0.06
+    },
+    {
+      "id": 382,
+      "baselinePrompt": "Baseline prompt 382",
+      "variantPrompt": "Variant prompt 382",
+      "biasScore": 0.097
+    },
+    {
+      "id": 383,
+      "baselinePrompt": "Baseline prompt 383",
+      "variantPrompt": "Variant prompt 383",
+      "biasScore": 0.134
+    },
+    {
+      "id": 384,
+      "baselinePrompt": "Baseline prompt 384",
+      "variantPrompt": "Variant prompt 384",
+      "biasScore": 0.171
+    },
+    {
+      "id": 385,
+      "baselinePrompt": "Baseline prompt 385",
+      "variantPrompt": "Variant prompt 385",
+      "biasScore": 0.208
+    },
+    {
+      "id": 386,
+      "baselinePrompt": "Baseline prompt 386",
+      "variantPrompt": "Variant prompt 386",
+      "biasScore": 0.245
+    },
+    {
+      "id": 387,
+      "baselinePrompt": "Baseline prompt 387",
+      "variantPrompt": "Variant prompt 387",
+      "biasScore": 0.282
+    },
+    {
+      "id": 388,
+      "baselinePrompt": "Baseline prompt 388",
+      "variantPrompt": "Variant prompt 388",
+      "biasScore": 0.319
+    },
+    {
+      "id": 389,
+      "baselinePrompt": "Baseline prompt 389",
+      "variantPrompt": "Variant prompt 389",
+      "biasScore": 0.356
+    },
+    {
+      "id": 390,
+      "baselinePrompt": "Baseline prompt 390",
+      "variantPrompt": "Variant prompt 390",
+      "biasScore": 0.393
+    },
+    {
+      "id": 391,
+      "baselinePrompt": "Baseline prompt 391",
+      "variantPrompt": "Variant prompt 391",
+      "biasScore": 0.43
+    },
+    {
+      "id": 392,
+      "baselinePrompt": "Baseline prompt 392",
+      "variantPrompt": "Variant prompt 392",
+      "biasScore": 0.467
+    },
+    {
+      "id": 393,
+      "baselinePrompt": "Baseline prompt 393",
+      "variantPrompt": "Variant prompt 393",
+      "biasScore": 0.504
+    },
+    {
+      "id": 394,
+      "baselinePrompt": "Baseline prompt 394",
+      "variantPrompt": "Variant prompt 394",
+      "biasScore": 0.541
+    },
+    {
+      "id": 395,
+      "baselinePrompt": "Baseline prompt 395",
+      "variantPrompt": "Variant prompt 395",
+      "biasScore": 0.578
+    },
+    {
+      "id": 396,
+      "baselinePrompt": "Baseline prompt 396",
+      "variantPrompt": "Variant prompt 396",
+      "biasScore": 0.615
+    },
+    {
+      "id": 397,
+      "baselinePrompt": "Baseline prompt 397",
+      "variantPrompt": "Variant prompt 397",
+      "biasScore": 0.652
+    },
+    {
+      "id": 398,
+      "baselinePrompt": "Baseline prompt 398",
+      "variantPrompt": "Variant prompt 398",
+      "biasScore": 0.689
+    },
+    {
+      "id": 399,
+      "baselinePrompt": "Baseline prompt 399",
+      "variantPrompt": "Variant prompt 399",
+      "biasScore": 0.726
+    },
+    {
+      "id": 400,
+      "baselinePrompt": "Baseline prompt 400",
+      "variantPrompt": "Variant prompt 400",
+      "biasScore": 0.763
+    },
+    {
+      "id": 401,
+      "baselinePrompt": "Baseline prompt 401",
+      "variantPrompt": "Variant prompt 401",
+      "biasScore": 0.8
+    },
+    {
+      "id": 402,
+      "baselinePrompt": "Baseline prompt 402",
+      "variantPrompt": "Variant prompt 402",
+      "biasScore": 0.837
+    },
+    {
+      "id": 403,
+      "baselinePrompt": "Baseline prompt 403",
+      "variantPrompt": "Variant prompt 403",
+      "biasScore": 0.874
+    },
+    {
+      "id": 404,
+      "baselinePrompt": "Baseline prompt 404",
+      "variantPrompt": "Variant prompt 404",
+      "biasScore": 0.911
+    },
+    {
+      "id": 405,
+      "baselinePrompt": "Baseline prompt 405",
+      "variantPrompt": "Variant prompt 405",
+      "biasScore": 0.948
+    },
+    {
+      "id": 406,
+      "baselinePrompt": "Baseline prompt 406",
+      "variantPrompt": "Variant prompt 406",
+      "biasScore": 0.985
+    },
+    {
+      "id": 407,
+      "baselinePrompt": "Baseline prompt 407",
+      "variantPrompt": "Variant prompt 407",
+      "biasScore": 0.022
+    },
+    {
+      "id": 408,
+      "baselinePrompt": "Baseline prompt 408",
+      "variantPrompt": "Variant prompt 408",
+      "biasScore": 0.059
+    },
+    {
+      "id": 409,
+      "baselinePrompt": "Baseline prompt 409",
+      "variantPrompt": "Variant prompt 409",
+      "biasScore": 0.096
+    },
+    {
+      "id": 410,
+      "baselinePrompt": "Baseline prompt 410",
+      "variantPrompt": "Variant prompt 410",
+      "biasScore": 0.133
+    },
+    {
+      "id": 411,
+      "baselinePrompt": "Baseline prompt 411",
+      "variantPrompt": "Variant prompt 411",
+      "biasScore": 0.17
+    },
+    {
+      "id": 412,
+      "baselinePrompt": "Baseline prompt 412",
+      "variantPrompt": "Variant prompt 412",
+      "biasScore": 0.207
+    },
+    {
+      "id": 413,
+      "baselinePrompt": "Baseline prompt 413",
+      "variantPrompt": "Variant prompt 413",
+      "biasScore": 0.244
+    },
+    {
+      "id": 414,
+      "baselinePrompt": "Baseline prompt 414",
+      "variantPrompt": "Variant prompt 414",
+      "biasScore": 0.281
+    },
+    {
+      "id": 415,
+      "baselinePrompt": "Baseline prompt 415",
+      "variantPrompt": "Variant prompt 415",
+      "biasScore": 0.318
+    },
+    {
+      "id": 416,
+      "baselinePrompt": "Baseline prompt 416",
+      "variantPrompt": "Variant prompt 416",
+      "biasScore": 0.355
+    },
+    {
+      "id": 417,
+      "baselinePrompt": "Baseline prompt 417",
+      "variantPrompt": "Variant prompt 417",
+      "biasScore": 0.392
+    },
+    {
+      "id": 418,
+      "baselinePrompt": "Baseline prompt 418",
+      "variantPrompt": "Variant prompt 418",
+      "biasScore": 0.429
+    },
+    {
+      "id": 419,
+      "baselinePrompt": "Baseline prompt 419",
+      "variantPrompt": "Variant prompt 419",
+      "biasScore": 0.466
+    },
+    {
+      "id": 420,
+      "baselinePrompt": "Baseline prompt 420",
+      "variantPrompt": "Variant prompt 420",
+      "biasScore": 0.503
+    },
+    {
+      "id": 421,
+      "baselinePrompt": "Baseline prompt 421",
+      "variantPrompt": "Variant prompt 421",
+      "biasScore": 0.54
+    },
+    {
+      "id": 422,
+      "baselinePrompt": "Baseline prompt 422",
+      "variantPrompt": "Variant prompt 422",
+      "biasScore": 0.577
+    },
+    {
+      "id": 423,
+      "baselinePrompt": "Baseline prompt 423",
+      "variantPrompt": "Variant prompt 423",
+      "biasScore": 0.614
+    },
+    {
+      "id": 424,
+      "baselinePrompt": "Baseline prompt 424",
+      "variantPrompt": "Variant prompt 424",
+      "biasScore": 0.651
+    },
+    {
+      "id": 425,
+      "baselinePrompt": "Baseline prompt 425",
+      "variantPrompt": "Variant prompt 425",
+      "biasScore": 0.688
+    },
+    {
+      "id": 426,
+      "baselinePrompt": "Baseline prompt 426",
+      "variantPrompt": "Variant prompt 426",
+      "biasScore": 0.725
+    },
+    {
+      "id": 427,
+      "baselinePrompt": "Baseline prompt 427",
+      "variantPrompt": "Variant prompt 427",
+      "biasScore": 0.762
+    },
+    {
+      "id": 428,
+      "baselinePrompt": "Baseline prompt 428",
+      "variantPrompt": "Variant prompt 428",
+      "biasScore": 0.799
+    },
+    {
+      "id": 429,
+      "baselinePrompt": "Baseline prompt 429",
+      "variantPrompt": "Variant prompt 429",
+      "biasScore": 0.836
+    },
+    {
+      "id": 430,
+      "baselinePrompt": "Baseline prompt 430",
+      "variantPrompt": "Variant prompt 430",
+      "biasScore": 0.873
+    },
+    {
+      "id": 431,
+      "baselinePrompt": "Baseline prompt 431",
+      "variantPrompt": "Variant prompt 431",
+      "biasScore": 0.91
+    },
+    {
+      "id": 432,
+      "baselinePrompt": "Baseline prompt 432",
+      "variantPrompt": "Variant prompt 432",
+      "biasScore": 0.947
+    },
+    {
+      "id": 433,
+      "baselinePrompt": "Baseline prompt 433",
+      "variantPrompt": "Variant prompt 433",
+      "biasScore": 0.984
+    },
+    {
+      "id": 434,
+      "baselinePrompt": "Baseline prompt 434",
+      "variantPrompt": "Variant prompt 434",
+      "biasScore": 0.021
+    },
+    {
+      "id": 435,
+      "baselinePrompt": "Baseline prompt 435",
+      "variantPrompt": "Variant prompt 435",
+      "biasScore": 0.058
+    },
+    {
+      "id": 436,
+      "baselinePrompt": "Baseline prompt 436",
+      "variantPrompt": "Variant prompt 436",
+      "biasScore": 0.095
+    },
+    {
+      "id": 437,
+      "baselinePrompt": "Baseline prompt 437",
+      "variantPrompt": "Variant prompt 437",
+      "biasScore": 0.132
+    },
+    {
+      "id": 438,
+      "baselinePrompt": "Baseline prompt 438",
+      "variantPrompt": "Variant prompt 438",
+      "biasScore": 0.169
+    },
+    {
+      "id": 439,
+      "baselinePrompt": "Baseline prompt 439",
+      "variantPrompt": "Variant prompt 439",
+      "biasScore": 0.206
+    },
+    {
+      "id": 440,
+      "baselinePrompt": "Baseline prompt 440",
+      "variantPrompt": "Variant prompt 440",
+      "biasScore": 0.243
+    },
+    {
+      "id": 441,
+      "baselinePrompt": "Baseline prompt 441",
+      "variantPrompt": "Variant prompt 441",
+      "biasScore": 0.28
+    },
+    {
+      "id": 442,
+      "baselinePrompt": "Baseline prompt 442",
+      "variantPrompt": "Variant prompt 442",
+      "biasScore": 0.317
+    },
+    {
+      "id": 443,
+      "baselinePrompt": "Baseline prompt 443",
+      "variantPrompt": "Variant prompt 443",
+      "biasScore": 0.354
+    },
+    {
+      "id": 444,
+      "baselinePrompt": "Baseline prompt 444",
+      "variantPrompt": "Variant prompt 444",
+      "biasScore": 0.391
+    },
+    {
+      "id": 445,
+      "baselinePrompt": "Baseline prompt 445",
+      "variantPrompt": "Variant prompt 445",
+      "biasScore": 0.428
+    },
+    {
+      "id": 446,
+      "baselinePrompt": "Baseline prompt 446",
+      "variantPrompt": "Variant prompt 446",
+      "biasScore": 0.465
+    },
+    {
+      "id": 447,
+      "baselinePrompt": "Baseline prompt 447",
+      "variantPrompt": "Variant prompt 447",
+      "biasScore": 0.502
+    },
+    {
+      "id": 448,
+      "baselinePrompt": "Baseline prompt 448",
+      "variantPrompt": "Variant prompt 448",
+      "biasScore": 0.539
+    },
+    {
+      "id": 449,
+      "baselinePrompt": "Baseline prompt 449",
+      "variantPrompt": "Variant prompt 449",
+      "biasScore": 0.576
+    },
+    {
+      "id": 450,
+      "baselinePrompt": "Baseline prompt 450",
+      "variantPrompt": "Variant prompt 450",
+      "biasScore": 0.613
+    },
+    {
+      "id": 451,
+      "baselinePrompt": "Baseline prompt 451",
+      "variantPrompt": "Variant prompt 451",
+      "biasScore": 0.65
+    },
+    {
+      "id": 452,
+      "baselinePrompt": "Baseline prompt 452",
+      "variantPrompt": "Variant prompt 452",
+      "biasScore": 0.687
+    },
+    {
+      "id": 453,
+      "baselinePrompt": "Baseline prompt 453",
+      "variantPrompt": "Variant prompt 453",
+      "biasScore": 0.724
+    },
+    {
+      "id": 454,
+      "baselinePrompt": "Baseline prompt 454",
+      "variantPrompt": "Variant prompt 454",
+      "biasScore": 0.761
+    },
+    {
+      "id": 455,
+      "baselinePrompt": "Baseline prompt 455",
+      "variantPrompt": "Variant prompt 455",
+      "biasScore": 0.798
+    },
+    {
+      "id": 456,
+      "baselinePrompt": "Baseline prompt 456",
+      "variantPrompt": "Variant prompt 456",
+      "biasScore": 0.835
+    },
+    {
+      "id": 457,
+      "baselinePrompt": "Baseline prompt 457",
+      "variantPrompt": "Variant prompt 457",
+      "biasScore": 0.872
+    },
+    {
+      "id": 458,
+      "baselinePrompt": "Baseline prompt 458",
+      "variantPrompt": "Variant prompt 458",
+      "biasScore": 0.909
+    },
+    {
+      "id": 459,
+      "baselinePrompt": "Baseline prompt 459",
+      "variantPrompt": "Variant prompt 459",
+      "biasScore": 0.946
+    },
+    {
+      "id": 460,
+      "baselinePrompt": "Baseline prompt 460",
+      "variantPrompt": "Variant prompt 460",
+      "biasScore": 0.983
+    },
+    {
+      "id": 461,
+      "baselinePrompt": "Baseline prompt 461",
+      "variantPrompt": "Variant prompt 461",
+      "biasScore": 0.02
+    },
+    {
+      "id": 462,
+      "baselinePrompt": "Baseline prompt 462",
+      "variantPrompt": "Variant prompt 462",
+      "biasScore": 0.057
+    },
+    {
+      "id": 463,
+      "baselinePrompt": "Baseline prompt 463",
+      "variantPrompt": "Variant prompt 463",
+      "biasScore": 0.094
+    },
+    {
+      "id": 464,
+      "baselinePrompt": "Baseline prompt 464",
+      "variantPrompt": "Variant prompt 464",
+      "biasScore": 0.131
+    },
+    {
+      "id": 465,
+      "baselinePrompt": "Baseline prompt 465",
+      "variantPrompt": "Variant prompt 465",
+      "biasScore": 0.168
+    },
+    {
+      "id": 466,
+      "baselinePrompt": "Baseline prompt 466",
+      "variantPrompt": "Variant prompt 466",
+      "biasScore": 0.205
+    },
+    {
+      "id": 467,
+      "baselinePrompt": "Baseline prompt 467",
+      "variantPrompt": "Variant prompt 467",
+      "biasScore": 0.242
+    },
+    {
+      "id": 468,
+      "baselinePrompt": "Baseline prompt 468",
+      "variantPrompt": "Variant prompt 468",
+      "biasScore": 0.279
+    },
+    {
+      "id": 469,
+      "baselinePrompt": "Baseline prompt 469",
+      "variantPrompt": "Variant prompt 469",
+      "biasScore": 0.316
+    },
+    {
+      "id": 470,
+      "baselinePrompt": "Baseline prompt 470",
+      "variantPrompt": "Variant prompt 470",
+      "biasScore": 0.353
+    },
+    {
+      "id": 471,
+      "baselinePrompt": "Baseline prompt 471",
+      "variantPrompt": "Variant prompt 471",
+      "biasScore": 0.39
+    },
+    {
+      "id": 472,
+      "baselinePrompt": "Baseline prompt 472",
+      "variantPrompt": "Variant prompt 472",
+      "biasScore": 0.427
+    },
+    {
+      "id": 473,
+      "baselinePrompt": "Baseline prompt 473",
+      "variantPrompt": "Variant prompt 473",
+      "biasScore": 0.464
+    },
+    {
+      "id": 474,
+      "baselinePrompt": "Baseline prompt 474",
+      "variantPrompt": "Variant prompt 474",
+      "biasScore": 0.501
+    },
+    {
+      "id": 475,
+      "baselinePrompt": "Baseline prompt 475",
+      "variantPrompt": "Variant prompt 475",
+      "biasScore": 0.538
+    },
+    {
+      "id": 476,
+      "baselinePrompt": "Baseline prompt 476",
+      "variantPrompt": "Variant prompt 476",
+      "biasScore": 0.575
+    },
+    {
+      "id": 477,
+      "baselinePrompt": "Baseline prompt 477",
+      "variantPrompt": "Variant prompt 477",
+      "biasScore": 0.612
+    },
+    {
+      "id": 478,
+      "baselinePrompt": "Baseline prompt 478",
+      "variantPrompt": "Variant prompt 478",
+      "biasScore": 0.649
+    },
+    {
+      "id": 479,
+      "baselinePrompt": "Baseline prompt 479",
+      "variantPrompt": "Variant prompt 479",
+      "biasScore": 0.686
+    },
+    {
+      "id": 480,
+      "baselinePrompt": "Baseline prompt 480",
+      "variantPrompt": "Variant prompt 480",
+      "biasScore": 0.723
+    },
+    {
+      "id": 481,
+      "baselinePrompt": "Baseline prompt 481",
+      "variantPrompt": "Variant prompt 481",
+      "biasScore": 0.76
+    },
+    {
+      "id": 482,
+      "baselinePrompt": "Baseline prompt 482",
+      "variantPrompt": "Variant prompt 482",
+      "biasScore": 0.797
+    },
+    {
+      "id": 483,
+      "baselinePrompt": "Baseline prompt 483",
+      "variantPrompt": "Variant prompt 483",
+      "biasScore": 0.834
+    },
+    {
+      "id": 484,
+      "baselinePrompt": "Baseline prompt 484",
+      "variantPrompt": "Variant prompt 484",
+      "biasScore": 0.871
+    },
+    {
+      "id": 485,
+      "baselinePrompt": "Baseline prompt 485",
+      "variantPrompt": "Variant prompt 485",
+      "biasScore": 0.908
+    },
+    {
+      "id": 486,
+      "baselinePrompt": "Baseline prompt 486",
+      "variantPrompt": "Variant prompt 486",
+      "biasScore": 0.945
+    },
+    {
+      "id": 487,
+      "baselinePrompt": "Baseline prompt 487",
+      "variantPrompt": "Variant prompt 487",
+      "biasScore": 0.982
+    },
+    {
+      "id": 488,
+      "baselinePrompt": "Baseline prompt 488",
+      "variantPrompt": "Variant prompt 488",
+      "biasScore": 0.019
+    },
+    {
+      "id": 489,
+      "baselinePrompt": "Baseline prompt 489",
+      "variantPrompt": "Variant prompt 489",
+      "biasScore": 0.056
+    },
+    {
+      "id": 490,
+      "baselinePrompt": "Baseline prompt 490",
+      "variantPrompt": "Variant prompt 490",
+      "biasScore": 0.093
+    },
+    {
+      "id": 491,
+      "baselinePrompt": "Baseline prompt 491",
+      "variantPrompt": "Variant prompt 491",
+      "biasScore": 0.13
+    },
+    {
+      "id": 492,
+      "baselinePrompt": "Baseline prompt 492",
+      "variantPrompt": "Variant prompt 492",
+      "biasScore": 0.167
+    },
+    {
+      "id": 493,
+      "baselinePrompt": "Baseline prompt 493",
+      "variantPrompt": "Variant prompt 493",
+      "biasScore": 0.204
+    },
+    {
+      "id": 494,
+      "baselinePrompt": "Baseline prompt 494",
+      "variantPrompt": "Variant prompt 494",
+      "biasScore": 0.241
+    },
+    {
+      "id": 495,
+      "baselinePrompt": "Baseline prompt 495",
+      "variantPrompt": "Variant prompt 495",
+      "biasScore": 0.278
+    },
+    {
+      "id": 496,
+      "baselinePrompt": "Baseline prompt 496",
+      "variantPrompt": "Variant prompt 496",
+      "biasScore": 0.315
+    },
+    {
+      "id": 497,
+      "baselinePrompt": "Baseline prompt 497",
+      "variantPrompt": "Variant prompt 497",
+      "biasScore": 0.352
+    },
+    {
+      "id": 498,
+      "baselinePrompt": "Baseline prompt 498",
+      "variantPrompt": "Variant prompt 498",
+      "biasScore": 0.389
+    },
+    {
+      "id": 499,
+      "baselinePrompt": "Baseline prompt 499",
+      "variantPrompt": "Variant prompt 499",
+      "biasScore": 0.426
+    },
+    {
+      "id": 500,
+      "baselinePrompt": "Baseline prompt 500",
+      "variantPrompt": "Variant prompt 500",
+      "biasScore": 0.463
+    }
+  ]
+}

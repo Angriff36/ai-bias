@@ -14,6 +14,15 @@ export function ReadOnlyBadge() {
   )
 }
 
+/** Persistent text label; color is supplemental rather than the only cue. */
+export function SyntheticSampleBadge() {
+  return (
+    <span className="badge synthetic" aria-label="SYNTHETIC SAMPLE DATA">
+      SYNTHETIC SAMPLE DATA
+    </span>
+  )
+}
+
 /** Color + icon pairs; never color alone (WCAG 1.4.1). */
 const STATUS_STYLES: Record<string, { icon: string; className: string; label: string }> = {
   draft: { icon: '○', className: 'status-draft', label: 'Draft' },

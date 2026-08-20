@@ -11,7 +11,7 @@ import { listReports, listTargets, type ReportRow, type TargetRow } from './serv
 import { AuthProvider, useAuth } from './auth/AuthContext'
 import { LoginPage } from './auth/LoginPage'
 import { EmptyState, SkeletonRows } from './components/EmptyState'
-import { HashBadge, ReadOnlyBadge } from './components/StatusBadge'
+import { HashBadge, ReadOnlyBadge, SyntheticSampleBadge } from './components/StatusBadge'
 import { ExperimentHistoryList } from './components/ExperimentHistoryList'
 import { ExperimentEditor } from './components/ExperimentEditor'
 
@@ -229,7 +229,7 @@ function TargetsList() {
       <thead><tr><th scope="col">Name</th><th scope="col">Model</th></tr></thead>
       <tbody>
         {rows.map((r) => (
-          <tr key={r.id}><td>{r.name}</td><td><code>{r.model_id}</code></td></tr>
+          <tr key={r.id}><td>{r.name} {r.is_synthetic && <SyntheticSampleBadge />}</td><td><code>{r.model_id}</code></td></tr>
         ))}
       </tbody>
     </table>

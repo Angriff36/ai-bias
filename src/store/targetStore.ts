@@ -4,13 +4,20 @@
  */
 import type { ProviderId } from '../adapters/types'
 
+export type TargetAuthMode = 'subscription' | 'api-key'
+
 export interface TargetConfig {
   id: string
   name: string
   provider: ProviderId
   modelId: string
+  authMode?: TargetAuthMode
   endpointUrl?: string
   headers?: Record<string, string>
+}
+
+export function targetAuthMode(target: TargetConfig): TargetAuthMode {
+  return target.authMode ?? 'api-key'
 }
 
 const STORAGE_KEY = '__plab_targets__'

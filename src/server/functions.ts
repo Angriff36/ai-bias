@@ -50,6 +50,12 @@ const SORT_COLUMNS: Record<ExperimentSortField, string> = {
 }
 export interface TargetRow { id: number; name: string; model_id: string }
 export interface ReportRow { id: number; title: string; hash_verified: boolean }
+export interface NewExperimentInput {
+  name: string
+  description: string
+  prompt: string
+  phrases: { text: string; axis: string }[]
+}
 
 const SESSION_TTL_HOURS = 24
 
@@ -157,6 +163,44 @@ export function deleteExperiment(token: string | null, id: number): void {
   if (!owned[0]) throw new ServerError(404, 'Not found')
   db.run('DELETE FROM experiments WHERE id = ? AND created_by = ?', [id, userId])
   persist()
+}
+
+/** Creates a draft experiment and its prompt variables for the signed-in user. */
+export function createExperiment(token: string | null, input: NewExperimentInput): number {
+  const userId = requireUser(token)
+  const db = getDb()
+  let targetId = db.exec(
+    'SELECT id FROM targets WHERE created_by = ? ORDER BY id LIMIT 1',
+    [userId],
+  )[0]?.values[0]?.[0]
+  if (targetId == null) {
+    db.run(
+      'INSERT INTO targets (name, model_id, created_by) VALUES (?, ?, ?)',
+      [`Unassigned (${userId})`, 'unassigned', userId],
+    )
+    targetId = db.exec('SELECT last_insert_rowid()')[0].values[0][0]
+  }
+
+  db.run(
+    'INSERT INTO experiments (name, hypothesis, status, target_id, created_by) VALUES (?, ?, ?, ?, ?)',
+    [input.name, input.description || null, 'draft', Number(targetId), userId],
+  )
+  const experimentId = Number(db.exec('SELECT last_insert_rowid()')[0].values[0][0])
+  db.run('INSERT INTO templates (experiment_id, name, body) VALUES (?, ?, ?)', [
+    experimentId,
+    'Prompt',
+    input.prompt,
+  ])
+  const templateId = Number(db.exec('SELECT last_insert_rowid()')[0].values[0][0])
+  for (const phrase of input.phrases) {
+    db.run('INSERT OR IGNORE INTO variables (template_id, name, kind) VALUES (?, ?, ?)', [
+      templateId,
+      `${phrase.axis}: ${phrase.text}`,
+      'categorical',
+    ])
+  }
+  persist()
+  return experimentId
 }
 
 export function listTargets(token: string | null): TargetRow[] {

@@ -2,6 +2,7 @@ import type { AriaAttributes } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ServerError,
+  createExperiment,
   deleteExperiment,
   listExperiments,
   type ExperimentRow,
@@ -14,6 +15,7 @@ import { ConfirmDeleteDialog } from './ConfirmDeleteDialog'
 import { EmptyState, SkeletonRows } from './EmptyState'
 import { NotFoundPage } from './NotFoundPage'
 import { AsymmetryBadge, StatusBadge } from './StatusBadge'
+import { NewBiasTestWizard, type WizardResult } from '../wizard/NewBiasTestWizard'
 
 const PAGE_SIZES = [10, 20, 50]
 const DEFAULT_PAGE_SIZE = 20
@@ -77,6 +79,8 @@ export function ExperimentHistoryList() {
   const [deleting, setDeleting] = useState<ExperimentRow | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notFound, setNotFound] = useState(false)
+  const [wizardOpen, setWizardOpen] = useState(false)
+  const [createdId, setCreatedId] = useState<number | null>(null)
   const listTopRef = useRef<HTMLDivElement>(null)
   const firstRowRef = useRef<HTMLTableRowElement>(null)
 
@@ -189,13 +193,42 @@ export function ExperimentHistoryList() {
     return <NotFoundPage onBack={() => { setNotFound(false); load() }} />
   }
 
+  const createFromWizard = async (result: WizardResult): Promise<number> =>
+    call((token) => createExperiment(token, result))
+
+  const isDuplicateName = (name: string): boolean =>
+    (data?.rows ?? []).some((row) => row.name.toLowerCase() === name.toLowerCase())
+
+  if (wizardOpen) {
+    return (
+      <NewBiasTestWizard
+        onCreate={createFromWizard}
+        isDuplicateName={isDuplicateName}
+        onClose={() => setWizardOpen(false)}
+        onCreated={(id) => {
+          setCreatedId(id)
+          setWizardOpen(false)
+          load()
+        }}
+      />
+    )
+  }
+
   const loading = data === null || showSkeleton
   const hasAny = data !== null && data.total > 0
   const noResults = data !== null && data.total === 0
 
   return (
     <div className="experiment-history" ref={listTopRef}>
+      {createdId !== null && (
+        <div className="banner success" role="status">Experiment created (#{createdId}).</div>
+      )}
       {error && <div className="banner error" role="alert">{error}</div>}
+
+      <div className="wz-row-between">
+        <span />
+        <button className="primary" onClick={() => setWizardOpen(true)}>New Bias Test</button>
+      </div>
 
       <div className="filter-row">
         <FilterMultiSelect
@@ -249,8 +282,9 @@ export function ExperimentHistoryList() {
         </table>
       ) : !hasAny && !filtersActive ? (
         <EmptyState
-          message="No experiments yet — run the two-minute wizard to create your first bias test"
-          actionLabel="New Experiment"
+          message="No experiments yet — start with the New Bias Test wizard"
+          actionLabel="New Bias Test"
+          onAction={() => setWizardOpen(true)}
         />
       ) : noResults ? (
         <EmptyState message="No experiments match these filters" actionLabel="Clear filters" onAction={clearFilters} />

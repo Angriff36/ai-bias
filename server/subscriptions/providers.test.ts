@@ -32,6 +32,31 @@ describe('SubscriptionProviderRegistry status', () => {
       expect.objectContaining({ provider: 'gemini', installed: false, authenticated: false, authMethod: 'none' }),
     ])
   })
+
+  it('recognizes Claude Max login while rejecting Claude API-key auth', async () => {
+    const maxRunner = new FakeRunner(({ args }) => args[0] === '--version'
+      ? ok('2.1.237 (Claude Code)')
+      : ok('{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty","subscriptionType":"max"}'))
+    const apiKeyRunner = new FakeRunner(({ args }) => args[0] === '--version'
+      ? ok('2.1.237 (Claude Code)')
+      : ok('{"loggedIn":true,"authMethod":"api_key","apiProvider":"firstParty"}'))
+
+    await expect(new SubscriptionProviderRegistry(maxRunner, { PATH: 'bin' }).statusFor('claude'))
+      .resolves.toMatchObject({ authenticated: true, authMethod: 'oauth' })
+    await expect(new SubscriptionProviderRegistry(apiKeyRunner, { PATH: 'bin' }).statusFor('claude'))
+      .resolves.toMatchObject({ authenticated: false, authMethod: 'none' })
+  })
+
+  it('treats a CLI with a failed version check as unavailable', async () => {
+    const runner = new FakeRunner(() => ({ exitCode: 1, stdout: '', stderr: 'not recognized' }))
+    const registry = new SubscriptionProviderRegistry(runner, { PATH: 'bin' })
+
+    await expect(registry.status()).resolves.toEqual([
+      expect.objectContaining({ provider: 'claude', installed: false }),
+      expect.objectContaining({ provider: 'codex', installed: false }),
+      expect.objectContaining({ provider: 'gemini', installed: false }),
+    ])
+  })
 })
 
 describe('SubscriptionProviderRegistry calls', () => {

@@ -8,6 +8,7 @@ export interface ProcessRunOptions {
   env: NodeJS.ProcessEnv
   timeoutMs: number
   signal?: AbortSignal
+  allowWindowsCommandShim?: boolean
 }
 
 export interface ProcessRunResult {

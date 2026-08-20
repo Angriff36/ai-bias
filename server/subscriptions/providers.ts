@@ -60,8 +60,9 @@ export class SubscriptionProviderRegistry {
       args: ['--version'],
       env,
       timeoutMs: 5_000,
+      allowWindowsCommandShim: true,
     })
-    if (version.launchErrorCode === 'ENOENT') {
+    if (version.launchErrorCode || version.exitCode !== 0) {
       return this.baseStatus(provider, false, false)
     }
 
@@ -72,6 +73,7 @@ export class SubscriptionProviderRegistry {
         args: ['auth', 'status', '--json'],
         env,
         timeoutMs: 5_000,
+        allowWindowsCommandShim: true,
       })
       authenticated = parseClaudeAuth(auth)
     } else if (provider === 'codex') {
@@ -80,6 +82,7 @@ export class SubscriptionProviderRegistry {
         args: ['login', 'status'],
         env,
         timeoutMs: 5_000,
+        allowWindowsCommandShim: true,
       })
       authenticated = auth.exitCode === 0 && /logged in using chatgpt/i.test(`${auth.stdout}\n${auth.stderr}`)
     } else {
@@ -104,6 +107,7 @@ export class SubscriptionProviderRegistry {
       env: sanitizeSubscriptionEnv(provider, this.sourceEnv),
       timeoutMs: 5 * 60_000,
       signal,
+      allowWindowsCommandShim: true,
     })
     if (result.launchErrorCode === 'ENOENT') throw safeError(503, `${meta.label} CLI is not installed.`)
     if (result.exitCode !== 0) throw safeError(401, `${meta.label} subscription sign-in did not complete.`)
@@ -145,6 +149,7 @@ export class SubscriptionProviderRegistry {
         env,
         timeoutMs: 120_000,
         signal,
+        allowWindowsCommandShim: true,
       }
     }
     if (input.provider === 'codex') {
@@ -158,6 +163,7 @@ export class SubscriptionProviderRegistry {
         env,
         timeoutMs: 120_000,
         signal,
+        allowWindowsCommandShim: true,
       }
     }
     return {
@@ -167,6 +173,7 @@ export class SubscriptionProviderRegistry {
       env: { ...env, GEMINI_TELEMETRY_ENABLED: 'false' },
       timeoutMs: 120_000,
       signal,
+      allowWindowsCommandShim: true,
     }
   }
 
@@ -203,7 +210,9 @@ function parseClaudeAuth(result: ProcessRunResult): boolean {
   if (result.exitCode !== 0) return false
   try {
     const parsed = JSON.parse(result.stdout) as { loggedIn?: unknown; authMethod?: unknown; apiProvider?: unknown }
-    return parsed.loggedIn === true && parsed.authMethod === 'oauth_token' && parsed.apiProvider === 'firstParty'
+    return parsed.loggedIn === true &&
+      (parsed.authMethod === 'oauth_token' || parsed.authMethod === 'claude.ai') &&
+      parsed.apiProvider === 'firstParty'
   } catch {
     return false
   }

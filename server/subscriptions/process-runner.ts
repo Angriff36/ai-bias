@@ -1,4 +1,6 @@
 import { spawn } from 'node:child_process'
+import { existsSync } from 'node:fs'
+import path from 'node:path'
 import type { ProcessRunOptions, ProcessRunResult, ProcessRunner } from './types'
 
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024
@@ -14,13 +16,24 @@ export class NodeProcessRunner implements ProcessRunner {
       let timedOut = false
       let outputLimitExceeded = false
 
-      const child = spawn(options.command, options.args, {
-        cwd: options.cwd,
-        env: options.env,
-        shell: false,
-        windowsHide: true,
-        stdio: ['pipe', 'pipe', 'pipe'],
-      })
+      const spawnSpec = resolveSpawnSpec(options)
+      let child
+      try {
+        child = spawn(spawnSpec.command, spawnSpec.args, {
+          cwd: options.cwd,
+          env: options.env,
+          shell: false,
+          windowsHide: true,
+          windowsVerbatimArguments: spawnSpec.windowsVerbatimArguments,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        })
+      } catch (error) {
+        const code = error instanceof Error && 'code' in error
+          ? String((error as NodeJS.ErrnoException).code ?? 'UNKNOWN')
+          : 'UNKNOWN'
+        resolve({ exitCode: null, stdout, stderr, launchErrorCode: code })
+        return
+      }
 
       const finishResolve = (result: ProcessRunResult) => {
         if (settled) return
@@ -78,6 +91,44 @@ export class NodeProcessRunner implements ProcessRunner {
       else child.stdin.end()
     })
   }
+}
+
+function resolveSpawnSpec(options: ProcessRunOptions): {
+  command: string
+  args: string[]
+  windowsVerbatimArguments?: boolean
+} {
+  if (process.platform !== 'win32' || !options.allowWindowsCommandShim) {
+    return { command: options.command, args: options.args }
+  }
+
+  const pathValue = options.env.PATH ?? options.env.Path ?? ''
+  for (const directory of pathValue.split(path.delimiter).filter(Boolean)) {
+    for (const extension of ['.exe', '.com', '.cmd', '.bat']) {
+      const candidate = path.join(directory, `${options.command}${extension}`)
+      if (!existsSync(candidate)) continue
+      if (extension === '.cmd' || extension === '.bat') {
+        const commandLine = [quoteCmdPath(candidate), ...options.args.map(quoteCmdArgument)].join(' ')
+        return {
+          command: options.env.ComSpec ?? options.env.COMSPEC ?? 'cmd.exe',
+          args: ['/d', '/s', '/c', commandLine],
+          windowsVerbatimArguments: true,
+        }
+      }
+      return { command: candidate, args: options.args }
+    }
+  }
+  return { command: options.command, args: options.args }
+}
+
+function quoteCmdPath(value: string): string {
+  return `"${value.replace(/"/g, '""')}"`
+}
+
+function quoteCmdArgument(value: string): string {
+  if (value === '') return '""'
+  if (/^[A-Za-z0-9_./:@=+-]+$/.test(value)) return value
+  throw new Error('Unsafe Windows command argument.')
 }
 
 function abortError(): DOMException {

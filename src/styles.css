@@ -122,6 +122,7 @@ dialog.confirm input {
 @keyframes badge-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
 @media (prefers-reduced-motion: reduce) {
   .badge.status.status-running { animation: none; }
+  .chip, .search-clear { animation: none; }
 }
 
 .badge.asym.asym-none { color: var(--muted); }
@@ -130,8 +131,28 @@ dialog.confirm input {
 .badge.asym.asym-high { color: var(--danger); border-color: var(--danger); }
 .badge.asym.asym-inconclusive { color: var(--muted); border-style: dashed; }
 
-.filter-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+.search-bar { position: relative; max-width: 480px; margin-bottom: 12px; }
+.search-input {
+  width: 100%; box-sizing: border-box; background: var(--panel); border: 1px solid var(--border);
+  color: var(--text); border-radius: 6px; padding: 0 40px 0 12px; min-height: 44px; font-size: 14px;
+}
+.search-clear {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  background: none; border: none; color: var(--muted); cursor: pointer;
+  min-width: 32px; min-height: 32px; border-radius: 6px; font-size: 14px;
+  animation: chip-in 150ms ease;
+}
+.search-clear:hover { color: var(--text); }
+@media (max-width: 640px) { .search-bar { max-width: none; } }
+
+.filter-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; border: none; padding: 0; }
+.filter-row legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 .filter-row .link { background: none; border: none; color: var(--accent); cursor: pointer; font-size: 13px; padding: 6px; min-height: 44px; }
+.date-field { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+.date-field input {
+  background: var(--panel); border: 1px solid var(--border); color: var(--text);
+  border-radius: 6px; padding: 8px 10px; min-height: 44px; font-size: 14px;
+}
 
 .multiselect { position: relative; }
 .multiselect > button {

@@ -54,6 +54,14 @@ export interface ListExperimentsOptions {
   dir: SortDir
   statuses: string[]
   asymmetryLevels: string[]
+  /** Free-text search over experiment name, hypothesis, and template (prompt) body. */
+  search?: string
+  /** Filter to these AI target ids. Empty/omitted = all targets. */
+  targetIds?: number[]
+  /** Inclusive ISO date (YYYY-MM-DD) lower bound on created_at. */
+  dateFrom?: string
+  /** Inclusive ISO date (YYYY-MM-DD) upper bound on created_at. */
+  dateTo?: string
 }
 
 const SORT_COLUMNS: Record<ExperimentSortField, string> = {
@@ -142,6 +150,27 @@ export function listExperiments(token: string | null, opts: ListExperimentsOptio
   if (opts.asymmetryLevels.length > 0) {
     where.push(`asymmetry_level IN (${opts.asymmetryLevels.map(() => '?').join(',')})`)
     params.push(...opts.asymmetryLevels)
+  }
+  if (opts.targetIds && opts.targetIds.length > 0) {
+    where.push(`target_id IN (${opts.targetIds.map(() => '?').join(',')})`)
+    params.push(...opts.targetIds)
+  }
+  if (opts.dateFrom) {
+    where.push('date(created_at) >= date(?)')
+    params.push(opts.dateFrom)
+  }
+  if (opts.dateTo) {
+    where.push('date(created_at) <= date(?)')
+    params.push(opts.dateTo)
+  }
+  const search = opts.search?.trim()
+  if (search) {
+    // Match name/hypothesis directly or the prompt body of any child template.
+    const like = `%${search}%`
+    where.push(
+      `(name LIKE ? OR hypothesis LIKE ? OR id IN (SELECT experiment_id FROM templates WHERE body LIKE ?))`,
+    )
+    params.push(like, like, like)
   }
   const whereSql = where.join(' AND ')
   const col = SORT_COLUMNS[opts.sort]

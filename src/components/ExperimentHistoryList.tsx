@@ -5,9 +5,11 @@ import {
   createExperiment,
   deleteExperiment,
   listExperiments,
+  listTargets,
   type ExperimentRow,
   type ExperimentSortField,
   type SortDir,
+  type TargetRow,
 } from '../server/functions'
 import { cascadeCounts, friendlyConstraintError } from '../db/database'
 import { useAuth } from '../auth/AuthContext'
@@ -27,21 +29,33 @@ const STATUS_OPTIONS = ['draft', 'running', 'complete', 'failed', 'paused']
 const ASYMMETRY_OPTIONS = ['none', 'low', 'moderate', 'high', 'inconclusive']
 /** Filters are debounced; the fetch itself is sync (sql.js), so this only delays the query. */
 const FILTER_DEBOUNCE_MS = 200
+/** Search text is debounced longer than filters to limit query frequency while typing. */
+const SEARCH_DEBOUNCE_MS = 300
 /** Do not flash the skeleton when data resolves this fast. */
 const MIN_SKELETON_MS = 300
+/** Matches YYYY-MM-DD so garbage in the URL cannot reach the query. */
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
-function readParams(): {
+interface QueryState {
   sort: ExperimentSortField
   dir: SortDir
   page: number
   pageSize: number
   statuses: string[]
   levels: string[]
-} {
+  targetIds: number[]
+  search: string
+  dateFrom: string
+  dateTo: string
+}
+
+function readParams(): QueryState {
   const p = new URLSearchParams(window.location.search)
   const sort = p.get('sort') === 'created_at' ? 'created_at' : 'last_run_at'
   const dir = p.get('dir') === 'asc' ? 'asc' : 'desc'
   const pageSize = Number(p.get('pageSize'))
+  const from = p.get('from') ?? ''
+  const to = p.get('to') ?? ''
   return {
     sort,
     dir,
@@ -49,10 +63,14 @@ function readParams(): {
     pageSize: PAGE_SIZES.includes(pageSize) ? pageSize : DEFAULT_PAGE_SIZE,
     statuses: (p.get('status') ?? '').split(',').filter((s) => STATUS_OPTIONS.includes(s)),
     levels: (p.get('asymmetry') ?? '').split(',').filter((s) => ASYMMETRY_OPTIONS.includes(s)),
+    targetIds: (p.get('target') ?? '').split(',').map(Number).filter((n) => Number.isInteger(n) && n > 0),
+    search: p.get('q') ?? '',
+    dateFrom: ISO_DATE.test(from) ? from : '',
+    dateTo: ISO_DATE.test(to) ? to : '',
   }
 }
 
-function writeParams(state: ReturnType<typeof readParams>) {
+function writeParams(state: QueryState) {
   const p = new URLSearchParams()
   p.set('sort', state.sort)
   p.set('dir', state.dir)
@@ -60,6 +78,10 @@ function writeParams(state: ReturnType<typeof readParams>) {
   p.set('pageSize', String(state.pageSize))
   if (state.statuses.length) p.set('status', state.statuses.join(','))
   if (state.levels.length) p.set('asymmetry', state.levels.join(','))
+  if (state.targetIds.length) p.set('target', state.targetIds.join(','))
+  if (state.search.trim()) p.set('q', state.search.trim())
+  if (state.dateFrom) p.set('from', state.dateFrom)
+  if (state.dateTo) p.set('to', state.dateTo)
   const qs = p.toString()
   // Query string must precede the hash fragment to stay on the same route.
   window.history.replaceState(null, '', `${window.location.pathname}${qs ? `?${qs}` : ''}${window.location.hash}`)
@@ -78,6 +100,8 @@ export function ExperimentHistoryList() {
   const { call } = useAuth()
   const [query, setQuery] = useState(readParams)
   const [debounced, setDebounced] = useState(query)
+  const [searchInput, setSearchInput] = useState(query.search)
+  const [targets, setTargets] = useState<TargetRow[]>([])
   const [data, setData] = useState<{ rows: ExperimentRow[]; total: number } | null>(null)
   const [showSkeleton, setShowSkeleton] = useState(true)
   const [deleting, setDeleting] = useState<ExperimentRow | null>(null)
@@ -92,6 +116,37 @@ export function ExperimentHistoryList() {
 >>>>>>> feature/experiment-duplication-627186e7
   const listTopRef = useRef<HTMLDivElement>(null)
   const firstRowRef = useRef<HTMLTableRowElement>(null)
+  const searchRef = useRef<HTMLInputElement>(null)
+
+  // Load target options for the Target filter (scoped to the user's targets).
+  useEffect(() => {
+    try {
+      setTargets(call(listTargets))
+    } catch {
+      // 401 already triggered the login redirect
+    }
+  }, [call])
+
+  // Debounce the search text (300ms) before it enters the query state.
+  useEffect(() => {
+    const t = setTimeout(
+      () => setQuery((q) => (q.search === searchInput ? q : { ...q, search: searchInput, page: 1 })),
+      SEARCH_DEBOUNCE_MS,
+    )
+    return () => clearTimeout(t)
+  }, [searchInput])
+
+  // Cmd/Ctrl+K focuses the search bar from anywhere on the page.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        searchRef.current?.focus()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   // Debounce filter/sort/page changes before querying.
   useEffect(() => {
@@ -116,6 +171,10 @@ export function ExperimentHistoryList() {
           dir: debounced.dir,
           statuses: debounced.statuses,
           asymmetryLevels: debounced.levels,
+          targetIds: debounced.targetIds,
+          search: debounced.search,
+          dateFrom: debounced.dateFrom,
+          dateTo: debounced.dateTo,
         }),
       )
     } catch {
@@ -138,7 +197,14 @@ export function ExperimentHistoryList() {
   const page = Math.min(debounced.page, totalPages)
   const from = data && data.total > 0 ? (page - 1) * debounced.pageSize + 1 : 0
   const to = data ? Math.min(page * debounced.pageSize, data.total) : 0
-  const filtersActive = query.statuses.length > 0 || query.levels.length > 0
+  const filtersActive =
+    query.statuses.length > 0 ||
+    query.levels.length > 0 ||
+    query.targetIds.length > 0 ||
+    query.search.trim().length > 0 ||
+    query.dateFrom !== '' ||
+    query.dateTo !== ''
+  const targetName = (id: number) => targets.find((t) => t.id === id)?.name ?? `Target ${id}`
 
   const setSort = (field: ExperimentSortField) => {
     setQuery((q) => ({
@@ -160,7 +226,42 @@ export function ExperimentHistoryList() {
     })
   }
 
-  const clearFilters = () => setQuery((q) => ({ ...q, statuses: [], levels: [], page: 1 }))
+  const clearFilters = () => {
+    setSearchInput('')
+    setQuery((q) => ({
+      ...q,
+      statuses: [],
+      levels: [],
+      targetIds: [],
+      search: '',
+      dateFrom: '',
+      dateTo: '',
+      page: 1,
+    }))
+    // Focus returns to the search bar after clearing all filters.
+    requestAnimationFrame(() => searchRef.current?.focus())
+  }
+
+  const toggleTarget = (id: number) =>
+    setQuery((q) => ({
+      ...q,
+      page: 1,
+      targetIds: q.targetIds.includes(id)
+        ? q.targetIds.filter((t) => t !== id)
+        : [...q.targetIds, id],
+    }))
+
+  // Scroll the list back to the top whenever search or filters change.
+  useEffect(() => {
+    listTopRef.current?.scrollIntoView({ block: 'start' })
+  }, [
+    debounced.search,
+    debounced.statuses,
+    debounced.levels,
+    debounced.targetIds,
+    debounced.dateFrom,
+    debounced.dateTo,
+  ])
 
   const goToPage = (p: number) => {
     setQuery((q) => ({ ...q, page: Math.min(Math.max(1, p), totalPages) }))
@@ -245,7 +346,30 @@ export function ExperimentHistoryList() {
         <button className="primary" onClick={() => setWizardOpen(true)}>New Bias Test</button>
       </div>
 
-      <div className="filter-row">
+      <div className="search-bar">
+        <input
+          ref={searchRef}
+          type="search"
+          role="searchbox"
+          aria-label="Search experiments"
+          className="search-input"
+          placeholder="Search experiments by name or prompt text… (Ctrl+K)"
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+        />
+        {searchInput && (
+          <button
+            className="search-clear"
+            aria-label="Clear search"
+            onClick={() => { setSearchInput(''); searchRef.current?.focus() }}
+          >
+            ✕
+          </button>
+        )}
+      </div>
+
+      <fieldset className="filter-row">
+        <legend>Filters</legend>
         <FilterMultiSelect
           label="Status"
           options={STATUS_OPTIONS}
@@ -258,30 +382,77 @@ export function ExperimentHistoryList() {
           selected={query.levels}
           onToggle={(v) => toggleFilter('levels', v)}
         />
+        {targets.length > 0 && (
+          <FilterMultiSelect
+            label="Target"
+            options={targets.map((t) => String(t.id))}
+            selected={query.targetIds.map(String)}
+            onToggle={(v) => toggleTarget(Number(v))}
+            labelFor={(v) => targetName(Number(v))}
+          />
+        )}
+        <label className="date-field">
+          <span>From</span>
+          <input
+            type="date"
+            value={query.dateFrom}
+            max={query.dateTo || undefined}
+            onChange={(e) => setQuery((q) => ({ ...q, dateFrom: e.target.value, page: 1 }))}
+          />
+        </label>
+        <label className="date-field">
+          <span>To</span>
+          <input
+            type="date"
+            value={query.dateTo}
+            min={query.dateFrom || undefined}
+            onChange={(e) => setQuery((q) => ({ ...q, dateTo: e.target.value, page: 1 }))}
+          />
+        </label>
         {filtersActive && (
           <button className="link" onClick={clearFilters}>Clear all filters</button>
         )}
-      </div>
+      </fieldset>
 
-      {(query.statuses.length > 0 || query.levels.length > 0) && (
+      {filtersActive && (
         <div className="filter-chips">
+          {query.search.trim() && (
+            <button className="chip" onClick={() => { setSearchInput(''); setQuery((q) => ({ ...q, search: '', page: 1 })) }} aria-label={`Remove filter: search = ${query.search.trim()}`}>
+              Search: {query.search.trim()} ✕
+            </button>
+          )}
           {query.statuses.map((s) => (
-            <button key={`s-${s}`} className="chip" onClick={() => toggleFilter('statuses', s)} aria-label={`Remove filter Status ${s}`}>
+            <button key={`s-${s}`} className="chip" onClick={() => toggleFilter('statuses', s)} aria-label={`Remove filter: run status = ${s}`}>
               Status: {s} ✕
             </button>
           ))}
           {query.levels.map((l) => (
-            <button key={`l-${l}`} className="chip" onClick={() => toggleFilter('levels', l)} aria-label={`Remove filter Asymmetry ${l}`}>
+            <button key={`l-${l}`} className="chip" onClick={() => toggleFilter('levels', l)} aria-label={`Remove filter: asymmetry level = ${l}`}>
               Asymmetry: {l} ✕
             </button>
           ))}
+          {query.targetIds.map((id) => (
+            <button key={`t-${id}`} className="chip" onClick={() => toggleTarget(id)} aria-label={`Remove filter: target = ${targetName(id)}`}>
+              Target: {targetName(id)} ✕
+            </button>
+          ))}
+          {query.dateFrom && (
+            <button className="chip" onClick={() => setQuery((q) => ({ ...q, dateFrom: '', page: 1 }))} aria-label={`Remove filter: date from = ${query.dateFrom}`}>
+              From: {query.dateFrom} ✕
+            </button>
+          )}
+          {query.dateTo && (
+            <button className="chip" onClick={() => setQuery((q) => ({ ...q, dateTo: '', page: 1 }))} aria-label={`Remove filter: date to = ${query.dateTo}`}>
+              To: {query.dateTo} ✕
+            </button>
+          )}
         </div>
       )}
 
       <p className="result-count" aria-live="polite" role="status">
         {data === null
           ? 'Loading experiments…'
-          : `Showing ${from}–${to} of ${data.total} experiments`}
+          : `${data.total} experiment${data.total === 1 ? '' : 's'} found${data.total > 0 ? ` (showing ${from}–${to})` : ''}`}
       </p>
 
       {loading ? (
@@ -415,11 +586,12 @@ function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
   )
 }
 
-function FilterMultiSelect({ label, options, selected, onToggle }: {
+function FilterMultiSelect({ label, options, selected, onToggle, labelFor }: {
   label: string
   options: string[]
   selected: string[]
   onToggle: (value: string) => void
+  labelFor?: (value: string) => string
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -452,7 +624,7 @@ function FilterMultiSelect({ label, options, selected, onToggle }: {
                   checked={selected.includes(o)}
                   onChange={() => onToggle(o)}
                 />
-                {o}
+                {labelFor ? labelFor(o) : o}
               </label>
             </li>
           ))}

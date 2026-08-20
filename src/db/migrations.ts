@@ -184,4 +184,31 @@ export const migrations: Migration[] = [
       `)
     },
   },
+  {
+    id: '0005',
+    name: 'synthetic_sample_data',
+    up(db) {
+      db.run(`
+        ALTER TABLE targets ADD COLUMN is_synthetic INTEGER NOT NULL DEFAULT 0 CHECK (is_synthetic IN (0, 1));
+        ALTER TABLE experiments ADD COLUMN is_synthetic INTEGER NOT NULL DEFAULT 0 CHECK (is_synthetic IN (0, 1));
+        ALTER TABLE templates ADD COLUMN is_synthetic INTEGER NOT NULL DEFAULT 0 CHECK (is_synthetic IN (0, 1));
+        ALTER TABLE variables ADD COLUMN is_synthetic INTEGER NOT NULL DEFAULT 0 CHECK (is_synthetic IN (0, 1));
+        ALTER TABLE variants ADD COLUMN is_synthetic INTEGER NOT NULL DEFAULT 0 CHECK (is_synthetic IN (0, 1));
+        ALTER TABLE run_batches ADD COLUMN is_synthetic INTEGER NOT NULL DEFAULT 0 CHECK (is_synthetic IN (0, 1));
+        ALTER TABLE runs ADD COLUMN is_synthetic INTEGER NOT NULL DEFAULT 0 CHECK (is_synthetic IN (0, 1));
+        ALTER TABLE raw_responses ADD COLUMN is_synthetic INTEGER NOT NULL DEFAULT 0 CHECK (is_synthetic IN (0, 1));
+        ALTER TABLE classifications ADD COLUMN is_synthetic INTEGER NOT NULL DEFAULT 0 CHECK (is_synthetic IN (0, 1));
+        ALTER TABLE observations ADD COLUMN is_synthetic INTEGER NOT NULL DEFAULT 0 CHECK (is_synthetic IN (0, 1));
+        ALTER TABLE evidence ADD COLUMN is_synthetic INTEGER NOT NULL DEFAULT 0 CHECK (is_synthetic IN (0, 1));
+        ALTER TABLE annotations ADD COLUMN is_synthetic INTEGER NOT NULL DEFAULT 0 CHECK (is_synthetic IN (0, 1));
+        ALTER TABLE judge_results ADD COLUMN is_synthetic INTEGER NOT NULL DEFAULT 0 CHECK (is_synthetic IN (0, 1));
+        ALTER TABLE reports ADD COLUMN is_synthetic INTEGER NOT NULL DEFAULT 0 CHECK (is_synthetic IN (0, 1));
+        CREATE INDEX idx_experiments_synthetic ON experiments(is_synthetic);
+        CREATE TRIGGER require_synthetic_report_from_experiment
+        BEFORE INSERT ON reports
+        WHEN (SELECT is_synthetic FROM experiments WHERE id = NEW.experiment_id) = 1 AND NEW.is_synthetic != 1
+        BEGIN SELECT RAISE(ABORT, 'Synthetic sample records must be labeled SYNTHETIC SAMPLE DATA'); END;
+      `)
+    },
+  },
 ]

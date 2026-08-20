@@ -151,3 +151,36 @@ export function diffChars(a: string, b: string): { left: DiffSpan[]; right: Diff
     ].filter((s) => s.text.length > 0),
   };
 }
+
+/** Generate the full cross-product of all usable axis values. */
+export function generateFactorialVariants(template: string, axes: VariableAxis[]): Variant[] {
+  const segments = parseTemplate(template);
+  const slotIds = segments.filter((segment) => segment.kind === 'slot').map((segment) => segment.text);
+  const usable = axes.filter((axis) => slotIds.includes(axis.id) && axis.values.length > 0);
+  if (usable.length === 0) return [];
+
+  let combinations: Record<string, string>[] = [{}];
+  for (const axis of usable) {
+    combinations = combinations.flatMap((existing) =>
+      axis.values.map((value) => ({ ...existing, [axis.id]: value })),
+    );
+  }
+
+  return combinations.map((substitutions, index) => {
+    const rendered = segments.map((segment) =>
+      segment.kind === 'locked'
+        ? { kind: 'locked' as const, text: segment.text }
+        : {
+            kind: 'slot' as const,
+            text: substitutions[segment.text] ?? `{{${segment.text}}}`,
+            slotId: segment.text,
+          },
+    );
+    return {
+      id: `f${index}`,
+      substitutions,
+      segments: rendered,
+      text: rendered.map((segment) => segment.text).join(''),
+    };
+  });
+}

@@ -26,6 +26,7 @@ export interface ExperimentRow {
   created_at: string
   last_run_at: string | null
   variant_count: number
+  is_synthetic: boolean
 }
 
 export interface VariantDetail { id: number; value: string; label: string | null }
@@ -68,8 +69,14 @@ const SORT_COLUMNS: Record<ExperimentSortField, string> = {
   created_at: 'created_at',
   last_run_at: 'last_run_at',
 }
-export interface TargetRow { id: number; name: string; model_id: string }
-export interface ReportRow { id: number; title: string; hash_verified: boolean }
+export interface TargetRow { id: number; name: string; model_id: string; is_synthetic: boolean }
+export interface ReportRow { id: number; title: string; hash_verified: boolean; is_synthetic: boolean }
+export interface ExportExperimentRow {
+  id: number
+  name: string
+  status: string
+  synthetic_data_designation: 'REAL DATA' | 'SYNTHETIC SAMPLE DATA'
+}
 export interface NewExperimentInput {
   name: string
   description: string
@@ -82,6 +89,36 @@ const SESSION_TTL_HOURS = 24
 function newToken(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(24))
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+function lastInsertId(db: ReturnType<typeof getDb>): number {
+  return Number(db.exec('SELECT last_insert_rowid()')[0]?.values[0]?.[0])
+}
+
+function seedSyntheticSample(db: ReturnType<typeof getDb>, userId: number): void {
+  const label = 'SYNTHETIC SAMPLE DATA'
+  db.run('INSERT INTO targets (name, model_id, created_by, is_synthetic) VALUES (?, ?, ?, 1)', [
+    `${label} target #${userId}`, 'synthetic:no-provider', userId,
+  ])
+  const targetId = lastInsertId(db)
+  db.run(
+    `INSERT INTO experiments (name, hypothesis, status, target_id, created_by, asymmetry_level, last_run_at, is_synthetic)
+     VALUES (?, ?, 'complete', ?, ?, 'none', datetime('now'), 1)`,
+    [`${label} — Explore the workflow`, 'Walkthrough only: no model was called and these rows are not evidence.', targetId, userId],
+  )
+  const experimentId = lastInsertId(db)
+  db.run('INSERT INTO templates (experiment_id, name, body, is_synthetic) VALUES (?, ?, ?, 1)', [
+    experimentId, `${label} prompt template`, '[SYNTHETIC SAMPLE DATA ONLY] This placeholder prompt was never sent to a model.',
+  ])
+  const templateId = lastInsertId(db)
+  db.run("INSERT INTO run_batches (experiment_id, status, started_at, finished_at, is_synthetic) VALUES (?, 'complete', datetime('now'), datetime('now'), 1)", [experimentId])
+  const batchId = lastInsertId(db)
+  db.run("INSERT INTO runs (batch_id, template_id, status, is_synthetic) VALUES (?, ?, 'complete', 1)", [batchId, templateId])
+  const runId = lastInsertId(db)
+  db.run('INSERT INTO raw_responses (run_id, body, content_hash, is_synthetic) VALUES (?, ?, ?, 1)', [
+    runId, '[SYNTHETIC SAMPLE DATA ONLY — NOT A MODEL RESPONSE]\nPlaceholder output. No provider request was made.',
+    'SYNTHETIC-SAMPLE-NOT-A-REAL-CONTENT-HASH',
+  ])
 }
 
 /** Resolves a session token to a user id or throws 401. Expired sessions are purged. */
@@ -101,10 +138,15 @@ export function signIn(email: string, _password: string): { token: string; user:
   const normalized = email.trim().toLowerCase()
   let res = db.exec('SELECT id, email, display_name FROM users WHERE email = ?', [normalized])
   if (!res[0]) {
-    db.run('INSERT INTO users (email, display_name) VALUES (?, ?)', [
-      normalized,
-      normalized.split('@')[0],
-    ])
+    db.run('BEGIN')
+    try {
+      db.run('INSERT INTO users (email, display_name) VALUES (?, ?)', [normalized, normalized.split('@')[0]])
+      seedSyntheticSample(db, lastInsertId(db))
+      db.run('COMMIT')
+    } catch (error) {
+      db.run('ROLLBACK')
+      throw error
+    }
     res = db.exec('SELECT id, email, display_name FROM users WHERE email = ?', [normalized])
   }
   const [id, userEmail, displayName] = res[0].values[0]
@@ -181,6 +223,7 @@ export function listExperiments(token: string | null, opts: ListExperimentsOptio
   const offset = (opts.page - 1) * opts.pageSize
   const res = db.exec(
     `SELECT e.id, e.name, e.status, e.asymmetry_level, e.created_at, e.last_run_at,
+      e.is_synthetic,
       (SELECT COUNT(*) FROM variants v
        JOIN variables vr ON vr.id = v.variable_id
        JOIN templates t ON t.id = vr.template_id
@@ -197,7 +240,8 @@ export function listExperiments(token: string | null, opts: ListExperimentsOptio
     asymmetry_level: String(r[3]),
     created_at: String(r[4]),
     last_run_at: r[5] == null ? null : String(r[5]),
-    variant_count: Number(r[6]),
+    is_synthetic: Number(r[6]) === 1,
+    variant_count: Number(r[7]),
   }))
   return { rows, total }
 }
@@ -208,7 +252,7 @@ export function getExperiment(token: string | null, id: number): ExperimentDetai
   const db = getDb()
   const result = db.exec(
     `SELECT e.id, e.name, e.hypothesis, e.status, e.target_id, e.asymmetry_level, e.created_at,
-      e.last_run_at, source.name,
+      e.last_run_at, e.is_synthetic, source.name,
       (SELECT COUNT(*) FROM run_batches b WHERE b.experiment_id = e.id),
       (SELECT COUNT(*) FROM variants v
        JOIN variables vr ON vr.id = v.variable_id
@@ -221,7 +265,7 @@ export function getExperiment(token: string | null, id: number): ExperimentDetai
   )
   const row = result[0]?.values[0]
   if (!row) throw new ServerError(404, 'Not found')
-  const [experimentId, name, hypothesis, status, targetId, asymmetryLevel, createdAt, lastRunAt, clonedFromName, runCount, variantCount] = row
+  const [experimentId, name, hypothesis, status, targetId, asymmetryLevel, createdAt, lastRunAt, isSynthetic, clonedFromName, runCount, variantCount] = row
   const templateRows = db.exec('SELECT id, name, body FROM templates WHERE experiment_id = ? ORDER BY id', [Number(experimentId)])[0]?.values ?? []
   const templates = templateRows.map((template) => {
     const templateId = Number(template[0])
@@ -248,6 +292,7 @@ export function getExperiment(token: string | null, id: number): ExperimentDetai
     id: Number(experimentId), name: String(name), hypothesis: hypothesis == null ? null : String(hypothesis),
     status: String(status), target_id: Number(targetId), asymmetry_level: String(asymmetryLevel),
     created_at: String(createdAt), last_run_at: lastRunAt == null ? null : String(lastRunAt),
+    is_synthetic: Number(isSynthetic) === 1,
     cloned_from_name: clonedFromName == null ? null : String(clonedFromName), run_count: Number(runCount),
     variant_count: Number(variantCount), templates,
   }
@@ -359,23 +404,36 @@ export function createExperiment(token: string | null, input: NewExperimentInput
 export function listTargets(token: string | null): TargetRow[] {
   const userId = requireUser(token)
   const res = getDb().exec(
-    'SELECT id, name, model_id FROM targets WHERE created_by = ? ORDER BY id DESC LIMIT 25',
+    'SELECT id, name, model_id, is_synthetic FROM targets WHERE created_by = ? ORDER BY id DESC LIMIT 25',
     [userId],
   )
-  return (res[0]?.values ?? []).map((r) => ({ id: Number(r[0]), name: String(r[1]), model_id: String(r[2]) }))
+  return (res[0]?.values ?? []).map((r) => ({ id: Number(r[0]), name: String(r[1]), model_id: String(r[2]), is_synthetic: Number(r[3]) === 1 }))
 }
 
 export function listReports(token: string | null): ReportRow[] {
   const userId = requireUser(token)
   const res = getDb().exec(
-    `SELECT r.id, r.title, r.hash_verified FROM reports r
+    `SELECT r.id, r.title, r.hash_verified, r.is_synthetic FROM reports r
      JOIN experiments e ON e.id = r.experiment_id
-     WHERE e.created_by = ? ORDER BY r.id DESC LIMIT 25`,
+     WHERE e.created_by = ? AND e.is_synthetic = 0 ORDER BY r.id DESC LIMIT 25`,
     [userId],
   )
   return (res[0]?.values ?? []).map((r) => ({
     id: Number(r[0]),
     title: String(r[1]),
     hash_verified: Number(r[2]) === 1,
+    is_synthetic: Number(r[3]) === 1,
+  }))
+}
+
+export function exportExperiments(token: string | null): ExportExperimentRow[] {
+  const userId = requireUser(token)
+  const rows = getDb().exec(
+    'SELECT id, name, status, is_synthetic FROM experiments WHERE created_by = ? ORDER BY id DESC',
+    [userId],
+  )[0]?.values ?? []
+  return rows.map((row) => ({
+    id: Number(row[0]), name: String(row[1]), status: String(row[2]),
+    synthetic_data_designation: Number(row[3]) === 1 ? 'SYNTHETIC SAMPLE DATA' : 'REAL DATA',
   }))
 }

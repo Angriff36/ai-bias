@@ -17,11 +17,8 @@ import { ConfirmDeleteDialog } from './ConfirmDeleteDialog'
 import { EmptyState, SkeletonRows } from './EmptyState'
 import { NotFoundPage } from './NotFoundPage'
 import { AsymmetryBadge, StatusBadge } from './StatusBadge'
-<<<<<<< HEAD
 import { NewBiasTestWizard, type WizardResult } from '../wizard/NewBiasTestWizard'
-=======
 import { CloneExperimentButton } from './CloneExperimentButton'
->>>>>>> feature/experiment-duplication-627186e7
 
 const PAGE_SIZES = [10, 20, 50]
 const DEFAULT_PAGE_SIZE = 20
@@ -107,13 +104,10 @@ export function ExperimentHistoryList() {
   const [deleting, setDeleting] = useState<ExperimentRow | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notFound, setNotFound] = useState(false)
-<<<<<<< HEAD
   const [wizardOpen, setWizardOpen] = useState(false)
   const [createdId, setCreatedId] = useState<number | null>(null)
-=======
   const [openMenuId, setOpenMenuId] = useState<number | null>(null)
   const [cloneRetry, setCloneRetry] = useState<(() => void) | null>(null)
->>>>>>> feature/experiment-duplication-627186e7
   const listTopRef = useRef<HTMLDivElement>(null)
   const firstRowRef = useRef<HTMLTableRowElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)

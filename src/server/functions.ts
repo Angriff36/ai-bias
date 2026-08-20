@@ -25,6 +25,18 @@ export interface ExperimentRow {
   asymmetry_level: string
   created_at: string
   last_run_at: string | null
+  variant_count: number
+}
+
+export interface VariantDetail { id: number; value: string; label: string | null }
+export interface VariableDetail { id: number; name: string; kind: string; variants: VariantDetail[] }
+export interface TemplateDetail { id: number; name: string; body: string; variables: VariableDetail[] }
+export interface ExperimentDetail extends ExperimentRow {
+  hypothesis: string | null
+  target_id: number
+  templates: TemplateDetail[]
+  run_count: number
+  cloned_from_name: string | null
 }
 
 export interface ExperimentPage {
@@ -139,8 +151,12 @@ export function listExperiments(token: string | null, opts: ListExperimentsOptio
   const total = Number(db.exec(`SELECT COUNT(*) FROM experiments WHERE ${whereSql}`, params)[0]?.values[0]?.[0] ?? 0)
   const offset = (opts.page - 1) * opts.pageSize
   const res = db.exec(
-    `SELECT id, name, status, asymmetry_level, created_at, last_run_at
-     FROM experiments WHERE ${whereSql}
+    `SELECT e.id, e.name, e.status, e.asymmetry_level, e.created_at, e.last_run_at,
+      (SELECT COUNT(*) FROM variants v
+       JOIN variables vr ON vr.id = v.variable_id
+       JOIN templates t ON t.id = vr.template_id
+       WHERE t.experiment_id = e.id) AS variant_count
+     FROM experiments e WHERE ${whereSql}
      ORDER BY ${orderSql}
      LIMIT ? OFFSET ?`,
     [...params, opts.pageSize, offset],
@@ -152,8 +168,116 @@ export function listExperiments(token: string | null, opts: ListExperimentsOptio
     asymmetry_level: String(r[3]),
     created_at: String(r[4]),
     last_run_at: r[5] == null ? null : String(r[5]),
+    variant_count: Number(r[6]),
   }))
   return { rows, total }
+}
+
+/** Returns the full editable configuration, never any run or evidence records. */
+export function getExperiment(token: string | null, id: number): ExperimentDetail {
+  const userId = requireUser(token)
+  const db = getDb()
+  const result = db.exec(
+    `SELECT e.id, e.name, e.hypothesis, e.status, e.target_id, e.asymmetry_level, e.created_at,
+      e.last_run_at, source.name,
+      (SELECT COUNT(*) FROM run_batches b WHERE b.experiment_id = e.id),
+      (SELECT COUNT(*) FROM variants v
+       JOIN variables vr ON vr.id = v.variable_id
+       JOIN templates t ON t.id = vr.template_id
+       WHERE t.experiment_id = e.id)
+     FROM experiments e
+     LEFT JOIN experiments source ON source.id = e.cloned_from_experiment_id
+     WHERE e.id = ? AND e.created_by = ?`,
+    [id, userId],
+  )
+  const row = result[0]?.values[0]
+  if (!row) throw new ServerError(404, 'Not found')
+  const [experimentId, name, hypothesis, status, targetId, asymmetryLevel, createdAt, lastRunAt, clonedFromName, runCount, variantCount] = row
+  const templateRows = db.exec('SELECT id, name, body FROM templates WHERE experiment_id = ? ORDER BY id', [Number(experimentId)])[0]?.values ?? []
+  const templates = templateRows.map((template) => {
+    const templateId = Number(template[0])
+    const variableRows = db.exec('SELECT id, name, kind FROM variables WHERE template_id = ? ORDER BY id', [templateId])[0]?.values ?? []
+    return {
+      id: templateId,
+      name: String(template[1]),
+      body: String(template[2]),
+      variables: variableRows.map((variable) => {
+        const variableId = Number(variable[0])
+        const variantRows = db.exec('SELECT id, value, label FROM variants WHERE variable_id = ? ORDER BY id', [variableId])[0]?.values ?? []
+        return {
+          id: variableId,
+          name: String(variable[1]),
+          kind: String(variable[2]),
+          variants: variantRows.map((variant) => ({
+            id: Number(variant[0]), value: String(variant[1]), label: variant[2] == null ? null : String(variant[2]),
+          })),
+        }
+      }),
+    }
+  })
+  return {
+    id: Number(experimentId), name: String(name), hypothesis: hypothesis == null ? null : String(hypothesis),
+    status: String(status), target_id: Number(targetId), asymmetry_level: String(asymmetryLevel),
+    created_at: String(createdAt), last_run_at: lastRunAt == null ? null : String(lastRunAt),
+    cloned_from_name: clonedFromName == null ? null : String(clonedFromName), run_count: Number(runCount),
+    variant_count: Number(variantCount), templates,
+  }
+}
+
+/**
+ * Creates a draft containing only the source configuration. Run batches, runs,
+ * responses, observations, reports, and evidence are intentionally not read or copied.
+ */
+export function cloneExperiment(token: string | null, id: number): ExperimentDetail {
+  const userId = requireUser(token)
+  const db = getDb()
+  const source = db.exec(
+    'SELECT id, name, hypothesis, target_id, asymmetry_level FROM experiments WHERE id = ? AND created_by = ?',
+    [id, userId],
+  )[0]?.values[0]
+  if (!source) throw new ServerError(404, 'Not found')
+
+  try {
+    db.run('BEGIN')
+    db.run(
+      `INSERT INTO experiments (name, hypothesis, status, target_id, created_by, asymmetry_level, cloned_from_experiment_id)
+       VALUES (?, ?, 'draft', ?, ?, ?, ?)`,
+      [`Copy of ${String(source[1])}`, source[2] == null ? null : String(source[2]), Number(source[3]), userId, String(source[4]), Number(source[0])],
+    )
+    const cloneId = Number(db.exec('SELECT last_insert_rowid()')[0].values[0][0])
+    const templates = db.exec('SELECT id, name, body FROM templates WHERE experiment_id = ? ORDER BY id', [Number(source[0])])[0]?.values ?? []
+    for (const template of templates) {
+      db.run('INSERT INTO templates (experiment_id, name, body) VALUES (?, ?, ?)', [cloneId, String(template[1]), String(template[2])])
+      const clonedTemplateId = Number(db.exec('SELECT last_insert_rowid()')[0].values[0][0])
+      const variables = db.exec('SELECT id, name, kind FROM variables WHERE template_id = ? ORDER BY id', [Number(template[0])])[0]?.values ?? []
+      for (const variable of variables) {
+        db.run('INSERT INTO variables (template_id, name, kind) VALUES (?, ?, ?)', [clonedTemplateId, String(variable[1]), String(variable[2])])
+        const clonedVariableId = Number(db.exec('SELECT last_insert_rowid()')[0].values[0][0])
+        const variants = db.exec('SELECT value, label FROM variants WHERE variable_id = ? ORDER BY id', [Number(variable[0])])[0]?.values ?? []
+        for (const variant of variants) {
+          db.run('INSERT INTO variants (variable_id, value, label) VALUES (?, ?, ?)', [clonedVariableId, String(variant[0]), variant[1] == null ? null : String(variant[1])])
+        }
+      }
+    }
+    db.run('COMMIT')
+    persist()
+    return getExperiment(token, cloneId)
+  } catch (error) {
+    try { db.run('ROLLBACK') } catch { /* transaction was not opened */ }
+    throw error
+  }
+}
+
+export function updateExperimentName(token: string | null, id: number, name: string): ExperimentDetail {
+  const userId = requireUser(token)
+  const trimmed = name.trim()
+  if (!trimmed) throw new ServerError(500, 'Experiment name is required')
+  const db = getDb()
+  const changed = db.exec('SELECT 1 FROM experiments WHERE id = ? AND created_by = ?', [id, userId])[0]
+  if (!changed) throw new ServerError(404, 'Not found')
+  db.run('UPDATE experiments SET name = ? WHERE id = ? AND created_by = ?', [trimmed, id, userId])
+  persist()
+  return getExperiment(token, id)
 }
 
 export function deleteExperiment(token: string | null, id: number): void {

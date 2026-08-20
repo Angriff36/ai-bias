@@ -15,7 +15,11 @@ import { ConfirmDeleteDialog } from './ConfirmDeleteDialog'
 import { EmptyState, SkeletonRows } from './EmptyState'
 import { NotFoundPage } from './NotFoundPage'
 import { AsymmetryBadge, StatusBadge } from './StatusBadge'
+<<<<<<< HEAD
 import { NewBiasTestWizard, type WizardResult } from '../wizard/NewBiasTestWizard'
+=======
+import { CloneExperimentButton } from './CloneExperimentButton'
+>>>>>>> feature/experiment-duplication-627186e7
 
 const PAGE_SIZES = [10, 20, 50]
 const DEFAULT_PAGE_SIZE = 20
@@ -79,8 +83,13 @@ export function ExperimentHistoryList() {
   const [deleting, setDeleting] = useState<ExperimentRow | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notFound, setNotFound] = useState(false)
+<<<<<<< HEAD
   const [wizardOpen, setWizardOpen] = useState(false)
   const [createdId, setCreatedId] = useState<number | null>(null)
+=======
+  const [openMenuId, setOpenMenuId] = useState<number | null>(null)
+  const [cloneRetry, setCloneRetry] = useState<(() => void) | null>(null)
+>>>>>>> feature/experiment-duplication-627186e7
   const listTopRef = useRef<HTMLDivElement>(null)
   const firstRowRef = useRef<HTMLTableRowElement>(null)
 
@@ -179,6 +188,11 @@ export function ExperimentHistoryList() {
     }
   }
 
+  const navigateToClone = (cloned: { id: number; name: string }) => {
+    sessionStorage.setItem('ai-bias-clone-toast', `Experiment cloned. Now editing ${cloned.name}.`)
+    window.location.hash = `#/experiments/${cloned.id}`
+  }
+
   const sortAria = (field: ExperimentSortField): AriaAttributes['aria-sort'] =>
     debounced.sort === field ? (debounced.dir === 'asc' ? 'ascending' : 'descending') : undefined
 
@@ -224,6 +238,7 @@ export function ExperimentHistoryList() {
         <div className="banner success" role="status">Experiment created (#{createdId}).</div>
       )}
       {error && <div className="banner error" role="alert">{error}</div>}
+      {cloneRetry && <div className="banner error" role="alert">Clone failed. Try again. <button className="link" onClick={cloneRetry}>Retry</button></div>}
 
       <div className="wz-row-between">
         <span />
@@ -332,9 +347,26 @@ export function ExperimentHistoryList() {
                   <td className="col-created">{formatDate(r.created_at)}</td>
                   <td className="col-lastrun">{formatDate(r.last_run_at)}</td>
                   <td className="actions-cell">
-                    <button aria-label={`Run ${r.name}`} title="Run">▶</button>
-                    <button aria-label={`Duplicate ${r.name}`} title="Duplicate">⧉</button>
-                    <button className="danger" aria-label={`Delete ${r.name}`} title="Delete" onClick={(e) => { e.stopPropagation(); setDeleting(r) }}>🗑</button>
+                    <div className="context-menu-wrap" onClick={(event) => event.stopPropagation()}>
+                      <button
+                        className="kebab-button"
+                        aria-label={`Actions for ${r.name}`}
+                        aria-haspopup="menu"
+                        aria-expanded={openMenuId === r.id}
+                        onClick={() => setOpenMenuId((current) => current === r.id ? null : r.id)}
+                      >•••</button>
+                      {openMenuId === r.id && (
+                        <div className="context-menu" role="menu" aria-label={`Actions for ${r.name}`}>
+                          <CloneExperimentButton
+                            source={r}
+                            inMenu
+                            onCloned={navigateToClone}
+                            onFailure={(retry) => { setOpenMenuId(null); setCloneRetry(() => retry) }}
+                          />
+                          <button className="context-menu-item danger" role="menuitem" onClick={() => { setOpenMenuId(null); setDeleting(r) }}>Delete experiment</button>
+                        </div>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

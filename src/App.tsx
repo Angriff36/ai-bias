@@ -13,6 +13,7 @@ import { LoginPage } from './auth/LoginPage'
 import { EmptyState, SkeletonRows } from './components/EmptyState'
 import { HashBadge, ReadOnlyBadge } from './components/StatusBadge'
 import { ExperimentHistoryList } from './components/ExperimentHistoryList'
+import { ExperimentEditor } from './components/ExperimentEditor'
 
 type DbState =
   | { phase: 'migrating'; progress: MigrationProgress | null }
@@ -133,13 +134,28 @@ function AuthGate({ version, readyAt }: { version: number; readyAt: string }) {
 function MainApp({ version, readyAt }: { version: number; readyAt: string }) {
   const { signOut, state } = useAuth()
   const [tab, setTab] = useState<Tab>(tabFromHash)
+  const [toast, setToast] = useState<string | null>(null)
 
   useEffect(() => {
     document.title = 'AI Bias Lab'
-    const onHash = () => setTab(tabFromHash())
+    const readCloneToast = () => {
+      const message = sessionStorage.getItem('ai-bias-clone-toast')
+      if (message) {
+        sessionStorage.removeItem('ai-bias-clone-toast')
+        setToast(message)
+      }
+    }
+    const onHash = () => { setTab(tabFromHash()); readCloneToast() }
     window.addEventListener('hashchange', onHash)
+    readCloneToast()
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
+
+  useEffect(() => {
+    if (!toast) return
+    const timer = window.setTimeout(() => setToast(null), 3000)
+    return () => window.clearTimeout(timer)
+  }, [toast])
 
   const selectTab = (t: Tab) => {
     window.location.hash = `#/${t}`
@@ -170,12 +186,18 @@ function MainApp({ version, readyAt }: { version: number; readyAt: string }) {
           </button>
         ))}
       </nav>
-      {tab === 'experiments' && <ExperimentHistoryList />}
+      {toast && <div className="toast" role="status" aria-live="polite"><span>{toast}</span><button aria-label="Dismiss notification" onClick={() => setToast(null)}>×</button></div>}
+      {tab === 'experiments' && <ExperimentRoute />}
       {tab === 'targets' && <TargetsList />}
       {tab === 'reports' && <ReportsList />}
       {tab === 'admin' && <AdminPanel version={version} />}
     </div>
   )
+}
+
+function ExperimentRoute() {
+  const match = window.location.hash.match(/^#\/experiments\/(\d+)$/)
+  return match ? <ExperimentEditor experimentId={Number(match[1])} /> : <ExperimentHistoryList />
 }
 
 function TargetsList() {

@@ -44,6 +44,8 @@ nav.tabs button[aria-selected='true'] { color: var(--text); border-bottom-color:
 
 .empty-state { text-align: center; padding: 48px 16px; color: var(--muted); }
 .empty-state p { margin-bottom: 16px; }
+.empty-state h3 { color: var(--text); margin: 8px 0; font-size: 16px; }
+.empty-state-icon { display: block; color: var(--accent); font-size: 30px; line-height: 1; }
 
 button.primary, button.danger, button.secondary {
   padding: 10px 16px; border-radius: 6px; font-size: 14px; cursor: pointer;
@@ -53,6 +55,7 @@ button.primary { background: var(--accent); color: white; }
 button.danger { background: var(--danger); color: white; }
 button.secondary { background: transparent; color: var(--text); border-color: var(--border); }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
+button.link, .link { background: none; border: 0; color: var(--accent); cursor: pointer; font: inherit; padding: 4px; text-decoration: underline; }
 
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
 caption { text-align: left; color: var(--muted); font-size: 13px; margin-bottom: 8px; }
@@ -187,6 +190,56 @@ dialog.confirm input {
 .history-table .actions-cell button:focus-visible { opacity: 1; }
 .history-table .actions-cell button:hover { color: var(--text); border-color: var(--border); }
 .history-table .actions-cell button.danger:hover { color: var(--danger); border-color: var(--danger); }
+.context-menu-wrap { position: relative; display: inline-block; }
+.history-table .actions-cell .kebab-button { letter-spacing: 1px; font-weight: 700; color: var(--text); }
+.context-menu {
+  position: absolute; z-index: 20; right: 0; top: calc(100% + 4px); min-width: 194px;
+  padding: 6px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45); text-align: left;
+}
+.history-table .actions-cell .context-menu button.context-menu-item {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px; opacity: 1;
+  color: var(--text); text-align: left; font-size: 14px;
+}
+.history-table .actions-cell .context-menu button.context-menu-item:hover { background: rgba(79, 140, 255, 0.12); }
+.history-table .actions-cell .context-menu button.context-menu-item.danger { color: var(--danger); }
+
+/* === Experiment cloning and draft editor === */
+.toast {
+  position: fixed; z-index: 50; right: 24px; top: 24px; max-width: min(420px, calc(100vw - 32px));
+  display: flex; align-items: center; gap: 12px; padding: 12px 12px 12px 16px;
+  background: #123224; border: 1px solid var(--success); color: var(--text); border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(0,0,0,.35); animation: toast-in 150ms ease-out;
+}
+.toast button { appearance: none; border: 0; background: transparent; color: var(--text); cursor: pointer; min-width: 32px; min-height: 32px; font-size: 20px; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+
+.experiment-editor { animation: editor-in 300ms ease-out; }
+@keyframes editor-in { from { opacity: .65; } to { opacity: 1; } }
+.experiment-editor-header { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; margin-bottom: 16px; }
+.title-row { display: flex; align-items: center; gap: 10px; }
+.title-row h2 { margin: 0 0 12px; }
+.experiment-name-label { display: flex; flex-direction: column; gap: 6px; color: var(--muted); font-size: 13px; }
+.experiment-name-label input {
+  width: min(460px, 100%); min-height: 44px; padding: 10px 12px; border-radius: 6px;
+  border: 1px solid var(--border); background: var(--panel); color: var(--text); font-size: 16px;
+}
+.clone-origin, .muted { color: var(--muted); font-size: 13px; }
+.clone-button { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.clone-control { position: relative; }
+.context-menu .clone-control { width: 100%; }
+.clone-progress { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
+.template-summary h3, .run-history h3 { margin-top: 0; }
+.template-row { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border); }
+.template-row span { color: var(--muted); font-size: 13px; }
+.run-history { margin-top: 16px; }
+.clone-warning {
+  position: absolute; z-index: 30; right: 0; top: calc(100% + 8px); width: min(420px, calc(100vw - 32px));
+  padding: 16px; border: 1px solid var(--warning); border-radius: 8px; background: var(--panel);
+  box-shadow: 0 12px 32px rgba(0,0,0,.45); color: var(--text);
+}
+.clone-warning p { margin: 0; line-height: 1.45; }
+.clone-warning-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 
 .pagination-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 16px; }
 .pagination { display: flex; gap: 4px; }
@@ -222,6 +275,15 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
   .history-table td { border-bottom: none; padding: 4px 6px; }
   .history-table .actions-cell { text-align: left; }
   .history-table .actions-cell button { opacity: 1; }
+  .toast { top: auto; right: 16px; bottom: 16px; left: 16px; max-width: none; }
+  .experiment-editor-header { flex-direction: column; }
+  .clone-button { width: 100%; justify-content: center; }
+  .clone-warning {
+    position: fixed; inset: auto 0 0; width: 100%; border-radius: 12px 12px 0 0;
+    padding: 20px; z-index: 40;
+  }
+  .clone-warning-actions { flex-direction: column; }
+  .clone-warning-actions button { width: 100%; }
 }
 
 /* ---- New Bias Test wizard ---- */

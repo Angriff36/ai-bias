@@ -1,13 +1,18 @@
 interface Props {
-  message: string
+  message?: string
   actionLabel: string
   onAction?: () => void
+  icon?: string
+  heading?: string
+  body?: string
 }
 
-export function EmptyState({ message, actionLabel, onAction }: Props) {
+export function EmptyState({ message, actionLabel, onAction, icon, heading, body }: Props) {
   return (
     <div className="empty-state">
-      <p>{message}</p>
+      {icon && <span className="empty-state-icon" aria-hidden="true">{icon}</span>}
+      {heading && <h3>{heading}</h3>}
+      {(body ?? message) && <p>{body ?? message}</p>}
       <button className="primary" onClick={onAction}>{actionLabel}</button>
     </div>
   )

@@ -173,4 +173,15 @@ export const migrations: Migration[] = [
       `)
     },
   },
+  {
+    id: '0004',
+    name: 'experiment_clone_origin',
+    up(db) {
+      db.run(`
+        ALTER TABLE experiments
+          ADD COLUMN cloned_from_experiment_id INTEGER REFERENCES experiments(id) ON DELETE SET NULL;
+        CREATE INDEX idx_experiments_clone_origin ON experiments(cloned_from_experiment_id);
+      `)
+    },
+  },
 ]

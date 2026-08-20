@@ -496,7 +496,7 @@ export function ExperimentHistoryList() {
                   key={r.id}
                   ref={i === 0 ? firstRowRef : undefined}
                   tabIndex={0}
-                  onClick={() => window.location.assign(`#/experiments/${r.id}`)}
+                  onClick={() => { window.location.hash = `#/experiments/${r.id}` }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault()

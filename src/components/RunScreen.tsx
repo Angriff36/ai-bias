@@ -17,6 +17,16 @@ interface RunScreenProps {
   failureRate?: number
   failAll?: boolean
   baseLatencyMs?: number
+  startButtonLabel?: string
+  onComplete?: (result: RunCompletion) => void
+  onViewResults?: () => void
+}
+
+export interface RunCompletion {
+  browserBatchId: string
+  records: RawRecord[]
+  succeeded: number
+  failed: number
 }
 
 export function RunScreen({
@@ -25,6 +35,9 @@ export function RunScreen({
   failureRate = 0.15,
   failAll = false,
   baseLatencyMs = 300,
+  startButtonLabel = 'Start run',
+  onComplete,
+  onViewResults,
 }: RunScreenProps) {
   const [queue, setQueue] = useState<RunRequest[]>([])
   const [cells, setCells] = useState<Record<string, CellStatus>>({})
@@ -38,6 +51,8 @@ export function RunScreen({
   const [elapsedMs, setElapsedMs] = useState(0)
 
   const executorRef = useRef<BatchExecutor | null>(null)
+  const batchIdRef = useRef('')
+  const recordsRef = useRef<Record<string, RawRecord>>({})
   const failureCountRef = useRef(0)
   const startedAtRef = useRef(0)
   // Rapid completions are buffered and flushed at most every 100ms
@@ -74,6 +89,8 @@ export function RunScreen({
 
   const start = () => {
     const batchId = `batch-${Date.now()}`
+    batchIdRef.current = batchId
+    recordsRef.current = {}
     const newQueue = buildRunQueue(batchId, pairs, runsPerVariant, 'simulated', 'sim-model-1')
     clearBatch(batchId)
     setQueue(newQueue)
@@ -105,6 +122,7 @@ export function RunScreen({
         }
       },
       onRecord(record) {
+        recordsRef.current[record.requestId] = record
         pendingRecordsRef.current[record.requestId] = record
         scheduleFlush()
         if (record.status === 'error') {
@@ -118,6 +136,16 @@ export function RunScreen({
       onDone(outcome) {
         flush()
         setPhase(outcome === 'cancelled' ? 'cancelled' : 'complete')
+        if (outcome !== 'cancelled') {
+          const completedRecords = Object.values(recordsRef.current)
+          const failedRecords = completedRecords.filter((record) => record.status === 'error').length
+          onComplete?.({
+            browserBatchId: batchIdRef.current,
+            records: completedRecords,
+            succeeded: completedRecords.length - failedRecords,
+            failed: failedRecords,
+          })
+        }
       },
     })
     executorRef.current = executor
@@ -186,7 +214,7 @@ export function RunScreen({
             <strong>{pairs * 2 * runsPerVariant} requests</strong>, shuffled.
           </p>
           <button type="button" className="btn btn-primary touch-target" onClick={start}>
-            Start run
+            {startButtonLabel}
           </button>
         </div>
       )}
@@ -248,7 +276,7 @@ export function RunScreen({
           {phase === 'complete' && (
             <div className="banner banner-success end-banner" data-testid="run-complete">
               <strong>Run complete</strong> — {done - failed} succeeded, {failed} failed.
-              <button type="button" className="btn btn-primary touch-target">
+              <button type="button" className="btn btn-primary touch-target" onClick={onViewResults}>
                 View Results
               </button>
             </div>

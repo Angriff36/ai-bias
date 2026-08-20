@@ -24,8 +24,8 @@ type Tab = 'experiments' | 'targets' | 'reports' | 'admin'
 
 const TABS: Tab[] = ['experiments', 'targets', 'reports', 'admin']
 
-function tabFromHash(): Tab {
-  const t = window.location.hash.replace(/^#\//, '')
+function tabFromHash(hash = window.location.hash): Tab {
+  const t = hash.replace(/^#\//, '').split('/')[0]
   return (TABS as string[]).includes(t) ? (t as Tab) : 'experiments'
 }
 
@@ -133,7 +133,8 @@ function AuthGate({ version, readyAt }: { version: number; readyAt: string }) {
 
 function MainApp({ version, readyAt }: { version: number; readyAt: string }) {
   const { signOut, state } = useAuth()
-  const [tab, setTab] = useState<Tab>(tabFromHash)
+  const [route, setRoute] = useState(window.location.hash)
+  const tab = tabFromHash(route)
   const [toast, setToast] = useState<string | null>(null)
 
   useEffect(() => {
@@ -145,7 +146,7 @@ function MainApp({ version, readyAt }: { version: number; readyAt: string }) {
         setToast(message)
       }
     }
-    const onHash = () => { setTab(tabFromHash()); readCloneToast() }
+    const onHash = () => { setRoute(window.location.hash); readCloneToast() }
     window.addEventListener('hashchange', onHash)
     readCloneToast()
     return () => window.removeEventListener('hashchange', onHash)
@@ -159,7 +160,7 @@ function MainApp({ version, readyAt }: { version: number; readyAt: string }) {
 
   const selectTab = (t: Tab) => {
     window.location.hash = `#/${t}`
-    setTab(t)
+    setRoute(`#/${t}`)
   }
 
   const tabs: { id: Tab; label: string }[] = [

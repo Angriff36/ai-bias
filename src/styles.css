@@ -294,6 +294,65 @@ dialog.confirm input {
 .template-row { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border); }
 .template-row span { color: var(--muted); font-size: 13px; }
 .run-history { margin-top: 16px; }
+.workspace-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.experiment-primary-actions { margin: 0 0 18px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: rgba(79, 140, 255, .06); }
+.run-history-summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+
+/* === Integrated experiment workspace === */
+.experiment-workspace { animation: editor-in 220ms ease-out; }
+.workspace-back { margin: 0 0 12px; }
+.workspace-heading {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 18px;
+  margin-bottom: 18px; padding-bottom: 16px; border-bottom: 1px solid var(--border);
+}
+.workspace-heading h2 { margin: 3px 0 6px; font-size: clamp(22px, 4vw, 34px); letter-spacing: -.025em; }
+.eyebrow { margin: 0; color: #8eb2ff; font: 700 11px/1.2 ui-monospace, 'Cascadia Code', monospace; text-transform: uppercase; letter-spacing: .12em; }
+.run-config { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 24px; }
+.run-config p { margin: 5px 0 0; }
+.run-config label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; }
+.run-config select {
+  min-width: 120px; min-height: 44px; padding: 8px 32px 8px 10px; border: 1px solid var(--border);
+  border-radius: 6px; background: var(--bg); color: var(--text); font: inherit;
+}
+.workload-readout { display: grid; justify-items: end; gap: 3px; }
+.workload-readout span { color: var(--muted); font-size: 12px; }
+.workload-readout strong { color: #b8cbff; font: 700 20px/1 ui-monospace, 'Cascadia Code', monospace; }
+
+.run-screen { border: 1px solid var(--border); border-radius: 10px; background: linear-gradient(150deg, #171a21 0%, #12151b 100%); padding: 18px; }
+.start-panel { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.start-panel p { margin: 0; color: var(--muted); }
+.btn { min-height: 44px; padding: 9px 15px; border: 1px solid var(--border); border-radius: 6px; background: transparent; color: var(--text); cursor: pointer; font: inherit; }
+.btn:hover { border-color: #547ac7; background: rgba(79, 140, 255, .08); }
+.btn-primary { border-color: var(--accent); background: var(--accent); color: #fff; font-weight: 700; }
+.btn-primary:hover { background: #3979ed; }
+.run-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 14px; }
+.run-controls { display: flex; gap: 8px; }
+.tally { margin: 0; font: 700 14px/1.3 ui-monospace, 'Cascadia Code', monospace; }
+.progress-grid { display: grid; grid-template-columns: repeat(var(--grid-cols), minmax(34px, 1fr)); gap: 7px; margin: 16px 0; }
+.cell { min-width: 34px; min-height: 42px; border: 1px solid var(--border); border-radius: 5px; background: #20242d; color: var(--muted); cursor: pointer; }
+.cell-in-flight { border-color: var(--accent); box-shadow: inset 0 -3px var(--accent); animation: cell-pulse .8s ease-in-out infinite alternate; }
+.cell-complete { border-color: #2f9c69; background: rgba(48, 164, 108, .16); color: #8be0b5; }
+.cell-failed { border-color: var(--danger); background: rgba(229, 72, 77, .12); color: #ffafb3; }
+.cell-selected { outline: 2px solid #fff; outline-offset: 2px; }
+.cell-latency { font: 700 10px/1 ui-monospace, monospace; }
+@keyframes cell-pulse { to { background: rgba(79, 140, 255, .2); } }
+.end-banner { justify-content: space-between; flex-wrap: wrap; margin-top: 16px; background: rgba(48, 164, 108, .12); border: 1px solid var(--success); }
+.banner-info { background: rgba(79, 140, 255, .1); border: 1px solid var(--accent); }
+.banner-warning { background: rgba(245, 165, 36, .1); border: 1px solid var(--warning); }
+.pair-inspector, .error-summary { margin-top: 14px; padding: 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }
+.pair-inspector h2 { margin-top: 0; }
+.inspector-row { display: grid; grid-template-columns: 90px 1fr; gap: 12px; }
+.inspector-label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+.hash-badge { color: #8be0b5; }
+
+.result-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+.result-metrics article { position: relative; overflow: hidden; min-height: 150px; padding: 18px; border: 1px solid var(--border); border-radius: 9px; background: var(--panel); }
+.result-metrics article::after { content: ''; position: absolute; inset: auto -20px -32px auto; width: 90px; height: 90px; border: 18px solid rgba(79, 140, 255, .08); border-radius: 50%; }
+.result-metrics span, .result-metrics small { display: block; color: var(--muted); }
+.result-metrics span { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
+.result-metrics strong { display: block; margin: 14px 0 4px; color: #d7e2ff; font: 700 42px/1 ui-monospace, 'Cascadia Code', monospace; }
+.results-note h3 { margin-top: 0; }
+.results-note p { color: var(--muted); line-height: 1.55; }
 .clone-warning {
   position: absolute; z-index: 30; right: 0; top: calc(100% + 8px); width: min(420px, calc(100vw - 32px));
   padding: 16px; border: 1px solid var(--warning); border-radius: 8px; background: var(--panel);
@@ -345,6 +404,12 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
   }
   .clone-warning-actions { flex-direction: column; }
   .clone-warning-actions button { width: 100%; }
+  .run-config { grid-template-columns: 1fr; gap: 16px; }
+  .workload-readout { justify-items: start; }
+  .start-panel, .run-header, .run-history-summary { align-items: stretch; flex-direction: column; }
+  .run-controls, .run-controls button { width: 100%; }
+  .result-metrics { grid-template-columns: 1fr; }
+  .workspace-heading { flex-direction: column; }
 }
 
 /* ---- New Bias Test wizard ---- */

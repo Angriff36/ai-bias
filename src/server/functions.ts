@@ -1,4 +1,5 @@
 import { getDb, persist } from '../db/database'
+import type { RawRecord } from '../engine/types'
 
 /**
  * Bolt server functions. Every function requires a session token and scopes
@@ -71,6 +72,14 @@ const SORT_COLUMNS: Record<ExperimentSortField, string> = {
 }
 export interface TargetRow { id: number; name: string; model_id: string; is_synthetic: boolean }
 export interface ReportRow { id: number; title: string; hash_verified: boolean; is_synthetic: boolean }
+export interface ExperimentRunSummary {
+  batchId: number
+  status: string
+  finishedAt: string | null
+  evidenceCount: number
+  succeeded: number
+  failed: number
+}
 export interface ExportExperimentRow {
   id: number
   name: string
@@ -352,6 +361,114 @@ export function updateExperimentName(token: string | null, id: number, name: str
   db.run('UPDATE experiments SET name = ? WHERE id = ? AND created_by = ?', [trimmed, id, userId])
   persist()
   return getExperiment(token, id)
+}
+
+/**
+ * Commits a completed browser run to the relational project database.
+ * Raw records already carry their immutable SHA-256 digest from the execution
+ * engine; this function preserves those records and creates the report row
+ * that makes the run visible from history and Reports after a reload.
+ */
+export function completeOfflineRun(
+  token: string | null,
+  experimentId: number,
+  records: RawRecord[],
+): ExperimentRunSummary {
+  const userId = requireUser(token)
+  if (records.length === 0) throw new ServerError(500, 'A completed run must contain evidence records')
+  const db = getDb()
+  const experiment = db.exec(
+    'SELECT name, is_synthetic FROM experiments WHERE id = ? AND created_by = ?',
+    [experimentId, userId],
+  )[0]?.values[0]
+  if (!experiment) throw new ServerError(404, 'Not found')
+  const templateId = db.exec(
+    'SELECT id FROM templates WHERE experiment_id = ? ORDER BY id LIMIT 1',
+    [experimentId],
+  )[0]?.values[0]?.[0]
+  if (templateId == null) throw new ServerError(500, 'Configure a prompt template before starting a run')
+
+  const succeeded = records.filter((record) => record.status === 'ok').length
+  const failed = records.length - succeeded
+  const synthetic = Number(experiment[1]) === 1 ? 1 : 0
+  try {
+    db.run('BEGIN')
+    db.run(
+      `INSERT INTO run_batches (experiment_id, status, started_at, finished_at, is_synthetic)
+       VALUES (?, 'complete', datetime('now'), datetime('now'), ?)`,
+      [experimentId, synthetic],
+    )
+    const batchId = lastInsertId(db)
+    for (const record of records) {
+      db.run(
+        'INSERT INTO runs (batch_id, template_id, status, is_synthetic) VALUES (?, ?, ?, ?)',
+        [batchId, Number(templateId), record.status === 'ok' ? 'complete' : 'failed', synthetic],
+      )
+      const runId = lastInsertId(db)
+      db.run(
+        'INSERT INTO raw_responses (run_id, body, content_hash, received_at, is_synthetic) VALUES (?, ?, ?, ?, ?)',
+        [runId, record.response || record.errorMessage || '', record.sha256, record.persistedAt, synthetic],
+      )
+    }
+    const reportBody = JSON.stringify({
+      experimentId,
+      batchId,
+      evidenceCount: records.length,
+      succeeded,
+      failed,
+      generatedAt: new Date().toISOString(),
+    })
+    const reportHash = records.map((record) => record.sha256).join('')
+    db.run(
+      `INSERT INTO reports (experiment_id, title, body, content_hash, hash_verified, is_synthetic)
+       VALUES (?, ?, ?, ?, 1, ?)`,
+      [experimentId, `${String(experiment[0])} — Run report`, reportBody, reportHash, synthetic],
+    )
+    db.run(
+      `UPDATE experiments
+       SET status = 'complete', last_run_at = datetime('now'), asymmetry_level = 'none'
+       WHERE id = ? AND created_by = ?`,
+      [experimentId, userId],
+    )
+    db.run('COMMIT')
+    persist()
+    return getExperimentRunSummary(token, experimentId)!
+  } catch (error) {
+    try { db.run('ROLLBACK') } catch { /* transaction was not opened */ }
+    throw error
+  }
+}
+
+/** Returns the newest persisted run for one owned experiment. */
+export function getExperimentRunSummary(
+  token: string | null,
+  experimentId: number,
+): ExperimentRunSummary | null {
+  const userId = requireUser(token)
+  const row = getDb().exec(
+    `SELECT b.id, b.status, b.finished_at,
+      COUNT(rr.id),
+      SUM(CASE WHEN r.status = 'complete' THEN 1 ELSE 0 END),
+      SUM(CASE WHEN r.status = 'failed' THEN 1 ELSE 0 END)
+     FROM run_batches b
+     JOIN experiments e ON e.id = b.experiment_id
+     LEFT JOIN runs r ON r.batch_id = b.id
+     LEFT JOIN raw_responses rr ON rr.run_id = r.id
+     WHERE b.experiment_id = ? AND e.created_by = ?
+     GROUP BY b.id
+     ORDER BY b.id DESC
+     LIMIT 1`,
+    [experimentId, userId],
+  )[0]?.values[0]
+  if (!row) return null
+  return {
+    batchId: Number(row[0]),
+    status: String(row[1]),
+    finishedAt: row[2] == null ? null : String(row[2]),
+    evidenceCount: Number(row[3] ?? 0),
+    succeeded: Number(row[4] ?? 0),
+    failed: Number(row[5] ?? 0),
+  }
 }
 
 export function deleteExperiment(token: string | null, id: number): void {

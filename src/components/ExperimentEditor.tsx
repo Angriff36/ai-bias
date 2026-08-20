@@ -14,7 +14,8 @@ import { NotFoundPage } from './NotFoundPage'
 import { RunScreen, type RunCompletion } from './RunScreen'
 import { StatusBadge } from './StatusBadge'
 import { createTargetExecutionAdapter } from '../engine/targetAdapter'
-import { loadTargets, type TargetConfig } from '../store/targetStore'
+import { createSubscriptionExecutionAdapter } from '../engine/subscriptionAdapter'
+import { loadTargets, targetAuthMode, type TargetConfig } from '../store/targetStore'
 
 type WorkspaceView = 'overview' | 'run' | 'results'
 
@@ -81,6 +82,7 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
   const configuredVariables = experiment.templates.reduce((count, template) => count + template.variables.length, 0)
   const pairCount = Math.max(1, experiment.variant_count, configuredVariables)
   const selectedTarget = availableTargets.find((target) => target.id === selectedTargetId)
+  const selectedAuthMode = selectedTarget ? targetAuthMode(selectedTarget) : 'offline'
 
   if (view === 'run') {
     return (
@@ -100,7 +102,7 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
             <strong>{selectedTarget ? selectedTarget.name : 'Offline simulator'}</strong>
             <p className="muted">
               {selectedTarget
-                ? `${selectedTarget.provider} · ${selectedTarget.modelId}`
+                ? `${selectedTarget.provider} · ${selectedTarget.modelId} · ${selectedAuthMode === 'subscription' ? 'Subscription' : 'API key'}`
                 : 'No API key required. Validate the workflow before connecting a live provider.'}
             </p>
           </div>
@@ -131,10 +133,22 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
           runsPerVariant={repeats}
           failureRate={0}
           baseLatencyMs={80}
-          startButtonLabel={selectedTarget ? 'Start provider run' : 'Start offline run'}
-          executionAdapter={selectedTarget ? createTargetExecutionAdapter(selectedTarget) : undefined}
+          startButtonLabel={
+            selectedAuthMode === 'subscription'
+              ? 'Start subscription run'
+              : selectedTarget ? 'Start provider run' : 'Start offline run'
+          }
+          executionAdapter={
+            selectedTarget
+              ? selectedAuthMode === 'subscription'
+                ? createSubscriptionExecutionAdapter(selectedTarget)
+                : createTargetExecutionAdapter(selectedTarget)
+              : undefined
+          }
           provider={selectedTarget?.provider ?? 'simulated'}
           modelId={selectedTarget?.modelId ?? 'sim-model-1'}
+          concurrency={selectedAuthMode === 'subscription' ? 1 : undefined}
+          authenticationMode={selectedAuthMode}
           onComplete={saveCompletedRun}
           onViewResults={() => setView('results')}
         />

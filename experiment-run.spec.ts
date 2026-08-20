@@ -125,3 +125,61 @@ test('a connected subscription can be added without an API key', async ({ page }
   await expect(page.getByLabel(/^API key/)).toHaveCount(0)
   await expect(page.getByText('Advanced: API keys and custom endpoints')).toBeVisible()
 })
+
+test('a subscription target can execute an experiment run serially', async ({ page }) => {
+  let providerRequests = 0
+  let inFlight = 0
+  let maxInFlight = 0
+  await page.route('**/api/subscriptions/status', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        providers: [{
+          provider: 'codex',
+          label: 'ChatGPT',
+          installed: true,
+          authenticated: true,
+          authMethod: 'oauth',
+          version: '0.147.0',
+          loginCommand: 'codex login',
+          installCommand: 'npm install -g @openai/codex',
+        }],
+      }),
+    })
+  })
+  await page.route('**/api/subscriptions/call', async (route) => {
+    providerRequests += 1
+    inFlight += 1
+    maxInFlight = Math.max(maxInFlight, inFlight)
+    const request = route.request().postDataJSON()
+    expect(request).toMatchObject({ provider: 'codex', modelId: 'default' })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    inFlight -= 1
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        provider: 'codex', modelId: 'default', content: 'Subscription-backed response', latencyMs: 50,
+      }),
+    })
+  })
+
+  await page.goto('/')
+  await page.getByLabel('Email').fill('subscription-run@example.com')
+  await page.getByLabel('Password').fill('local-test')
+  await page.getByRole('button', { name: 'Sign in' }).click()
+  await page.getByRole('tab', { name: 'Providers' }).click()
+  await page.getByRole('button', { name: 'Use ChatGPT subscription' }).click()
+  await page.getByRole('tab', { name: 'Experiments' }).click()
+  await page.getByRole('link', { name: /SYNTHETIC SAMPLE DATA/ }).click()
+  await page.getByRole('button', { name: 'Configure another run' }).click()
+  await page.getByLabel('Execution target').selectOption({ label: 'ChatGPT subscription — default' })
+  await page.getByRole('button', { name: 'Start subscription run' }).click()
+
+  await expect(page.getByText('Run complete', { exact: true })).toBeVisible({ timeout: 15_000 })
+  expect(providerRequests).toBe(2)
+  expect(maxInFlight).toBe(1)
+  await page.getByRole('button', { name: 'View Results' }).click()
+  await expect(page.getByText(/evidence records captured/i)).toBeVisible()
+})

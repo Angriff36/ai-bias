@@ -23,6 +23,8 @@ interface RunScreenProps {
   executionAdapter?: ProviderAdapter
   provider?: ProviderId
   modelId?: string
+  concurrency?: number
+  authenticationMode?: 'subscription' | 'api-key' | 'offline'
 }
 
 export interface RunCompletion {
@@ -44,6 +46,8 @@ export function RunScreen({
   executionAdapter,
   provider = 'simulated',
   modelId = 'sim-model-1',
+  concurrency,
+  authenticationMode = 'offline',
 }: RunScreenProps) {
   const [queue, setQueue] = useState<RunRequest[]>([])
   const [cells, setCells] = useState<Record<string, CellStatus>>({})
@@ -153,7 +157,7 @@ export function RunScreen({
           })
         }
       },
-    })
+    }, { concurrency })
     executorRef.current = executor
     executor.start()
   }
@@ -195,7 +199,11 @@ export function RunScreen({
             persisted with hashes.
           </p>
           <ul className="troubleshoot">
-            <li>Check that the target&apos;s API key is valid (use Test Connection).</li>
+            <li>
+              {authenticationMode === 'subscription'
+                ? 'Refresh subscription status and reconnect the provider account if needed.'
+                : 'Check that the target\'s API key is valid (use Test Connection).'}
+            </li>
             <li>Check the endpoint URL and model id on the target.</li>
             <li>Provider rate limits (429) usually clear after a short wait.</li>
           </ul>

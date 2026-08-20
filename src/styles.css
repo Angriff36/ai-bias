@@ -52,6 +52,10 @@ button.primary, button.danger, button.secondary {
   padding: 10px 16px; border-radius: 6px; font-size: 14px; cursor: pointer;
   border: 1px solid transparent; min-height: 44px; min-width: 44px;
 }
+button.link {
+  background: none; border: none; color: var(--accent); cursor: pointer; padding: 6px;
+  min-height: 32px; font: inherit; text-decoration: underline;
+}
 button.primary { background: var(--accent); color: white; }
 button.danger { background: var(--danger); color: white; }
 button.secondary { background: transparent; color: var(--text); border-color: var(--border); }
@@ -94,6 +98,40 @@ dialog.confirm input {
 }
 
 .app-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+
+/* === Report exports === */
+.report-export { position: relative; display: inline-flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.export-trigger { white-space: nowrap; }
+.export-menu {
+  position: absolute; z-index: 20; top: calc(100% + 6px); right: 0; width: min(340px, calc(100vw - 32px));
+  padding: 6px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, .45);
+}
+.export-menu button {
+  display: grid; grid-template-columns: 30px 1fr; gap: 10px; width: 100%; min-height: 56px; padding: 8px;
+  border: 0; border-radius: 5px; background: transparent; color: var(--text); text-align: left; cursor: pointer;
+}
+.export-menu button:hover, .export-menu button:focus-visible { background: rgba(79, 140, 255, .14); outline: none; }
+.export-menu strong, .export-menu small { display: block; }
+.export-menu small { margin-top: 2px; color: var(--muted); font-size: 12px; }
+.export-icon { display: grid; place-items: center; width: 28px; color: var(--accent); font-weight: 700; }
+.export-progress { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.export-error { display: flex; align-items: center; gap: 8px; color: #ffafb3; font-size: 12px; max-width: 330px; }
+
+@media (max-width: 640px) {
+  .export-menu {
+    position: fixed; inset: auto 0 0; width: 100%; border-radius: 16px 16px 0 0; padding: 12px;
+    box-shadow: 0 -12px 32px rgba(0, 0, 0, .5);
+  }
+  .export-menu::before { content: ''; display: block; width: 36px; height: 4px; margin: 0 auto 8px; border-radius: 4px; background: var(--border); }
+  .export-menu button { min-height: 64px; }
+}
+
+@media print {
+  .app-header, .tabs, .banner, .report-export, button { display: none !important; }
+  .app { max-width: none; padding: 0; color: #111; background: #fff; }
+  .panel, table { break-inside: avoid; page-break-inside: avoid; }
+}
 
 .login { max-width: 420px; }
 .login h1:focus { outline: none; }

@@ -1,14 +1,10 @@
 /**
- * Server-side secret store simulation.
+ * Local-browser credential storage.
  *
- * In production (Bolt), API keys are read from Bolt server-side secrets
- * via process.env or the Bolt Secrets API. They are injected into server
- * functions and NEVER serialized into any HTTP response.
- *
- * In this dev build, keys are held in a module-level Map (memory only).
- * They are also persisted to localStorage under a separate prefix so they
- * survive page reload, but no endpoint or React state ever echoes the key
- * value back to the caller — only a redacted `••••••••` placeholder is used.
+ * This Vite build has no server secret vault. Keys are kept under a separate
+ * localStorage prefix and are only displayed as a redacted placeholder after
+ * saving. Provider calls therefore originate in the browser; the UI states
+ * this limitation explicitly instead of presenting local storage as a server.
  */
 
 const STORAGE_PREFIX = '__plab_key__'

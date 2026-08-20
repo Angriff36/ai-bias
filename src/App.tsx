@@ -7,13 +7,22 @@ import {
   type MigrationRecord,
   type MigrationProgress,
 } from './db/database'
-import { listReports, listTargets, type ReportRow, type TargetRow } from './server/functions'
+import { listReports, type ReportRow } from './server/functions'
 import { AuthProvider, useAuth } from './auth/AuthContext'
 import { LoginPage } from './auth/LoginPage'
 import { EmptyState, SkeletonRows } from './components/EmptyState'
-import { HashBadge, ReadOnlyBadge, SyntheticSampleBadge } from './components/StatusBadge'
+import { HashBadge, ReadOnlyBadge } from './components/StatusBadge'
 import { ExperimentHistoryList } from './components/ExperimentHistoryList'
 import { ExperimentEditor } from './components/ExperimentEditor'
+import { TargetsPanel } from './components/ProviderConfig'
+import { deleteKey, setKey } from './store/keyStore'
+import {
+  deleteTarget,
+  loadTargets,
+  saveTargets,
+  upsertTarget,
+  type TargetConfig,
+} from './store/targetStore'
 
 type DbState =
   | { phase: 'migrating'; progress: MigrationProgress | null }
@@ -165,7 +174,7 @@ function MainApp({ version, readyAt }: { version: number; readyAt: string }) {
 
   const tabs: { id: Tab; label: string }[] = [
     { id: 'experiments', label: 'Experiments' },
-    { id: 'targets', label: 'Targets' },
+    { id: 'targets', label: 'Providers' },
     { id: 'reports', label: 'Reports' },
     { id: 'admin', label: 'Admin' },
   ]
@@ -189,7 +198,7 @@ function MainApp({ version, readyAt }: { version: number; readyAt: string }) {
       </nav>
       {toast && <div className="toast" role="status" aria-live="polite"><span>{toast}</span><button aria-label="Dismiss notification" onClick={() => setToast(null)}>×</button></div>}
       {tab === 'experiments' && <ExperimentRoute />}
-      {tab === 'targets' && <TargetsList />}
+      {tab === 'targets' && <ProvidersPage />}
       {tab === 'reports' && <ReportsList />}
       {tab === 'admin' && <AdminPanel version={version} />}
     </div>
@@ -201,39 +210,43 @@ function ExperimentRoute() {
   return match ? <ExperimentEditor experimentId={Number(match[1])} /> : <ExperimentHistoryList />
 }
 
-function TargetsList() {
-  const { call } = useAuth()
-  const [rows, setRows] = useState<TargetRow[] | null>(null)
-  useEffect(() => {
-    try {
-      setRows(call(listTargets))
-    } catch {
-      // 401 already triggered the login redirect
-    }
-  }, [call])
+function ProvidersPage() {
+  const [targets, setTargets] = useState<TargetConfig[]>(loadTargets)
+  const [notice, setNotice] = useState<string | null>(null)
 
-  if (rows === null) {
-    return (
-      <table>
-        <caption>AI targets</caption>
-        <thead><tr><th scope="col">Name</th><th scope="col">Model</th></tr></thead>
-        <tbody><SkeletonRows columns={2} /></tbody>
-      </table>
-    )
+  const handleSave = (target: TargetConfig, apiKey: string) => {
+    const next = upsertTarget(targets, target)
+    setKey(target.id, apiKey)
+    saveTargets(next)
+    setTargets(next)
+    setNotice(`${target.name} saved and ready for experiment runs.`)
   }
-  if (rows.length === 0) {
-    return <EmptyState message="No AI targets configured — add one to begin testing" actionLabel="Add target" />
+
+  const handleDelete = (id: string) => {
+    const target = targets.find((item) => item.id === id)
+    if (!target || !window.confirm(`Delete ${target.name}? This removes its locally stored API key.`)) return
+    const next = deleteTarget(targets, id)
+    deleteKey(id)
+    saveTargets(next)
+    setTargets(next)
+    setNotice(`${target.name} deleted.`)
   }
+
   return (
-    <table>
-      <caption>AI targets</caption>
-      <thead><tr><th scope="col">Name</th><th scope="col">Model</th></tr></thead>
-      <tbody>
-        {rows.map((r) => (
-          <tr key={r.id}><td>{r.name} {r.is_synthetic && <SyntheticSampleBadge />}</td><td><code>{r.model_id}</code></td></tr>
-        ))}
-      </tbody>
-    </table>
+    <section className="providers-page" aria-labelledby="providers-title">
+      <header className="providers-page-header">
+        <div>
+          <p className="eyebrow">Execution connections</p>
+          <h2 id="providers-title">Provider targets</h2>
+          <p className="muted">Add a provider, model, and API key, then select it when configuring a run.</p>
+        </div>
+      </header>
+      {notice && <div className="banner success" role="status">{notice}</div>}
+      <div className="local-security-note" role="note">
+        <strong>Local build:</strong> credentials are stored in this browser profile and sent directly to the selected provider. Do not use this profile on a shared computer.
+      </div>
+      <TargetsPanel targets={targets} onSave={handleSave} onDelete={handleDelete} />
+    </section>
   )
 }
 

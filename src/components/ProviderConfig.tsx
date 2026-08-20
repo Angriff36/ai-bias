@@ -247,7 +247,7 @@ export function ProviderConfigForm({ initial, onSave, onCancel }: Props) {
       <div className="field field-secure">
         <label htmlFor={id('apikey')}>
           API key
-          <span className="secure-label">Stored securely — never sent to your browser</span>
+          <span className="secure-label">Stored in this local browser profile</span>
         </label>
         <div className="key-wrap">
           <input
@@ -274,7 +274,7 @@ export function ProviderConfigForm({ initial, onSave, onCancel }: Props) {
         <p id={id('apikey-hint')} className="field-hint">
           {keyPlaceholder === REDACTED
             ? 'A key is already saved. Enter a new key to replace it.'
-            : 'Your key is stored server-side and is never echoed back.'}
+            : 'This local build sends the key directly from your browser to the selected provider.'}
         </p>
         {errors.apiKey && <FieldError id={id('apikey-err')} message={errors.apiKey} />}
       </div>
@@ -361,7 +361,7 @@ export function ProviderConfigForm({ initial, onSave, onCancel }: Props) {
         {onCancel && (
           <button type="button" className="btn-secondary" onClick={onCancel}>Cancel</button>
         )}
-        <button type="button" className="btn-primary" onClick={handleSave}>Save Target</button>
+        <button type="button" className="btn-primary" onClick={handleSave}>Save provider target</button>
       </div>
     </div>
   )
@@ -419,7 +419,7 @@ export function TargetsPanel({
   if (editMode === 'new' || editMode === 'edit') {
     return (
       <div>
-        <h2>{editMode === 'new' ? 'Add AI Target' : `Edit: ${editTarget?.name ?? ''}`}</h2>
+        <h2>{editMode === 'new' ? 'Add provider target' : `Edit: ${editTarget?.name ?? ''}`}</h2>
         <ProviderConfigForm
           initial={editTarget ?? undefined}
           onSave={(t, k) => { onSave(t, k); cancel() }}
@@ -433,9 +433,9 @@ export function TargetsPanel({
     return (
       <div className="empty-state">
         <div className="empty-card">
-          <p>Add your first AI Target to start testing.</p>
+          <p>Add your first provider target to run experiments against a real model.</p>
           <button className="btn-primary" onClick={startNew}>
-            Add AI Target
+            Add provider
           </button>
         </div>
       </div>
@@ -445,8 +445,8 @@ export function TargetsPanel({
   return (
     <div>
       <div className="targets-header">
-        <h2>AI Targets</h2>
-        <button className="btn-primary" onClick={startNew}>Add Target</button>
+        <h2>Provider targets</h2>
+        <button className="btn-primary" onClick={startNew}>Add provider</button>
       </div>
       <div className="targets-list">
         {targets.map((t) => (

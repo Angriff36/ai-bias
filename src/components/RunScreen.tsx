@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { createSimulatedAdapter } from '../engine/adapter'
+import { createSimulatedAdapter, type ProviderAdapter } from '../engine/adapter'
 import { clearBatch, shortHash } from '../engine/db'
 import {
   buildRunQueue,
   createBatchExecutor,
   type BatchExecutor,
 } from '../engine/executor'
-import type { CellStatus, RawRecord, RunRequest } from '../engine/types'
+import type { CellStatus, ProviderId, RawRecord, RunRequest } from '../engine/types'
 import { ProgressGrid } from './ProgressGrid'
 
 type RunPhase = 'idle' | 'running' | 'paused' | 'complete' | 'cancelled'
@@ -20,6 +20,9 @@ interface RunScreenProps {
   startButtonLabel?: string
   onComplete?: (result: RunCompletion) => void
   onViewResults?: () => void
+  executionAdapter?: ProviderAdapter
+  provider?: ProviderId
+  modelId?: string
 }
 
 export interface RunCompletion {
@@ -38,6 +41,9 @@ export function RunScreen({
   startButtonLabel = 'Start run',
   onComplete,
   onViewResults,
+  executionAdapter,
+  provider = 'simulated',
+  modelId = 'sim-model-1',
 }: RunScreenProps) {
   const [queue, setQueue] = useState<RunRequest[]>([])
   const [cells, setCells] = useState<Record<string, CellStatus>>({})
@@ -91,7 +97,7 @@ export function RunScreen({
     const batchId = `batch-${Date.now()}`
     batchIdRef.current = batchId
     recordsRef.current = {}
-    const newQueue = buildRunQueue(batchId, pairs, runsPerVariant, 'simulated', 'sim-model-1')
+    const newQueue = buildRunQueue(batchId, pairs, runsPerVariant, provider, modelId)
     clearBatch(batchId)
     setQueue(newQueue)
     setCells({})
@@ -105,7 +111,7 @@ export function RunScreen({
     startedAtRef.current = performance.now()
     setElapsedMs(0)
 
-    const adapter = createSimulatedAdapter({ baseLatencyMs, failureRate, failAll })
+    const adapter = executionAdapter ?? createSimulatedAdapter({ baseLatencyMs, failureRate, failAll })
     const executor = createBatchExecutor(newQueue, adapter, {
       onCell(status) {
         pendingCellsRef.current[status.requestId] = status

@@ -13,6 +13,8 @@ import { EmptyState } from './EmptyState'
 import { NotFoundPage } from './NotFoundPage'
 import { RunScreen, type RunCompletion } from './RunScreen'
 import { StatusBadge } from './StatusBadge'
+import { createTargetExecutionAdapter } from '../engine/targetAdapter'
+import { loadTargets, type TargetConfig } from '../store/targetStore'
 
 type WorkspaceView = 'overview' | 'run' | 'results'
 
@@ -26,6 +28,8 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
   const [repeats, setRepeats] = useState(1)
   const [runSummary, setRunSummary] = useState<ExperimentRunSummary | null>(null)
   const [runSaveError, setRunSaveError] = useState<string | null>(null)
+  const [availableTargets] = useState<TargetConfig[]>(loadTargets)
+  const [selectedTargetId, setSelectedTargetId] = useState('offline')
   const nameRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -76,6 +80,7 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
 
   const configuredVariables = experiment.templates.reduce((count, template) => count + template.variables.length, 0)
   const pairCount = Math.max(1, experiment.variant_count, configuredVariables)
+  const selectedTarget = availableTargets.find((target) => target.id === selectedTargetId)
 
   if (view === 'run') {
     return (
@@ -92,9 +97,22 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
 
         <div className="run-config panel">
           <div>
-            <strong>Offline simulator</strong>
-            <p className="muted">No API key required. Use this to validate the workflow before connecting a live provider.</p>
+            <strong>{selectedTarget ? selectedTarget.name : 'Offline simulator'}</strong>
+            <p className="muted">
+              {selectedTarget
+                ? `${selectedTarget.provider} · ${selectedTarget.modelId}`
+                : 'No API key required. Validate the workflow before connecting a live provider.'}
+            </p>
           </div>
+          <label>
+            Execution target
+            <select value={selectedTargetId} onChange={(event) => setSelectedTargetId(event.target.value)}>
+              <option value="offline">Offline simulator</option>
+              {availableTargets.map((target) => (
+                <option key={target.id} value={target.id}>{target.name} — {target.modelId}</option>
+              ))}
+            </select>
+          </label>
           <label>
             Repeats per variant
             <select value={repeats} onChange={(event) => setRepeats(Number(event.target.value))}>
@@ -113,7 +131,10 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
           runsPerVariant={repeats}
           failureRate={0}
           baseLatencyMs={80}
-          startButtonLabel="Start offline run"
+          startButtonLabel={selectedTarget ? 'Start provider run' : 'Start offline run'}
+          executionAdapter={selectedTarget ? createTargetExecutionAdapter(selectedTarget) : undefined}
+          provider={selectedTarget?.provider ?? 'simulated'}
+          modelId={selectedTarget?.modelId ?? 'sim-model-1'}
           onComplete={saveCompletedRun}
           onViewResults={() => setView('results')}
         />

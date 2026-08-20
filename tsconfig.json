@@ -6,6 +6,7 @@
     "module": "ESNext",
     "skipLibCheck": true,
     "moduleResolution": "bundler",
+    "types": ["node"],
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
@@ -16,5 +17,6 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src/main.tsx", "src/**/*.d.ts"]
+  "include": ["src/main.tsx", "src/**/*.d.ts", "server/**/*.ts", "vite.config.ts"],
+  "exclude": ["server/**/*.test.ts"]
 }

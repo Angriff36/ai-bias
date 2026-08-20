@@ -15,11 +15,13 @@ import { HashBadge, ReadOnlyBadge } from './components/StatusBadge'
 import { ExperimentHistoryList } from './components/ExperimentHistoryList'
 import { ExperimentEditor } from './components/ExperimentEditor'
 import { TargetsPanel } from './components/ProviderConfig'
+import { SubscriptionProviders } from './components/SubscriptionProviders'
 import { deleteKey, setKey } from './store/keyStore'
 import {
   deleteTarget,
   loadTargets,
   saveTargets,
+  targetAuthMode,
   upsertTarget,
   type TargetConfig,
 } from './store/targetStore'
@@ -222,11 +224,18 @@ function ProvidersPage() {
     setNotice(`${target.name} saved and ready for experiment runs.`)
   }
 
+  const handleUseSubscription = (target: TargetConfig) => {
+    const next = upsertTarget(targets, target)
+    saveTargets(next)
+    setTargets(next)
+    setNotice(`${target.name} is ready for experiment runs.`)
+  }
+
   const handleDelete = (id: string) => {
     const target = targets.find((item) => item.id === id)
     if (!target || !window.confirm(`Delete ${target.name}? This removes its locally stored API key.`)) return
     const next = deleteTarget(targets, id)
-    deleteKey(id)
+    if (targetAuthMode(target) === 'api-key') deleteKey(id)
     saveTargets(next)
     setTargets(next)
     setNotice(`${target.name} deleted.`)
@@ -238,14 +247,23 @@ function ProvidersPage() {
         <div>
           <p className="eyebrow">Execution connections</p>
           <h2 id="providers-title">Provider targets</h2>
-          <p className="muted">Add a provider, model, and API key, then select it when configuring a run.</p>
+          <p className="muted">Connect a subscription or add an advanced API target, then select it when configuring a run.</p>
         </div>
       </header>
       {notice && <div className="banner success" role="status">{notice}</div>}
       <div className="local-security-note" role="note">
-        <strong>Local build:</strong> credentials are stored in this browser profile and sent directly to the selected provider. Do not use this profile on a shared computer.
+        <strong>Subscription-safe:</strong> OAuth credentials stay in the official provider CLI and never enter this browser.
       </div>
-      <TargetsPanel targets={targets} onSave={handleSave} onDelete={handleDelete} />
+      <SubscriptionProviders targets={targets} onUseSubscription={handleUseSubscription} />
+      <details className="advanced-providers">
+        <summary>Advanced: API keys and custom endpoints</summary>
+        <p className="muted">Use this only for pay-as-you-go APIs, OpenRouter, or a custom compatible endpoint.</p>
+        <TargetsPanel
+          targets={targets.filter((target) => targetAuthMode(target) === 'api-key')}
+          onSave={handleSave}
+          onDelete={handleDelete}
+        />
+      </details>
     </section>
   )
 }

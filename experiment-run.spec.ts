@@ -49,6 +49,7 @@ test('a saved provider target can execute an experiment run', async ({ page }) =
   await page.getByRole('button', { name: 'Sign in' }).click()
 
   await page.getByRole('tab', { name: 'Providers' }).click()
+  await page.getByText('Advanced: API keys and custom endpoints').click()
   await page.getByRole('button', { name: 'Add provider' }).click()
   await page.getByLabel('Target name').fill('OpenRouter free target')
   await page.getByLabel('Provider', { exact: true }).selectOption('openrouter')
@@ -68,4 +69,59 @@ test('a saved provider target can execute an experiment run', async ({ page }) =
   expect(providerRequests).toBe(2)
   await expect(page.getByText('2', { exact: true }).first()).toBeVisible()
   await expect(page.getByText(/evidence records captured/i)).toBeVisible()
+})
+
+test('a connected subscription can be added without an API key', async ({ page }) => {
+  await page.route('**/api/subscriptions/status', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        providers: [
+          {
+            provider: 'claude',
+            label: 'Claude',
+            installed: true,
+            authenticated: true,
+            authMethod: 'oauth',
+            version: '2.1.237',
+            loginCommand: 'claude auth login',
+            installCommand: 'npm install -g @anthropic-ai/claude-code',
+          },
+          {
+            provider: 'codex',
+            label: 'ChatGPT',
+            installed: true,
+            authenticated: true,
+            authMethod: 'oauth',
+            version: '0.147.0',
+            loginCommand: 'codex login',
+            installCommand: 'npm install -g @openai/codex',
+          },
+          {
+            provider: 'gemini',
+            label: 'Google Gemini',
+            installed: false,
+            authenticated: false,
+            authMethod: 'none',
+            loginCommand: 'gemini',
+            installCommand: 'npm install -g @google/gemini-cli',
+          },
+        ],
+      }),
+    })
+  })
+
+  await page.goto('/')
+  await page.getByLabel('Email').fill('subscription-flow@example.com')
+  await page.getByLabel('Password').fill('local-test')
+  await page.getByRole('button', { name: 'Sign in' }).click()
+  await page.getByRole('tab', { name: 'Providers' }).click()
+
+  await expect(page.getByRole('heading', { name: 'Subscriptions' })).toBeVisible()
+  await page.getByRole('button', { name: 'Use ChatGPT subscription' }).click()
+  await expect(page.getByText('ChatGPT subscription', { exact: true })).toBeVisible()
+  await expect(page.getByText('Subscription', { exact: true })).toBeVisible()
+  await expect(page.getByLabel(/^API key/)).toHaveCount(0)
+  await expect(page.getByText('Advanced: API keys and custom endpoints')).toBeVisible()
 })

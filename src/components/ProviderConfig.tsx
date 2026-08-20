@@ -204,6 +204,7 @@ export function ProviderConfigForm({ initial, onSave, onCancel }: Props) {
       name: name.trim(),
       provider,
       modelId: modelId.trim(),
+      authMode: 'api-key',
       ...(endpointUrl ? { endpointUrl } : {}),
     }
     onSave(target, key)

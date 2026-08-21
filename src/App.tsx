@@ -11,20 +11,11 @@ import { listReports, type ReportRow } from './server/functions'
 import { AuthProvider, useAuth } from './auth/AuthContext'
 import { LoginPage } from './auth/LoginPage'
 import { EmptyState, SkeletonRows } from './components/EmptyState'
-import { HashBadge, ReadOnlyBadge } from './components/StatusBadge'
+import { ReadOnlyBadge, RecordedHashBadge } from './components/StatusBadge'
 import { ExperimentHistoryList } from './components/ExperimentHistoryList'
 import { ExperimentEditor } from './components/ExperimentEditor'
-import { TargetsPanel } from './components/ProviderConfig'
-import { SubscriptionProviders } from './components/SubscriptionProviders'
-import { deleteKey, setKey } from './store/keyStore'
-import {
-  deleteTarget,
-  loadTargets,
-  saveTargets,
-  targetAuthMode,
-  upsertTarget,
-  type TargetConfig,
-} from './store/targetStore'
+import { ReportDetailView } from './components/ReportDetailView'
+import { ProvidersPanel } from './components/ProvidersPanel'
 
 type DbState =
   | { phase: 'migrating'; progress: MigrationProgress | null }
@@ -200,8 +191,8 @@ function MainApp({ version, readyAt }: { version: number; readyAt: string }) {
       </nav>
       {toast && <div className="toast" role="status" aria-live="polite"><span>{toast}</span><button aria-label="Dismiss notification" onClick={() => setToast(null)}>×</button></div>}
       {tab === 'experiments' && <ExperimentRoute />}
-      {tab === 'targets' && <ProvidersPage />}
-      {tab === 'reports' && <ReportsList />}
+      {tab === 'targets' && <ProvidersPanel />}
+      {tab === 'reports' && <ReportsRoute />}
       {tab === 'admin' && <AdminPanel version={version} />}
     </div>
   )
@@ -212,60 +203,9 @@ function ExperimentRoute() {
   return match ? <ExperimentEditor experimentId={Number(match[1])} /> : <ExperimentHistoryList />
 }
 
-function ProvidersPage() {
-  const [targets, setTargets] = useState<TargetConfig[]>(loadTargets)
-  const [notice, setNotice] = useState<string | null>(null)
-
-  const handleSave = (target: TargetConfig, apiKey: string) => {
-    const next = upsertTarget(targets, target)
-    setKey(target.id, apiKey)
-    saveTargets(next)
-    setTargets(next)
-    setNotice(`${target.name} saved and ready for experiment runs.`)
-  }
-
-  const handleUseSubscription = (target: TargetConfig) => {
-    const next = upsertTarget(targets, target)
-    saveTargets(next)
-    setTargets(next)
-    setNotice(`${target.name} is ready for experiment runs.`)
-  }
-
-  const handleDelete = (id: string) => {
-    const target = targets.find((item) => item.id === id)
-    if (!target || !window.confirm(`Delete ${target.name}? This removes its locally stored API key.`)) return
-    const next = deleteTarget(targets, id)
-    if (targetAuthMode(target) === 'api-key') deleteKey(id)
-    saveTargets(next)
-    setTargets(next)
-    setNotice(`${target.name} deleted.`)
-  }
-
-  return (
-    <section className="providers-page" aria-labelledby="providers-title">
-      <header className="providers-page-header">
-        <div>
-          <p className="eyebrow">Execution connections</p>
-          <h2 id="providers-title">Provider targets</h2>
-          <p className="muted">Connect a subscription or add an advanced API target, then select it when configuring a run.</p>
-        </div>
-      </header>
-      {notice && <div className="banner success" role="status">{notice}</div>}
-      <div className="local-security-note" role="note">
-        <strong>Subscription-safe:</strong> OAuth credentials stay in the official provider CLI and never enter this browser.
-      </div>
-      <SubscriptionProviders targets={targets} onUseSubscription={handleUseSubscription} />
-      <details className="advanced-providers">
-        <summary>Advanced: API keys and custom endpoints</summary>
-        <p className="muted">Use this only for pay-as-you-go APIs, OpenRouter, or a custom compatible endpoint.</p>
-        <TargetsPanel
-          targets={targets.filter((target) => targetAuthMode(target) === 'api-key')}
-          onSave={handleSave}
-          onDelete={handleDelete}
-        />
-      </details>
-    </section>
-  )
+function ReportsRoute() {
+  const match = window.location.hash.match(/^#\/reports\/(\d+)$/)
+  return match ? <ReportDetailView reportId={Number(match[1])} /> : <ReportsList />
 }
 
 function ReportsList() {
@@ -283,7 +223,7 @@ function ReportsList() {
     return (
       <table>
         <caption>Reports</caption>
-        <thead><tr><th scope="col">Title</th><th scope="col">Integrity</th></tr></thead>
+        <thead><tr><th scope="col">Title</th><th scope="col">Evidence</th></tr></thead>
         <tbody><SkeletonRows columns={2} /></tbody>
       </table>
     )
@@ -294,12 +234,12 @@ function ReportsList() {
   return (
     <table>
       <caption>Reports</caption>
-      <thead><tr><th scope="col">Title</th><th scope="col">Integrity</th></tr></thead>
+      <thead><tr><th scope="col">Title</th><th scope="col">Evidence</th></tr></thead>
       <tbody>
         {rows.map((r) => (
           <tr key={r.id}>
-            <td>{r.title} <ReadOnlyBadge /></td>
-            <td><HashBadge verified={r.hash_verified} /></td>
+            <td><a className="report-link" href={`#/reports/${r.id}`}>{r.title}</a> <ReadOnlyBadge /></td>
+            <td><RecordedHashBadge /></td>
           </tr>
         ))}
       </tbody>

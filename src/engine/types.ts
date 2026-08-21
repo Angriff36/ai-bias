@@ -9,12 +9,23 @@
 
 export type ProviderId = 'openai' | 'anthropic' | 'google' | 'openrouter' | 'custom' | 'simulated'
 
+export interface RunPair {
+  id: string
+  question: string
+  variantA: { key: 'A'; label: string; prompt: string }
+  variantB: { key: 'B'; label: string; prompt: string }
+}
+
 export interface RunRequest {
   /** Stable id, unique within the batch. */
   id: string
   batchId: string
   pairIndex: number
   runIndex: number
+  /** External question/pair identity for imported experiments. */
+  pairId?: string
+  question?: string
+  variantKey?: 'A' | 'B'
   variantLabel: string
   prompt: string
   provider: ProviderId
@@ -36,7 +47,13 @@ export interface RawRecord {
   batchId: string
   pairIndex: number
   runIndex: number
+  pairId?: string
+  question?: string
+  variantKey?: 'A' | 'B'
   variantLabel: string
+  /** The model that produced this record. */
+  provider: ProviderId
+  modelId: string
   prompt: string
   response: string
   latencyMs: number

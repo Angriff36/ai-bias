@@ -1,5 +1,6 @@
 import { getDb, persist } from '../db/database'
 import type { RawRecord } from '../engine/types'
+import { parseExperimentImport, type ExperimentImportDocument } from '../lib/experimentImport'
 
 /**
  * Bolt server functions. Every function requires a session token and scopes
@@ -33,12 +34,23 @@ export interface ExperimentRow {
 export interface VariantDetail { id: number; value: string; label: string | null }
 export interface VariableDetail { id: number; name: string; kind: string; variants: VariantDetail[] }
 export interface TemplateDetail { id: number; name: string; body: string; variables: VariableDetail[] }
+export interface ExperimentPairVariantDetail { key: 'A' | 'B'; label: string; prompt: string }
+export interface ExperimentPairDetail {
+  id: number
+  external_id: string
+  ordinal: number
+  question: string
+  variantA: ExperimentPairVariantDetail
+  variantB: ExperimentPairVariantDetail
+}
 export interface ExperimentDetail extends ExperimentRow {
   hypothesis: string | null
   target_id: number
   templates: TemplateDetail[]
   run_count: number
   cloned_from_name: string | null
+  default_repeats: number
+  pairs: ExperimentPairDetail[]
 }
 
 export interface ExperimentPage {
@@ -72,13 +84,59 @@ const SORT_COLUMNS: Record<ExperimentSortField, string> = {
 }
 export interface TargetRow { id: number; name: string; model_id: string; is_synthetic: boolean }
 export interface ReportRow { id: number; title: string; hash_verified: boolean; is_synthetic: boolean }
+export interface ReportEvidenceRow {
+  requestId: string
+  pairId?: string
+  question?: string
+  variantKey?: 'A' | 'B'
+  variantLabel: string
+  prompt: string
+  response: string
+  status: 'ok' | 'error'
+  statusCode: number | null
+  latencyMs: number | null
+  recordedAt: string
+  recordHash: string
+}
+export interface ReportQuestionVariant {
+  key: 'A' | 'B'
+  label: string
+  prompt: string
+  evidence: ReportEvidenceRow[]
+}
+export interface ReportQuestion {
+  id: string
+  question: string
+  variantA: ReportQuestionVariant
+  variantB: ReportQuestionVariant
+}
+export interface ReportDetail {
+  id: number
+  title: string
+  experimentName: string
+  generatedAt: string
+  promptTemplate: string
+  evidenceChain: string
+  summary: { evidenceCount: number; succeeded: number; failed: number }
+  questions: ReportQuestion[]
+  evidence: ReportEvidenceRow[]
+}
+export interface ModelRunSummary {
+  provider: string
+  modelId: string
+  succeeded: number
+  failed: number
+}
 export interface ExperimentRunSummary {
   batchId: number
+  reportId: number | null
   status: string
   finishedAt: string | null
   evidenceCount: number
   succeeded: number
   failed: number
+  /** One row per model the batch ran against. */
+  models: ModelRunSummary[]
 }
 export interface ExportExperimentRow {
   id: number
@@ -261,7 +319,7 @@ export function getExperiment(token: string | null, id: number): ExperimentDetai
   const db = getDb()
   const result = db.exec(
     `SELECT e.id, e.name, e.hypothesis, e.status, e.target_id, e.asymmetry_level, e.created_at,
-      e.last_run_at, e.is_synthetic, source.name,
+      e.last_run_at, e.is_synthetic, e.default_repeats, source.name,
       (SELECT COUNT(*) FROM run_batches b WHERE b.experiment_id = e.id),
       (SELECT COUNT(*) FROM variants v
        JOIN variables vr ON vr.id = v.variable_id
@@ -274,7 +332,7 @@ export function getExperiment(token: string | null, id: number): ExperimentDetai
   )
   const row = result[0]?.values[0]
   if (!row) throw new ServerError(404, 'Not found')
-  const [experimentId, name, hypothesis, status, targetId, asymmetryLevel, createdAt, lastRunAt, isSynthetic, clonedFromName, runCount, variantCount] = row
+  const [experimentId, name, hypothesis, status, targetId, asymmetryLevel, createdAt, lastRunAt, isSynthetic, defaultRepeats, clonedFromName, runCount, variantCount] = row
   const templateRows = db.exec('SELECT id, name, body FROM templates WHERE experiment_id = ? ORDER BY id', [Number(experimentId)])[0]?.values ?? []
   const templates = templateRows.map((template) => {
     const templateId = Number(template[0])
@@ -297,13 +355,91 @@ export function getExperiment(token: string | null, id: number): ExperimentDetai
       }),
     }
   })
+  const pairRows = db.exec(
+    'SELECT id, external_id, ordinal, question FROM experiment_pairs WHERE experiment_id = ? ORDER BY ordinal, id',
+    [Number(experimentId)],
+  )[0]?.values ?? []
+  const pairs: ExperimentPairDetail[] = pairRows.flatMap((pair) => {
+    const pairId = Number(pair[0])
+    const variantRows = db.exec(
+      'SELECT variant_key, label, prompt FROM experiment_pair_variants WHERE pair_id = ? ORDER BY variant_key',
+      [pairId],
+    )[0]?.values ?? []
+    const variantA = variantRows.find((variant) => String(variant[0]) === 'A')
+    const variantB = variantRows.find((variant) => String(variant[0]) === 'B')
+    if (!variantA || !variantB) return []
+    return [{
+      id: pairId,
+      external_id: String(pair[1]),
+      ordinal: Number(pair[2]),
+      question: String(pair[3]),
+      variantA: { key: 'A', label: String(variantA[1]), prompt: String(variantA[2]) },
+      variantB: { key: 'B', label: String(variantB[1]), prompt: String(variantB[2]) },
+    }]
+  })
   return {
     id: Number(experimentId), name: String(name), hypothesis: hypothesis == null ? null : String(hypothesis),
     status: String(status), target_id: Number(targetId), asymmetry_level: String(asymmetryLevel),
     created_at: String(createdAt), last_run_at: lastRunAt == null ? null : String(lastRunAt),
     is_synthetic: Number(isSynthetic) === 1,
     cloned_from_name: clonedFromName == null ? null : String(clonedFromName), run_count: Number(runCount),
-    variant_count: Number(variantCount), templates,
+    variant_count: Number(variantCount), templates, default_repeats: Number(defaultRepeats ?? 1), pairs,
+  }
+}
+
+/** Creates an experiment from a validated, explicit A/B prompt document. */
+export function importExperiment(token: string | null, input: ExperimentImportDocument): ExperimentDetail {
+  const userId = requireUser(token)
+  const parsed = parseExperimentImport(JSON.stringify(input))
+  if (!parsed.ok) {
+    throw new ServerError(500, `Invalid experiment import: ${parsed.issues[0].path} ${parsed.issues[0].message}`)
+  }
+  const db = getDb()
+  let targetId = db.exec(
+    'SELECT id FROM targets WHERE created_by = ? ORDER BY id LIMIT 1',
+    [userId],
+  )[0]?.values[0]?.[0]
+  if (targetId == null) {
+    db.run(
+      'INSERT INTO targets (name, model_id, created_by) VALUES (?, ?, ?)',
+      [`Unassigned (${userId})`, 'unassigned', userId],
+    )
+    targetId = lastInsertId(db)
+  }
+
+  try {
+    db.run('BEGIN')
+    db.run(
+      `INSERT INTO experiments (name, hypothesis, status, target_id, created_by, default_repeats)
+       VALUES (?, ?, 'draft', ?, ?, ?)`,
+      [parsed.value.name, parsed.value.description ?? null, Number(targetId), userId, parsed.value.repeats],
+    )
+    const experimentId = lastInsertId(db)
+    db.run(
+      'INSERT INTO templates (experiment_id, name, body) VALUES (?, ?, ?)',
+      [experimentId, 'Imported complete prompts', 'Imported complete prompts; see matched questions.'],
+    )
+    for (const [ordinal, pair] of parsed.value.pairs.entries()) {
+      db.run(
+        'INSERT INTO experiment_pairs (experiment_id, external_id, ordinal, question) VALUES (?, ?, ?, ?)',
+        [experimentId, pair.id, ordinal, pair.question],
+      )
+      const pairId = lastInsertId(db)
+      db.run(
+        'INSERT INTO experiment_pair_variants (pair_id, variant_key, label, prompt) VALUES (?, ?, ?, ?)',
+        [pairId, 'A', pair.variantA.label, pair.variantA.prompt],
+      )
+      db.run(
+        'INSERT INTO experiment_pair_variants (pair_id, variant_key, label, prompt) VALUES (?, ?, ?, ?)',
+        [pairId, 'B', pair.variantB.label, pair.variantB.prompt],
+      )
+    }
+    db.run('COMMIT')
+    persist()
+    return getExperiment(token, experimentId)
+  } catch (error) {
+    try { db.run('ROLLBACK') } catch { /* transaction was not opened */ }
+    throw error
   }
 }
 
@@ -315,7 +451,7 @@ export function cloneExperiment(token: string | null, id: number): ExperimentDet
   const userId = requireUser(token)
   const db = getDb()
   const source = db.exec(
-    'SELECT id, name, hypothesis, target_id, asymmetry_level FROM experiments WHERE id = ? AND created_by = ?',
+    'SELECT id, name, hypothesis, target_id, asymmetry_level, default_repeats FROM experiments WHERE id = ? AND created_by = ?',
     [id, userId],
   )[0]?.values[0]
   if (!source) throw new ServerError(404, 'Not found')
@@ -323,9 +459,9 @@ export function cloneExperiment(token: string | null, id: number): ExperimentDet
   try {
     db.run('BEGIN')
     db.run(
-      `INSERT INTO experiments (name, hypothesis, status, target_id, created_by, asymmetry_level, cloned_from_experiment_id)
-       VALUES (?, ?, 'draft', ?, ?, ?, ?)`,
-      [`Copy of ${String(source[1])}`, source[2] == null ? null : String(source[2]), Number(source[3]), userId, String(source[4]), Number(source[0])],
+      `INSERT INTO experiments (name, hypothesis, status, target_id, created_by, asymmetry_level, cloned_from_experiment_id, default_repeats)
+       VALUES (?, ?, 'draft', ?, ?, ?, ?, ?)`,
+      [`Copy of ${String(source[1])}`, source[2] == null ? null : String(source[2]), Number(source[3]), userId, String(source[4]), Number(source[0]), Number(source[5] ?? 1)],
     )
     const cloneId = Number(db.exec('SELECT last_insert_rowid()')[0].values[0][0])
     const templates = db.exec('SELECT id, name, body FROM templates WHERE experiment_id = ? ORDER BY id', [Number(source[0])])[0]?.values ?? []
@@ -340,6 +476,27 @@ export function cloneExperiment(token: string | null, id: number): ExperimentDet
         for (const variant of variants) {
           db.run('INSERT INTO variants (variable_id, value, label) VALUES (?, ?, ?)', [clonedVariableId, String(variant[0]), variant[1] == null ? null : String(variant[1])])
         }
+      }
+    }
+    const pairRows = db.exec(
+      'SELECT id, external_id, ordinal, question FROM experiment_pairs WHERE experiment_id = ? ORDER BY ordinal, id',
+      [Number(source[0])],
+    )[0]?.values ?? []
+    for (const pair of pairRows) {
+      db.run(
+        'INSERT INTO experiment_pairs (experiment_id, external_id, ordinal, question) VALUES (?, ?, ?, ?)',
+        [cloneId, String(pair[1]), Number(pair[2]), String(pair[3])],
+      )
+      const clonedPairId = lastInsertId(db)
+      const variants = db.exec(
+        'SELECT variant_key, label, prompt FROM experiment_pair_variants WHERE pair_id = ? ORDER BY variant_key',
+        [Number(pair[0])],
+      )[0]?.values ?? []
+      for (const variant of variants) {
+        db.run(
+          'INSERT INTO experiment_pair_variants (pair_id, variant_key, label, prompt) VALUES (?, ?, ?, ?)',
+          [clonedPairId, String(variant[0]), String(variant[1]), String(variant[2])],
+        )
       }
     }
     db.run('COMMIT')
@@ -401,8 +558,16 @@ export function completeOfflineRun(
     const batchId = lastInsertId(db)
     for (const record of records) {
       db.run(
-        'INSERT INTO runs (batch_id, template_id, status, is_synthetic) VALUES (?, ?, ?, ?)',
-        [batchId, Number(templateId), record.status === 'ok' ? 'complete' : 'failed', synthetic],
+        `INSERT INTO runs (batch_id, template_id, status, is_synthetic, provider, model_id)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [
+          batchId,
+          Number(templateId),
+          record.status === 'ok' ? 'complete' : 'failed',
+          synthetic,
+          record.provider ?? 'simulated',
+          record.modelId ?? 'sim-model-1',
+        ],
       )
       const runId = lastInsertId(db)
       db.run(
@@ -411,12 +576,36 @@ export function completeOfflineRun(
       )
     }
     const reportBody = JSON.stringify({
+      schemaVersion: 1,
       experimentId,
       batchId,
       evidenceCount: records.length,
       succeeded,
       failed,
       generatedAt: new Date().toISOString(),
+      pairs: buildReportQuestions(records).map((question) => ({
+        id: question.id,
+        question: question.question,
+        variantA: { label: question.variantA.label, prompt: question.variantA.prompt },
+        variantB: { label: question.variantB.label, prompt: question.variantB.prompt },
+      })),
+      questions: buildReportQuestions(records),
+      records: records.map((record) => ({
+        requestId: record.requestId,
+        pairId: record.pairId,
+        question: record.question,
+        variantKey: record.variantKey,
+        variantLabel: record.variantLabel,
+        provider: record.provider,
+        modelId: record.modelId,
+        prompt: record.prompt,
+        response: record.response || record.errorMessage || '',
+        status: record.status,
+        statusCode: record.statusCode,
+        latencyMs: record.latencyMs,
+        recordedAt: record.persistedAt,
+        recordHash: record.sha256,
+      })),
     })
     const reportHash = records.map((record) => record.sha256).join('')
     db.run(
@@ -449,7 +638,8 @@ export function getExperimentRunSummary(
     `SELECT b.id, b.status, b.finished_at,
       COUNT(rr.id),
       SUM(CASE WHEN r.status = 'complete' THEN 1 ELSE 0 END),
-      SUM(CASE WHEN r.status = 'failed' THEN 1 ELSE 0 END)
+      SUM(CASE WHEN r.status = 'failed' THEN 1 ELSE 0 END),
+      (SELECT rp.id FROM reports rp WHERE rp.experiment_id = b.experiment_id ORDER BY rp.id DESC LIMIT 1)
      FROM run_batches b
      JOIN experiments e ON e.id = b.experiment_id
      LEFT JOIN runs r ON r.batch_id = b.id
@@ -461,13 +651,30 @@ export function getExperimentRunSummary(
     [experimentId, userId],
   )[0]?.values[0]
   if (!row) return null
+  const batchId = Number(row[0])
+  const modelRows = getDb().exec(
+    `SELECT provider, model_id,
+       SUM(CASE WHEN status = 'complete' THEN 1 ELSE 0 END),
+       SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END)
+     FROM runs WHERE batch_id = ?
+     GROUP BY provider, model_id
+     ORDER BY model_id`,
+    [batchId],
+  )[0]?.values ?? []
   return {
-    batchId: Number(row[0]),
+    batchId,
+    reportId: row[6] == null ? null : Number(row[6]),
     status: String(row[1]),
     finishedAt: row[2] == null ? null : String(row[2]),
     evidenceCount: Number(row[3] ?? 0),
     succeeded: Number(row[4] ?? 0),
     failed: Number(row[5] ?? 0),
+    models: modelRows.map((m) => ({
+      provider: String(m[0]),
+      modelId: String(m[1]),
+      succeeded: Number(m[2] ?? 0),
+      failed: Number(m[3] ?? 0),
+    })),
   }
 }
 
@@ -541,6 +748,135 @@ export function listReports(token: string | null): ReportRow[] {
     hash_verified: Number(r[2]) === 1,
     is_synthetic: Number(r[3]) === 1,
   }))
+}
+
+/** Returns one owned, non-synthetic report with its persisted run evidence. */
+export function getReportDetail(token: string | null, reportId: number): ReportDetail {
+  const userId = requireUser(token)
+  const db = getDb()
+  const row = db.exec(
+    `SELECT r.id, r.title, r.body, r.content_hash, r.created_at, e.name,
+      (SELECT t.body FROM templates t WHERE t.experiment_id = e.id ORDER BY t.id LIMIT 1)
+     FROM reports r
+     JOIN experiments e ON e.id = r.experiment_id
+     WHERE r.id = ? AND e.created_by = ? AND e.is_synthetic = 0`,
+    [reportId, userId],
+  )[0]?.values[0]
+  if (!row) throw new ServerError(404, 'Not found')
+
+  const rawBody = String(row[2])
+  let body: Record<string, unknown> = {}
+  try {
+    const parsed = JSON.parse(rawBody)
+    if (typeof parsed === 'object' && parsed !== null) body = parsed as Record<string, unknown>
+  } catch { /* legacy report bodies may be plain text */ }
+
+  const storedRecords = Array.isArray(body.records) ? body.records : []
+  let evidence: ReportEvidenceRow[] = storedRecords.flatMap((value) => {
+    if (typeof value !== 'object' || value === null) return []
+    const record = value as Record<string, unknown>
+    const status = record.status === 'error' ? 'error' : 'ok'
+    return [{
+      requestId: String(record.requestId ?? ''),
+      pairId: typeof record.pairId === 'string' ? record.pairId : undefined,
+      question: typeof record.question === 'string' ? record.question : undefined,
+      variantKey: record.variantKey === 'A' || record.variantKey === 'B' ? record.variantKey : undefined,
+      variantLabel: String(record.variantLabel ?? '—'),
+      prompt: String(record.prompt ?? ''),
+      response: String(record.response ?? ''),
+      status,
+      statusCode: typeof record.statusCode === 'number' ? record.statusCode : null,
+      latencyMs: typeof record.latencyMs === 'number' ? record.latencyMs : null,
+      recordedAt: String(record.recordedAt ?? ''),
+      recordHash: String(record.recordHash ?? ''),
+    }]
+  })
+
+  // Reports created before detailed records were embedded still expose the
+  // response bodies and stored hashes from their linked batch.
+  if (evidence.length === 0 && typeof body.batchId === 'number') {
+    const legacyRows = db.exec(
+      `SELECT rr.id, ru.status, rr.body, rr.content_hash, rr.received_at
+       FROM raw_responses rr
+       JOIN runs ru ON ru.id = rr.run_id
+       WHERE ru.batch_id = ?
+       ORDER BY rr.id`,
+      [body.batchId],
+    )[0]?.values ?? []
+    evidence = legacyRows.map((legacy, index) => ({
+      requestId: `record-${String(legacy[0])}`,
+      variantLabel: `Record ${index + 1}`,
+      prompt: String(row[6] ?? ''),
+      response: String(legacy[2] ?? ''),
+      status: String(legacy[1]) === 'failed' ? 'error' : 'ok',
+      statusCode: null,
+      latencyMs: null,
+      recordedAt: String(legacy[4] ?? ''),
+      recordHash: String(legacy[3] ?? ''),
+    }))
+  }
+
+  const succeeded = numberFrom(body.succeeded, evidence.filter((record) => record.status === 'ok').length)
+  const failed = numberFrom(body.failed, evidence.filter((record) => record.status === 'error').length)
+  const questions = buildReportQuestionsFromEvidence(evidence)
+  return {
+    id: Number(row[0]),
+    title: String(row[1]),
+    experimentName: String(row[5]),
+    generatedAt: typeof body.generatedAt === 'string' ? body.generatedAt : String(row[4]),
+    promptTemplate: String(row[6] ?? ''),
+    evidenceChain: String(row[3]),
+    summary: {
+      evidenceCount: numberFrom(body.evidenceCount, evidence.length),
+      succeeded,
+      failed,
+    },
+    questions,
+    evidence,
+  }
+}
+
+function buildReportQuestions(records: RawRecord[]): ReportQuestion[] {
+  return buildReportQuestionsFromEvidence(records.map((record) => ({
+    requestId: record.requestId,
+    pairId: record.pairId,
+    question: record.question,
+    variantKey: record.variantKey,
+    variantLabel: record.variantLabel,
+    prompt: record.prompt,
+    response: record.response || record.errorMessage || '',
+    status: record.status,
+    statusCode: record.statusCode,
+    latencyMs: record.latencyMs,
+    recordedAt: record.persistedAt,
+    recordHash: record.sha256,
+  })))
+}
+
+function buildReportQuestionsFromEvidence(evidence: ReportEvidenceRow[]): ReportQuestion[] {
+  const grouped = new Map<string, ReportQuestion>()
+  for (const record of evidence) {
+    if (!record.pairId || !record.variantKey) continue
+    let question = grouped.get(record.pairId)
+    if (!question) {
+      question = {
+        id: record.pairId,
+        question: record.question ?? '',
+        variantA: { key: 'A', label: '', prompt: '', evidence: [] },
+        variantB: { key: 'B', label: '', prompt: '', evidence: [] },
+      }
+      grouped.set(record.pairId, question)
+    }
+    const variant = record.variantKey === 'A' ? question.variantA : question.variantB
+    variant.label = record.variantLabel
+    variant.prompt = record.prompt
+    variant.evidence.push(record)
+  }
+  return [...grouped.values()]
+}
+
+function numberFrom(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback
 }
 
 export function exportExperiments(token: string | null): ExportExperimentRow[] {

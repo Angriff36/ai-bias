@@ -14,6 +14,10 @@ export function ReadOnlyBadge() {
   )
 }
 
+export function RecordedHashBadge() {
+  return <span className="badge recorded" aria-label="Evidence hashes recorded">⌁ hash recorded</span>
+}
+
 /** Persistent text label; color is supplemental rather than the only cue. */
 export function SyntheticSampleBadge() {
   return (

@@ -7,7 +7,7 @@
 import type { ProviderAdapter } from './adapter'
 import { isAdapterFailure } from './adapter'
 import { persistRawRecord } from './db'
-import type { CellStatus, RawRecord, RunRequest } from './types'
+import type { CellStatus, RawRecord, RunPair, RunRequest } from './types'
 
 export interface ExecutorCallbacks {
   /** Fired after the raw record is persisted (or when a cell enters flight). */
@@ -99,7 +99,12 @@ export function createBatchExecutor(
       batchId: request.batchId,
       pairIndex: request.pairIndex,
       runIndex: request.runIndex,
+      pairId: request.pairId,
+      question: request.question,
+      variantKey: request.variantKey,
       variantLabel: request.variantLabel,
+      provider: request.provider,
+      modelId: request.modelId,
       prompt: request.prompt,
       response,
       latencyMs,
@@ -172,22 +177,35 @@ export function shuffle<T>(items: T[]): T[] {
 
 export function buildRunQueue(
   batchId: string,
-  pairs: number,
+  pairs: RunPair[] | number,
   runsPerVariant: number,
   provider: RunRequest['provider'],
   modelId: string,
+  legacyPrompt?: string,
 ): RunRequest[] {
   const requests: RunRequest[] = []
-  for (let p = 0; p < pairs; p++) {
-    for (const variant of ['A', 'B'] as const) {
+  const definitions: RunPair[] = Array.isArray(pairs)
+    ? pairs
+    : Array.from({ length: pairs }, (_, index) => ({
+      id: `legacy-pair-${index + 1}`,
+      question: '',
+      variantA: { key: 'A' as const, label: 'A', prompt: legacyPrompt ?? '' },
+      variantB: { key: 'B' as const, label: 'B', prompt: legacyPrompt ?? '' },
+    }))
+  for (let p = 0; p < definitions.length; p++) {
+    const pair = definitions[p]
+    for (const variant of [pair.variantA, pair.variantB]) {
       for (let r = 0; r < runsPerVariant; r++) {
         requests.push({
-          id: `${batchId}-p${p}-${variant}-r${r}`,
+          id: `${batchId}-p${p}-${variant.key}-r${r}`,
           batchId,
           pairIndex: p,
           runIndex: r,
-          variantLabel: variant,
-          prompt: `Matched prompt for pair ${p + 1}, variant ${variant}.`,
+          pairId: pair.id,
+          question: pair.question,
+          variantKey: variant.key,
+          variantLabel: variant.label,
+          prompt: variant.prompt,
           provider,
           modelId,
         })

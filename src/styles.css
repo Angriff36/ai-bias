@@ -693,3 +693,12 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 .wz-compare-row .wz-input { flex: 1; min-width: 160px; }
 .wz-compare-preview { margin-bottom: 12px; }
 .wz-compare-preview summary { cursor: pointer; }
+
+/* Run configuration — choose several models without leaving the experiment. */
+.target-picker { border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin: 0; }
+.target-picker legend { padding: 0 6px; font-weight: 600; }
+.target-option { display: flex; align-items: flex-start; gap: 10px; padding: 8px; min-height: 44px; border-radius: 8px; cursor: pointer; }
+.target-option:hover { background: rgba(255, 255, 255, 0.03); }
+.target-option span { display: flex; flex-direction: column; gap: 2px; }
+.target-option small { color: var(--muted); }
+.inline-provider-setup { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }

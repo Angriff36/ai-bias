@@ -9,6 +9,7 @@ import {
 } from '../server/functions'
 import { useAuth } from '../auth/AuthContext'
 import { CloneExperimentButton } from './CloneExperimentButton'
+import { DropdownSelect } from './DropdownSelect'
 import { EmptyState } from './EmptyState'
 import { NotFoundPage } from './NotFoundPage'
 import { RunScreen, type RunCompletion } from './RunScreen'
@@ -16,6 +17,9 @@ import { StatusBadge } from './StatusBadge'
 import { createTargetExecutionAdapter } from '../engine/targetAdapter'
 import { createSubscriptionExecutionAdapter } from '../engine/subscriptionAdapter'
 import { loadTargets, targetAuthMode, type TargetConfig } from '../store/targetStore'
+import { ProvidersPanel } from './ProvidersPanel'
+import { createSimulatedAdapter, type RunTarget } from '../engine/adapter'
+import type { RunPair } from '../engine/types'
 
 type WorkspaceView = 'overview' | 'run' | 'results'
 
@@ -29,8 +33,11 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
   const [repeats, setRepeats] = useState(1)
   const [runSummary, setRunSummary] = useState<ExperimentRunSummary | null>(null)
   const [runSaveError, setRunSaveError] = useState<string | null>(null)
-  const [availableTargets] = useState<TargetConfig[]>(loadTargets)
-  const [selectedTargetId, setSelectedTargetId] = useState('offline')
+  const [questionSearch, setQuestionSearch] = useState('')
+  const [availableTargets, setAvailableTargets] = useState<TargetConfig[]>(loadTargets)
+  /** Every selected model runs the whole experiment, so results can be compared. */
+  const [selectedTargetIds, setSelectedTargetIds] = useState<string[]>(['offline'])
+  const [providerSetupOpen, setProviderSetupOpen] = useState(false)
   const nameRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -38,6 +45,7 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
       const loaded = call((token) => getExperiment(token, experimentId))
       setExperiment(loaded)
       setName(loaded.name)
+      setRepeats(loaded.default_repeats)
       setRunSummary(call((token) => getExperimentRunSummary(token, experimentId)))
       requestAnimationFrame(() => {
         nameRef.current?.focus()
@@ -79,10 +87,47 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
   if (error) return <NotFoundPage onBack={() => { window.location.hash = '#/experiments' }} />
   if (!experiment) return <div className="panel" role="status">Loading experiment…</div>
 
+  const importedPairs: RunPair[] = experiment.pairs.map((pair) => ({
+    id: pair.external_id,
+    question: pair.question,
+    variantA: { key: 'A', label: pair.variantA.label, prompt: pair.variantA.prompt },
+    variantB: { key: 'B', label: pair.variantB.label, prompt: pair.variantB.prompt },
+  }))
   const configuredVariables = experiment.templates.reduce((count, template) => count + template.variables.length, 0)
-  const pairCount = Math.max(1, experiment.variant_count, configuredVariables)
-  const selectedTarget = availableTargets.find((target) => target.id === selectedTargetId)
-  const selectedAuthMode = selectedTarget ? targetAuthMode(selectedTarget) : 'offline'
+  const pairCount = importedPairs.length > 0 ? importedPairs.length : Math.max(1, experiment.variant_count, configuredVariables)
+  const visiblePairs = importedPairs.filter((pair) =>
+    `${pair.question} ${pair.variantA.label} ${pair.variantB.label}`.toLowerCase().includes(questionSearch.trim().toLowerCase()),
+  )
+  const toggleTarget = (id: string) =>
+    setSelectedTargetIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id],
+    )
+
+  const runTargets: RunTarget[] = selectedTargetIds.flatMap<RunTarget>((id) => {
+    if (id === 'offline') {
+      return [{
+        id: 'offline',
+        label: 'Offline simulator',
+        provider: 'simulated' as const,
+        modelId: 'sim-model-1',
+        adapter: createSimulatedAdapter({ baseLatencyMs: 80, failureRate: 0 }),
+      }]
+    }
+    const target = availableTargets.find((item) => item.id === id)
+    if (!target) return []
+    return [{
+      id: target.id,
+      label: `${target.name} — ${target.modelId}`,
+      provider: target.provider,
+      modelId: target.modelId,
+      adapter: targetAuthMode(target) === 'subscription'
+        ? createSubscriptionExecutionAdapter(target)
+        : createTargetExecutionAdapter(target),
+    }]
+  })
+  const subscriptionOnly = runTargets.length === 1
+    && selectedTargetIds[0] !== 'offline'
+    && availableTargets.some((t) => t.id === selectedTargetIds[0] && targetAuthMode(t) === 'subscription')
 
   if (view === 'run') {
     return (
@@ -92,63 +137,120 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
           <div>
             <p className="eyebrow">{experiment.name}</p>
             <h2 id="run-experiment-title">Run experiment</h2>
-            <p className="muted">Execute a complete, local simulation first. Evidence is hashed and saved to this experiment.</p>
+            <p className="muted">Review the exact questions and prompts, choose a target, then run the experiment.</p>
           </div>
           <StatusBadge status={experiment.status} />
         </div>
 
         <div className="run-config panel">
-          <div>
-            <strong>{selectedTarget ? selectedTarget.name : 'Offline simulator'}</strong>
-            <p className="muted">
-              {selectedTarget
-                ? `${selectedTarget.provider} · ${selectedTarget.modelId} · ${selectedAuthMode === 'subscription' ? 'Subscription' : 'API key'}`
-                : 'No API key required. Validate the workflow before connecting a live provider.'}
-            </p>
-          </div>
-          <label>
-            Execution target
-            <select value={selectedTargetId} onChange={(event) => setSelectedTargetId(event.target.value)}>
-              <option value="offline">Offline simulator</option>
-              {availableTargets.map((target) => (
-                <option key={target.id} value={target.id}>{target.name} — {target.modelId}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Repeats per variant
-            <select value={repeats} onChange={(event) => setRepeats(Number(event.target.value))}>
-              {[1, 3, 5, 10].map((value) => <option key={value} value={value}>{value}</option>)}
-            </select>
-          </label>
+          <fieldset className="target-picker">
+            <legend>Models to compare</legend>
+            <p className="muted">Every selected model runs the whole experiment.</p>
+            <label className="target-option">
+              <input
+                type="checkbox"
+                checked={selectedTargetIds.includes('offline')}
+                onChange={() => toggleTarget('offline')}
+              />
+              <span>
+                <strong>Offline simulator</strong>
+                <small>No API key required. Check the workflow before spending on a live provider.</small>
+              </span>
+            </label>
+            {availableTargets.map((target) => (
+              <label key={target.id} className="target-option">
+                <input
+                  type="checkbox"
+                  checked={selectedTargetIds.includes(target.id)}
+                  onChange={() => toggleTarget(target.id)}
+                />
+                <span>
+                  <strong>{target.name}</strong>
+                  <small>
+                    {target.provider} · {target.modelId} ·{' '}
+                    {targetAuthMode(target) === 'subscription' ? 'Subscription' : 'API key'}
+                  </small>
+                </span>
+              </label>
+            ))}
+            <button
+              type="button"
+              className="link"
+              aria-expanded={providerSetupOpen}
+              onClick={() => setProviderSetupOpen((open) => !open)}
+            >
+              {providerSetupOpen ? 'Hide provider setup' : '+ Add a provider'}
+            </button>
+            {providerSetupOpen && (
+              <div className="inline-provider-setup">
+                <ProvidersPanel onTargetsChange={setAvailableTargets} />
+              </div>
+            )}
+          </fieldset>
+          <DropdownSelect
+            label="Repeats per variant"
+            value={String(repeats)}
+            options={[1, 3, 5, 10].map((option) => ({ value: String(option), label: String(option) }))}
+            onChange={(option) => setRepeats(Number(option))}
+          />
           <div className="workload-readout" aria-label="Run workload">
-            <span>{pairCount} matched {pairCount === 1 ? 'pair' : 'pairs'}</span>
-            <strong>{pairCount * 2 * repeats} requests</strong>
+            <span>
+              {pairCount} matched {pairCount === 1 ? 'question' : 'questions'} ×{' '}
+              {runTargets.length} {runTargets.length === 1 ? 'model' : 'models'}
+            </span>
+            <strong>{pairCount * 2 * repeats * runTargets.length} requests</strong>
           </div>
         </div>
 
+        {importedPairs.length > 0 && (
+          <section className="question-review panel" aria-labelledby="question-review-title">
+            <div className="question-review-heading">
+              <div>
+                <p className="eyebrow">Before you run</p>
+                <h3 id="question-review-title">Review the matched questions</h3>
+              </div>
+              <span className="muted">{visiblePairs.length} of {importedPairs.length}</span>
+            </div>
+            <input
+              type="search"
+              aria-label="Search questions"
+              placeholder="Search questions or variant labels…"
+              value={questionSearch}
+              onChange={(event) => setQuestionSearch(event.target.value)}
+            />
+            <div className="question-review-list">
+              {visiblePairs.map((pair) => (
+                <details key={pair.id} className="question-review-card">
+                  <summary><strong>Question {importedPairs.indexOf(pair) + 1}</strong><span>{pair.question}</span></summary>
+                  <div className="question-review-prompts">
+                    <div><span>{pair.variantA.label}</span><p>{pair.variantA.prompt}</p></div>
+                    <div><span>{pair.variantB.label}</span><p>{pair.variantB.prompt}</p></div>
+                  </div>
+                </details>
+              ))}
+            </div>
+          </section>
+        )}
+
         {runSaveError && <div className="banner error" role="alert">{runSaveError}</div>}
+        {runTargets.length === 0 && (
+          <p className="banner error" role="alert">Select at least one model to run against.</p>
+        )}
         <RunScreen
+          key={runTargets.map((target) => target.id).join('|')}
+          targets={runTargets}
           pairs={pairCount}
           runsPerVariant={repeats}
+          pairDefinitions={importedPairs.length > 0 ? importedPairs : undefined}
+          prompt={experiment.templates[0]?.body ?? ''}
           failureRate={0}
           baseLatencyMs={80}
           startButtonLabel={
-            selectedAuthMode === 'subscription'
-              ? 'Start subscription run'
-              : selectedTarget ? 'Start provider run' : 'Start offline run'
+            runTargets.length > 1
+              ? `Start run on ${runTargets.length} models`
+              : runTargets[0]?.id === 'offline' ? 'Start offline run' : 'Start provider run'
           }
-          executionAdapter={
-            selectedTarget
-              ? selectedAuthMode === 'subscription'
-                ? createSubscriptionExecutionAdapter(selectedTarget)
-                : createTargetExecutionAdapter(selectedTarget)
-              : undefined
-          }
-          provider={selectedTarget?.provider ?? 'simulated'}
-          modelId={selectedTarget?.modelId ?? 'sim-model-1'}
-          concurrency={selectedAuthMode === 'subscription' ? 1 : undefined}
-          authenticationMode={selectedAuthMode}
+          concurrency={subscriptionOnly ? 1 : undefined}
           onComplete={saveCompletedRun}
           onViewResults={() => setView('results')}
         />
@@ -175,11 +277,35 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
               <article><span>Succeeded</span><strong>{runSummary.succeeded}</strong><small>provider responses</small></article>
               <article><span>Failed</span><strong>{runSummary.failed}</strong><small>preserved error records</small></article>
             </div>
+            {runSummary.models.length > 0 && (
+              <div className="panel">
+                <h3>By model</h3>
+                <table>
+                  <caption className="sr-only">Results per model</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Model</th>
+                      <th scope="col">Succeeded</th>
+                      <th scope="col">Failed</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {runSummary.models.map((model) => (
+                      <tr key={`${model.provider}-${model.modelId}`}>
+                        <td><code>{model.modelId}</code> <span className="muted">{model.provider}</span></td>
+                        <td>{model.succeeded}</td>
+                        <td>{model.failed}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
             <div className="panel results-note">
               <h3>Run #{runSummary.batchId} is persisted</h3>
-              <p>Raw responses and their integrity hashes are stored in the project database. The generated report is available from Reports.</p>
+              <p>Raw responses and their recorded hashes are stored in the project database. Open the report to inspect every persisted result.</p>
               <div className="workspace-actions">
-                <button className="primary" onClick={() => { window.location.hash = '#/reports' }}>Open report</button>
+                <button className="primary" onClick={() => { window.location.hash = runSummary.reportId ? `#/reports/${runSummary.reportId}` : '#/reports' }}>Open report</button>
                 <button className="secondary" onClick={() => setView('run')}>Run again</button>
               </div>
             </div>
@@ -222,7 +348,12 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
 
       <div className="panel template-summary">
         <h3>Template setup</h3>
-        {experiment.templates.length === 0 ? <p className="muted">No template configured yet.</p> : experiment.templates.map((template) => (
+        {importedPairs.length > 0 ? (
+          <div className="question-summary">
+            <strong>{importedPairs.length} matched {importedPairs.length === 1 ? 'question' : 'questions'}</strong>
+            <span>{experiment.default_repeats} default {experiment.default_repeats === 1 ? 'repeat' : 'repeats'} · 2 complete prompts per question</span>
+          </div>
+        ) : experiment.templates.length === 0 ? <p className="muted">No template configured yet.</p> : experiment.templates.map((template) => (
           <div key={template.id} className="template-row">
             <strong>{template.name}</strong><span>{template.variables.length} variables · {template.variables.reduce((count, variable) => count + variable.variants.length, 0)} variants</span>
           </div>

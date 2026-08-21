@@ -9,7 +9,7 @@ interface Props {
 }
 
 function cellLabel(req: RunRequest, cell: CellStatus | undefined): string {
-  const where = `Pair ${req.pairIndex + 1}, variant ${req.variantLabel}, run ${req.runIndex + 1}`
+  const where = `Question ${req.pairIndex + 1}, ${req.variantLabel}, run ${req.runIndex + 1}`
   if (!cell || cell.state === 'pending') return `${where} — pending`
   if (cell.state === 'in-flight') return `${where} — in flight`
   if (cell.state === 'complete') return `${where} — complete, ${cell.latencyMs}ms`

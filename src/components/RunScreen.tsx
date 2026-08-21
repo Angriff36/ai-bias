@@ -1,12 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { createSimulatedAdapter, type ProviderAdapter } from '../engine/adapter'
+import {
+  createRoutingAdapter,
+  createSimulatedAdapter,
+  type ProviderAdapter,
+  type RunTarget,
+} from '../engine/adapter'
 import { clearBatch, shortHash } from '../engine/db'
 import {
   buildRunQueue,
   createBatchExecutor,
   type BatchExecutor,
 } from '../engine/executor'
-import type { CellStatus, ProviderId, RawRecord, RunRequest } from '../engine/types'
+import type { CellStatus, ProviderId, RawRecord, RunPair, RunRequest } from '../engine/types'
 import { ProgressGrid } from './ProgressGrid'
 
 type RunPhase = 'idle' | 'running' | 'paused' | 'complete' | 'cancelled'
@@ -14,6 +19,8 @@ type RunPhase = 'idle' | 'running' | 'paused' | 'complete' | 'cancelled'
 interface RunScreenProps {
   pairs?: number
   runsPerVariant?: number
+  prompt?: string
+  pairDefinitions?: RunPair[]
   failureRate?: number
   failAll?: boolean
   baseLatencyMs?: number
@@ -21,6 +28,8 @@ interface RunScreenProps {
   onComplete?: (result: RunCompletion) => void
   onViewResults?: () => void
   executionAdapter?: ProviderAdapter
+  /** Models this batch runs against. Every pair is sent to each one. */
+  targets?: RunTarget[]
   provider?: ProviderId
   modelId?: string
   concurrency?: number
@@ -37,6 +46,8 @@ export interface RunCompletion {
 export function RunScreen({
   pairs = 6,
   runsPerVariant = 2,
+  prompt,
+  pairDefinitions,
   failureRate = 0.15,
   failAll = false,
   baseLatencyMs = 300,
@@ -44,6 +55,7 @@ export function RunScreen({
   onComplete,
   onViewResults,
   executionAdapter,
+  targets,
   provider = 'simulated',
   modelId = 'sim-model-1',
   concurrency,
@@ -101,7 +113,25 @@ export function RunScreen({
     const batchId = `batch-${Date.now()}`
     batchIdRef.current = batchId
     recordsRef.current = {}
-    const newQueue = buildRunQueue(batchId, pairs, runsPerVariant, provider, modelId)
+    const runTargets: RunTarget[] = targets?.length
+      ? targets
+      : [{
+        id: 'default',
+        label: modelId,
+        provider,
+        modelId,
+        adapter: executionAdapter ?? createSimulatedAdapter({ baseLatencyMs, failureRate, failAll }),
+      }]
+    const newQueue = runTargets.flatMap((target) =>
+      buildRunQueue(
+        `${batchId}-${target.id}`,
+        pairDefinitions ?? pairs,
+        runsPerVariant,
+        target.provider,
+        target.modelId,
+        prompt,
+      ).map((request) => ({ ...request, batchId })),
+    )
     clearBatch(batchId)
     setQueue(newQueue)
     setCells({})
@@ -115,8 +145,7 @@ export function RunScreen({
     startedAtRef.current = performance.now()
     setElapsedMs(0)
 
-    const adapter = executionAdapter ?? createSimulatedAdapter({ baseLatencyMs, failureRate, failAll })
-    const executor = createBatchExecutor(newQueue, adapter, {
+    const executor = createBatchExecutor(newQueue, createRoutingAdapter(runTargets), {
       onCell(status) {
         pendingCellsRef.current[status.requestId] = status
         scheduleFlush()
@@ -124,7 +153,7 @@ export function RunScreen({
           const req = newQueue.find((r) => r.id === status.requestId)
           if (req) {
             setLiveMessage(
-              `Pair ${req.pairIndex + 1}, run ${req.runIndex + 1} — ${
+              `Question ${req.pairIndex + 1}, run ${req.runIndex + 1} — ${
                 status.state === 'complete' ? `complete, ${status.latencyMs}ms` : 'failed'
               }`,
             )
@@ -224,8 +253,8 @@ export function RunScreen({
       {phase === 'idle' && (
         <div className="start-panel">
           <p>
-            {pairs} pairs × 2 variants × {runsPerVariant} runs ={' '}
-            <strong>{pairs * 2 * runsPerVariant} requests</strong>, shuffled.
+            {pairDefinitions ? pairDefinitions.length : pairs} questions × 2 variants × {runsPerVariant} runs ={' '}
+            <strong>{(pairDefinitions ? pairDefinitions.length : pairs) * 2 * runsPerVariant} requests</strong>, shuffled.
           </p>
           <button type="button" className="btn btn-primary touch-target" onClick={start}>
             {startButtonLabel}
@@ -318,7 +347,7 @@ export function RunScreen({
                 <ul className="error-list">
                   {failedRecords.map((r) => (
                     <li key={r.requestId}>
-                      Pair {r.pairIndex + 1}, variant {r.variantLabel}, run {r.runIndex + 1} —{' '}
+                      Question {r.pairIndex + 1}, {r.variantLabel}, run {r.runIndex + 1} —{' '}
                       HTTP {r.statusCode}: {r.errorMessage}
                     </li>
                   ))}
@@ -328,13 +357,14 @@ export function RunScreen({
           )}
 
           {selectedReq && (
-            <aside className="pair-inspector" data-testid="pair-inspector" aria-label="Pair Inspector">
+            <aside className="pair-inspector" data-testid="pair-inspector" aria-label="Question inspector">
               <h2>
-                Pair {selectedReq.pairIndex + 1} · variant {selectedReq.variantLabel} · run{' '}
+                Question {selectedReq.pairIndex + 1} · {selectedReq.variantLabel} · run{' '}
                 {selectedReq.runIndex + 1}
               </h2>
               {selectedRecord ? (
                 <>
+                  {selectedReq.question && <p className="inspector-question">{selectedReq.question}</p>}
                   <p className="inspector-row">
                     <span className="inspector-label">Status</span>
                     {selectedRecord.status === 'ok'

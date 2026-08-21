@@ -75,3 +75,34 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
     signal?.addEventListener('abort', onAbort, { once: true })
   })
 }
+
+/** One model a batch runs against. */
+export interface RunTarget {
+  /** Stable id from the target store, or 'offline' for the simulator. */
+  id: string
+  label: string
+  provider: ProviderId
+  modelId: string
+  adapter: ProviderAdapter
+}
+
+export function targetKey(provider: ProviderId, modelId: string): string {
+  return `${provider}::${modelId}`
+}
+
+/**
+ * Sends each request to the adapter of its own target, so one batch can cover
+ * several models. The executor still sees a single adapter.
+ */
+export function createRoutingAdapter(targets: RunTarget[]): ProviderAdapter {
+  const byKey = new Map(targets.map((t) => [targetKey(t.provider, t.modelId), t.adapter]))
+  return {
+    async callModel(request, signal) {
+      const adapter = byKey.get(targetKey(request.provider, request.modelId))
+      if (!adapter) {
+        throw { statusCode: 400, message: `No provider configured for ${request.modelId}` }
+      }
+      return adapter.callModel(request, signal)
+    },
+  }
+}

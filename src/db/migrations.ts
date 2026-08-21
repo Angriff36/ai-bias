@@ -211,4 +211,45 @@ export const migrations: Migration[] = [
       `)
     },
   },
+  {
+    id: '0006',
+    name: 'explicit_prompt_experiments',
+    up(db) {
+      db.run(`
+        ALTER TABLE experiments ADD COLUMN default_repeats INTEGER NOT NULL DEFAULT 1;
+
+        CREATE TABLE experiment_pairs (
+          id INTEGER PRIMARY KEY,
+          experiment_id INTEGER NOT NULL REFERENCES experiments(id) ON DELETE CASCADE,
+          external_id TEXT NOT NULL,
+          ordinal INTEGER NOT NULL,
+          question TEXT NOT NULL,
+          UNIQUE (experiment_id, external_id)
+        );
+
+        CREATE TABLE experiment_pair_variants (
+          id INTEGER PRIMARY KEY,
+          pair_id INTEGER NOT NULL REFERENCES experiment_pairs(id) ON DELETE CASCADE,
+          variant_key TEXT NOT NULL CHECK (variant_key IN ('A', 'B')),
+          label TEXT NOT NULL,
+          prompt TEXT NOT NULL,
+          UNIQUE (pair_id, variant_key)
+        );
+
+        CREATE INDEX idx_experiment_pairs_order ON experiment_pairs(experiment_id, ordinal);
+        CREATE INDEX idx_experiment_pair_variants_pair ON experiment_pair_variants(pair_id);
+      `)
+    },
+  },
+  {
+    id: '0007',
+    name: 'runs_record_model',
+    up(db) {
+      db.run(`
+        ALTER TABLE runs ADD COLUMN provider TEXT NOT NULL DEFAULT 'simulated';
+        ALTER TABLE runs ADD COLUMN model_id TEXT NOT NULL DEFAULT 'sim-model-1';
+        CREATE INDEX idx_runs_model ON runs(batch_id, model_id);
+      `)
+    },
+  },
 ]

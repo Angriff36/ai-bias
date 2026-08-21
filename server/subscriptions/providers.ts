@@ -114,67 +114,19 @@ export class SubscriptionProviderRegistry {
     return this.statusFor(provider)
   }
 
-  async call(input: SubscriptionCallInput, signal?: AbortSignal): Promise<SubscriptionCallResult> {
-    const startedAt = Date.now()
-    const result = await this.runner.run(this.callOptions(input, signal))
-    if (result.launchErrorCode === 'ENOENT') throw safeError(503, `${META[input.provider].label} CLI is not installed.`)
-    if (result.timedOut) throw safeError(504, `${META[input.provider].label} subscription request timed out.`)
-    if (result.outputLimitExceeded) throw safeError(502, `${META[input.provider].label} returned too much output.`)
-    if (result.exitCode !== 0) {
-      throw safeError(502, `${META[input.provider].label} subscription request failed. Check sign-in and model availability.`)
-    }
-
-    const content = parseContent(input.provider, result)
-    if (!content) throw safeError(502, `${META[input.provider].label} returned no usable response.`)
-    return {
-      provider: input.provider,
-      modelId: input.modelId,
-      content,
-      latencyMs: Date.now() - startedAt,
-    }
-  }
-
-  private callOptions(input: SubscriptionCallInput, signal?: AbortSignal) {
-    const meta = META[input.provider]
-    const env = sanitizeSubscriptionEnv(input.provider, this.sourceEnv)
-    const modelArgs = input.modelId && input.modelId !== 'default' ? ['--model', input.modelId] : []
-    if (input.provider === 'claude') {
-      return {
-        command: meta.command,
-        args: [
-          '-p', '--output-format', 'json', '--no-session-persistence', '--safe-mode',
-          '--tools', '', '--max-turns', '1', ...modelArgs,
-        ],
-        stdin: input.prompt,
-        env,
-        timeoutMs: 120_000,
-        signal,
-        allowWindowsCommandShim: true,
-      }
-    }
-    if (input.provider === 'codex') {
-      return {
-        command: meta.command,
-        args: [
-          'exec', '--json', '--sandbox', 'read-only', '--ephemeral', '--ignore-user-config',
-          '--ignore-rules', '--skip-git-repo-check', ...modelArgs, '-',
-        ],
-        stdin: input.prompt,
-        env,
-        timeoutMs: 120_000,
-        signal,
-        allowWindowsCommandShim: true,
-      }
-    }
-    return {
-      command: meta.command,
-      args: ['--output-format', 'stream-json', ...modelArgs, '--sandbox', 'false', '--approval-mode', 'default', '--prompt', ''],
-      stdin: input.prompt,
-      env: { ...env, GEMINI_TELEMETRY_ENABLED: 'false' },
-      timeoutMs: 120_000,
-      signal,
-      allowWindowsCommandShim: true,
-    }
+  /**
+   * Model inference over a subscription is NOT supported.
+   *
+   * The provider CLIs are coding agents. Running a prompt through them starts
+   * an agent session that inherits the working directory, repository files,
+   * CLAUDE.md / AGENTS.md instructions, and a tool loop. The answer then
+   * reflects the agent, not the model under test, so it is not valid bias
+   * evidence. No documented direct model endpoint exists for these
+   * subscription tokens, so the provider is marked unsupported instead of
+   * returning a contaminated response.
+   */
+  call(input: SubscriptionCallInput): Promise<SubscriptionCallResult> {
+    return Promise.reject(unsupportedInference(input.provider))
   }
 
   private baseStatus(
@@ -189,6 +141,7 @@ export class SubscriptionProviderRegistry {
       installed,
       authenticated,
       authMethod: authenticated ? 'oauth' : 'none',
+      supportsInference: false,
       loginCommand: meta.loginCommand,
       installCommand: meta.installCommand,
     }
@@ -218,37 +171,13 @@ function parseClaudeAuth(result: ProcessRunResult): boolean {
   }
 }
 
-function parseContent(provider: SubscriptionProvider, result: ProcessRunResult): string {
-  if (provider === 'claude') {
-    try {
-      const parsed = JSON.parse(result.stdout) as { result?: unknown; is_error?: unknown }
-      return parsed.is_error === false && typeof parsed.result === 'string' ? parsed.result.trim() : ''
-    } catch {
-      return ''
-    }
-  }
-
-  const lines = result.stdout.split(/\r?\n/).filter(Boolean)
-  let content = ''
-  for (const line of lines) {
-    try {
-      const event = JSON.parse(line) as {
-        type?: unknown
-        role?: unknown
-        content?: unknown
-        item?: { type?: unknown; text?: unknown }
-      }
-      if (provider === 'codex' && event.type === 'item.completed' && event.item?.type === 'agent_message' && typeof event.item.text === 'string') {
-        content = event.item.text
-      }
-      if (provider === 'gemini' && event.type === 'message' && event.role === 'assistant' && typeof event.content === 'string') {
-        content += event.content
-      }
-    } catch {
-      // Ignore non-JSON diagnostics; only structured assistant events are accepted.
-    }
-  }
-  return content.trim()
+export function unsupportedInference(provider: SubscriptionProvider): SafeSubscriptionError {
+  return safeError(
+    501,
+    `${META[provider].label} subscription sign-in cannot run a bias test. Its CLI is a coding agent, ` +
+    'so the answer would carry repository and tool context instead of the raw model response. ' +
+    'Add an API-key provider for this model instead.',
+  )
 }
 
 function safeError(statusCode: number, message: string): SafeSubscriptionError {

@@ -157,22 +157,36 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
                 <small>No API key required. Check the workflow before spending on a live provider.</small>
               </span>
             </label>
-            {availableTargets.map((target) => (
-              <label key={target.id} className="target-option">
-                <input
-                  type="checkbox"
-                  checked={selectedTargetIds.includes(target.id)}
-                  onChange={() => toggleTarget(target.id)}
-                />
-                <span>
-                  <strong>{target.name}</strong>
-                  <small>
-                    {target.provider} · {target.modelId} ·{' '}
-                    {targetAuthMode(target) === 'subscription' ? 'Subscription' : 'API key'}
-                  </small>
-                </span>
-              </label>
-            ))}
+            {availableTargets.map((target) => {
+              const subscription = targetAuthMode(target) === 'subscription'
+              return (
+                <label
+                  key={target.id}
+                  className={subscription ? 'target-option disabled' : 'target-option'}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedTargetIds.includes(target.id)}
+                    disabled={subscription}
+                    onChange={() => toggleTarget(target.id)}
+                  />
+                  <span>
+                    <strong>{target.name}</strong>
+                    <small>
+                      {target.provider} · {target.modelId} ·{' '}
+                      {subscription ? 'Subscription' : 'API key'}
+                    </small>
+                    {subscription && (
+                      <small className="target-unsupported">
+                        Not usable for a bias test. This sign-in only works through the provider's
+                        coding-agent CLI, which would add repository and tool context to the answer.
+                        Add an API-key provider for this model.
+                      </small>
+                    )}
+                  </span>
+                </label>
+              )
+            })}
             <button
               type="button"
               className="link"

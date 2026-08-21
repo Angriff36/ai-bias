@@ -25,35 +25,25 @@ const request: RunRequest = {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('createSubscriptionExecutionAdapter', () => {
-  it('calls the local subscription bridge instead of requiring an API key', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      provider: 'codex',
-      modelId: 'default',
-      content: 'subscription answer',
-      latencyMs: 31,
-    }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
-    vi.stubGlobal('fetch', fetchMock)
-
-    await expect(createSubscriptionExecutionAdapter(target).callModel(request)).resolves.toEqual({
-      content: 'subscription answer',
-      statusCode: 200,
-      latencyMs: 31,
-      provider: 'openai',
-      modelId: 'default',
+  it('refuses inference rather than answering through a coding agent', async () => {
+    await expect(createSubscriptionExecutionAdapter(target).callModel(request)).rejects.toMatchObject({
+      statusCode: 501,
     })
-    expect(fetchMock).toHaveBeenCalledWith('/api/subscriptions/call', expect.objectContaining({
-      body: JSON.stringify({ provider: 'codex', modelId: 'default', prompt: 'test prompt' }),
-    }))
   })
 
-  it('preserves a safe bridge failure for the experiment engine', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      error: 'ChatGPT subscription sign-in is required.',
-    }), { status: 401, headers: { 'Content-Type': 'application/json' } })))
+  it('never reaches the subscription bridge, so no CLI process can start', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
 
-    await expect(createSubscriptionExecutionAdapter(target).callModel(request)).rejects.toEqual({
-      statusCode: 401,
-      message: 'ChatGPT subscription sign-in is required.',
-    })
+    await expect(createSubscriptionExecutionAdapter(target).callModel(request)).rejects.toBeTruthy()
+
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('does not fall back to a paid API transport', async () => {
+    const error = await createSubscriptionExecutionAdapter(target).callModel(request).catch((e) => e)
+    expect(error.statusCode).toBe(501)
+    expect(error.message).toContain('Add an API-key provider')
+    expect(error).not.toHaveProperty('content')
   })
 })

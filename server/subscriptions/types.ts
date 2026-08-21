@@ -30,6 +30,8 @@ export interface SubscriptionStatus {
   installed: boolean
   authenticated: boolean
   authMethod: 'oauth' | 'none'
+  /** False when the provider can only be reached through its coding-agent CLI. */
+  supportsInference: boolean
   version?: string
   loginCommand: string
   installCommand: string

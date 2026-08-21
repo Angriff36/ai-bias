@@ -59,60 +59,41 @@ describe('SubscriptionProviderRegistry status', () => {
   })
 })
 
-describe('SubscriptionProviderRegistry calls', () => {
-  it('runs Claude without tools or inherited Anthropic overrides and parses its result', async () => {
-    const runner = new FakeRunner(() => ok(JSON.stringify({ result: 'Claude answer', is_error: false })))
-    const registry = new SubscriptionProviderRegistry(runner, {
-      PATH: 'bin',
-      ANTHROPIC_API_KEY: 'must-not-leak',
-      ANTHROPIC_BASE_URL: 'https://alternate.example',
-    })
+describe('SubscriptionProviderRegistry inference', () => {
+  const registry = (runner: FakeRunner) => new SubscriptionProviderRegistry(runner, { PATH: 'bin' })
 
-    await expect(registry.call({
-      provider: 'claude',
-      modelId: 'sonnet',
-      prompt: "prompt with 'quotes'",
-    })).resolves.toMatchObject({ provider: 'claude', modelId: 'sonnet', content: 'Claude answer' })
+  it('refuses model inference instead of running the coding-agent CLI', async () => {
+    const runner = new FakeRunner(() => ok())
 
-    expect(runner.calls[0]).toMatchObject({
-      command: 'claude',
-      stdin: "prompt with 'quotes'",
-      env: { PATH: 'bin' },
-    })
-    expect(runner.calls[0].args).toEqual([
-      '-p', '--output-format', 'json', '--no-session-persistence', '--safe-mode',
-      '--tools', '', '--max-turns', '1', '--model', 'sonnet',
-    ])
+    await expect(
+      registry(runner).call({ provider: 'claude', modelId: 'default', prompt: 'variant prompt' }),
+    ).rejects.toMatchObject({ statusCode: 501 })
   })
 
-  it('runs Codex ephemerally in read-only mode and parses the final agent message', async () => {
-    const stdout = [
-      JSON.stringify({ type: 'thread.started', thread_id: 'thread-1' }),
-      JSON.stringify({ type: 'item.completed', item: { id: 'item-1', type: 'agent_message', text: 'Codex answer' } }),
-    ].join('\n')
-    const runner = new FakeRunner(() => ok(stdout))
-    const registry = new SubscriptionProviderRegistry(runner, { PATH: 'bin', OPENAI_API_KEY: 'must-not-leak' })
-
-    await expect(registry.call({ provider: 'codex', modelId: 'default', prompt: 'hello' }))
-      .resolves.toMatchObject({ provider: 'codex', modelId: 'default', content: 'Codex answer' })
-
-    expect(runner.calls[0].env).toEqual({ PATH: 'bin' })
-    expect(runner.calls[0].stdin).toBe('hello')
-    expect(runner.calls[0].args).toEqual([
-      'exec', '--json', '--sandbox', 'read-only', '--ephemeral', '--ignore-user-config',
-      '--ignore-rules', '--skip-git-repo-check', '-',
-    ])
+  it('starts no process for any subscription provider', async () => {
+    for (const provider of ['claude', 'codex', 'gemini'] as const) {
+      const runner = new FakeRunner(() => ok())
+      await registry(runner)
+        .call({ provider, modelId: 'default', prompt: 'variant prompt' })
+        .catch(() => undefined)
+      expect(runner.calls).toHaveLength(0)
+    }
   })
 
-  it('returns a safe error without leaking raw provider diagnostics', async () => {
-    const runner = new FakeRunner(() => ({
-      exitCode: 1,
-      stdout: '',
-      stderr: 'token sk-secret-value rejected at C:\\Users\\Ryan\\private-file',
-    }))
-    const registry = new SubscriptionProviderRegistry(runner, { PATH: 'bin' })
+  it('explains why, without leaking the prompt or provider diagnostics', async () => {
+    const runner = new FakeRunner(() => ok())
+    const error = await registry(runner)
+      .call({ provider: 'codex', modelId: 'default', prompt: 'secret variant prompt' })
+      .catch((e) => e)
 
-    await expect(registry.call({ provider: 'codex', modelId: 'default', prompt: 'hello' }))
-      .rejects.toEqual({ statusCode: 502, message: 'ChatGPT subscription request failed. Check sign-in and model availability.' })
+    expect(error.message).toContain('coding agent')
+    expect(error.message).not.toContain('secret variant prompt')
+  })
+
+  it('reports every subscription provider as unusable for inference', async () => {
+    const runner = new FakeRunner(({ args }) => args[0] === '--version' ? ok('1.0.0') : ok())
+    const statuses = await registry(runner).status()
+
+    expect(statuses.every((status) => status.supportsInference === false)).toBe(true)
   })
 })

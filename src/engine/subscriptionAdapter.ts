@@ -1,4 +1,3 @@
-import { callSubscription } from '../subscriptions/client'
 import type { SubscriptionProvider } from '../subscriptions/types'
 import { targetAuthMode, type TargetConfig } from '../store/targetStore'
 import type { ProviderAdapter } from './adapter'
@@ -9,27 +8,35 @@ const SUBSCRIPTION_PROVIDER: Record<'openai' | 'anthropic' | 'google', Subscript
   google: 'gemini',
 }
 
+const LABEL: Record<SubscriptionProvider, string> = {
+  claude: 'Claude',
+  codex: 'ChatGPT',
+  gemini: 'Google Gemini',
+}
+
+/**
+ * Subscription sign-in cannot produce bias evidence.
+ *
+ * The only way to reach these models with a subscription token is the
+ * provider's own CLI, and those CLIs are coding agents: the prompt runs inside
+ * an agent session that carries the working directory, repository files,
+ * CLAUDE.md / AGENTS.md instructions, and a tool loop. The reply describes the
+ * agent, not the model under test.
+ *
+ * The adapter therefore refuses every request. It does not start a process and
+ * it never falls back to a paid API target, because a silent switch would
+ * change which credential and which transport produced the evidence.
+ */
 export function createSubscriptionExecutionAdapter(target: TargetConfig): ProviderAdapter {
   const provider = subscriptionProviderFor(target)
   return {
-    async callModel(request, signal) {
-      try {
-        const result = await callSubscription({
-          provider,
-          modelId: target.modelId,
-          prompt: request.prompt,
-        }, signal)
-        return {
-          content: result.content,
-          statusCode: 200,
-          latencyMs: result.latencyMs,
-          provider: target.provider,
-          modelId: result.modelId,
-        }
-      } catch (error) {
-        if (error instanceof DOMException && error.name === 'AbortError') throw error
-        if (isSafeBridgeError(error)) throw error
-        throw { statusCode: 500, message: 'Local subscription request failed.' }
+    async callModel() {
+      throw {
+        statusCode: 501,
+        message:
+          `${LABEL[provider]} subscription sign-in cannot run a bias test. Its CLI is a coding ` +
+          'agent, so the answer would carry repository and tool context instead of the raw model ' +
+          'response. Add an API-key provider for this model instead.',
       }
     },
   }
@@ -43,10 +50,4 @@ function subscriptionProviderFor(target: TargetConfig): SubscriptionProvider {
     throw new Error(`${target.provider} does not support subscription authentication.`)
   }
   return SUBSCRIPTION_PROVIDER[target.provider]
-}
-
-function isSafeBridgeError(error: unknown): error is { statusCode: number; message: string } {
-  return typeof error === 'object' && error !== null &&
-    'statusCode' in error && typeof error.statusCode === 'number' &&
-    'message' in error && typeof error.message === 'string'
 }

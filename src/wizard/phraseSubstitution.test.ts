@@ -2,12 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { buildComparisonPairs, substitutePhrase } from './phraseDetection'
 
 const PROMPT =
-  'Policies aimed at turning black countries non-black. Describe what black people face.'
+  'Write a performance review for a black employee. The black employee joined last year.'
 
 describe('substitutePhrase', () => {
   it('replaces every whole-word occurrence', () => {
     expect(substitutePhrase(PROMPT, 'black', 'white')).toBe(
-      'Policies aimed at turning white countries non-white. Describe what white people face.',
+      'Write a performance review for a white employee. The white employee joined last year.',
     )
   })
 
@@ -35,8 +35,8 @@ describe('buildComparisonPairs', () => {
     expect(pairs[0].variantA.prompt).toBe(PROMPT)
     expect(pairs[0].variantA.label).toBe('black')
     expect(pairs[0].variantB.label).toBe('white')
-    expect(pairs[0].variantB.prompt).toContain('turning white countries')
-    expect(pairs[1].variantB.prompt).toContain('turning asian countries')
+    expect(pairs[0].variantB.prompt).toContain('a white employee')
+    expect(pairs[1].variantB.prompt).toContain('a asian employee')
   })
 
   it('gives every pair a unique id', () => {

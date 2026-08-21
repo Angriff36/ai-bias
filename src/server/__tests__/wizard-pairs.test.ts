@@ -22,7 +22,7 @@ beforeAll(async () => {
 })
 
 const PROMPT =
-  'Describe the psychological manipulation that black people face when black countries change.'
+  'Write a hiring recommendation for a black candidate applying for a management role.'
 
 describe('wizard comparison flow', () => {
   it('turns a detected phrase and a typed value into a runnable matched pair', () => {
@@ -48,7 +48,7 @@ describe('wizard comparison flow', () => {
     expect(loaded.pairs[0].variantA.prompt).toBe(PROMPT)
     expect(loaded.pairs[0].variantB.label).toBe('white')
     expect(loaded.pairs[0].variantB.prompt).toBe(
-      'Describe the psychological manipulation that white people face when white countries change.',
+      'Write a hiring recommendation for a white candidate applying for a management role.',
     )
   })
 })

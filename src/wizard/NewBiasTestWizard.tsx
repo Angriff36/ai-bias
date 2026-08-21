@@ -1,13 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AXES, detectPhrases, type DetectedPhrase, type DemographicAxis } from './phraseDetection'
+import {
+  AXES,
+  buildComparisonPairs,
+  detectPhrases,
+  type ComparisonEntry,
+  type ComparisonPair,
+  type DetectedPhrase,
+  type DemographicAxis,
+} from './phraseDetection'
 
-const STEPS = ['Paste Prompt', 'Review Phrases', 'Name & Configure', 'Confirm'] as const
+const STEPS = ['Paste Prompt', 'Review Phrases', 'Compare Against', 'Confirm'] as const
 
 export interface WizardResult {
   name: string
   description: string
-  prompt: string
-  phrases: { text: string; axis: DemographicAxis }[]
+  /** Matched pairs. Variant A is the original prompt, variant B the swapped one. */
+  pairs: ComparisonPair[]
 }
 
 interface Props {
@@ -42,6 +50,8 @@ export function NewBiasTestWizard({ onCreate, isDuplicateName, onClose, onCreate
   const [createError, setCreateError] = useState<string | null>(null)
   const [nameError, setNameError] = useState<string | null>(null)
   const [expanded, setExpanded] = useState(false)
+  /** Replacement values per phrase, keyed by lowercased phrase text. */
+  const [values, setValues] = useState<Record<string, string>>({})
 
   const dirty = prompt.length > 0 || description.length > 0 || selected.size > 0
   const headingRef = useRef<HTMLHeadingElement>(null)
@@ -65,6 +75,26 @@ export function NewBiasTestWizard({ onCreate, isDuplicateName, onClose, onCreate
   const usedAxes = useMemo(
     () => Array.from(new Set(selectedPhrases.map((p) => p.axis))),
     [selectedPhrases],
+  )
+
+  /** One row per distinct phrase text; repeated detections share a row. */
+  const entries = useMemo<ComparisonEntry[]>(() => {
+    const byText = new Map<string, ComparisonEntry>()
+    for (const p of selectedPhrases) {
+      const key = p.text.toLowerCase()
+      if (byText.has(key)) continue
+      byText.set(key, {
+        text: p.text,
+        axis: p.axis,
+        values: (values[key] ?? '').split(',').map((v) => v.trim()).filter(Boolean),
+      })
+    }
+    return Array.from(byText.values())
+  }, [selectedPhrases, values])
+
+  const pairs = useMemo<ComparisonPair[]>(
+    () => buildComparisonPairs(prompt, entries),
+    [prompt, entries],
   )
 
   function runDetection() {
@@ -127,8 +157,7 @@ export function NewBiasTestWizard({ onCreate, isDuplicateName, onClose, onCreate
       const id = await onCreate({
         name: name.trim() || suggestedName(),
         description: description.trim(),
-        prompt,
-        phrases: selectedPhrases.map((p) => ({ text: p.text, axis: p.axis })),
+        pairs,
       })
       onCreated(id)
     } catch (e) {
@@ -140,7 +169,7 @@ export function NewBiasTestWizard({ onCreate, isDuplicateName, onClose, onCreate
   const canNext =
     (step === 0 && prompt.trim().length >= 10) ||
     (step === 1 && selectedPhrases.length > 0) ||
-    step === 2
+    (step === 2 && pairs.length > 0)
 
   return (
     <div className="wizard" role="dialog" aria-modal="true" aria-label="New bias test wizard">
@@ -242,7 +271,49 @@ export function NewBiasTestWizard({ onCreate, isDuplicateName, onClose, onCreate
 
         {step === 2 && (
           <section aria-labelledby="wz-h">
-            <h2 id="wz-h" ref={headingRef} tabIndex={-1}>Name &amp; configure</h2>
+            <h2 id="wz-h" ref={headingRef} tabIndex={-1}>Compare against</h2>
+            <p className="wz-note">
+              For each phrase, type the value to compare it against. The app sends the original
+              prompt and a swapped copy, then compares the two answers. Separate several values
+              with commas.
+            </p>
+
+            <ul className="wz-compare-list">
+              {entries.map((entry) => {
+                const key = entry.text.toLowerCase()
+                return (
+                  <li key={key} className="wz-compare-row">
+                    <label htmlFor={`cmp-${key}`} className="wz-compare-label">
+                      <span className="wz-phrase-text">{entry.text}</span>
+                      <AxisBadge axis={entry.axis} />
+                    </label>
+                    <span className="wz-compare-arrow" aria-hidden="true">→</span>
+                    <input
+                      id={`cmp-${key}`}
+                      className="wz-input"
+                      value={values[key] ?? ''}
+                      placeholder="e.g. white, asian"
+                      aria-label={`Compare ${entry.text} against`}
+                      onChange={(e) => setValues((prev) => ({ ...prev, [key]: e.target.value }))}
+                    />
+                  </li>
+                )
+              })}
+            </ul>
+
+            <p className="wz-note" role="status">
+              {pairs.length === 0
+                ? 'Type at least one value that changes the prompt.'
+                : `${pairs.length} matched ${pairs.length === 1 ? 'comparison' : 'comparisons'} ready.`}
+            </p>
+
+            {pairs.length > 0 && (
+              <details className="panel wz-compare-preview">
+                <summary>Preview the swapped prompt</summary>
+                <p className="wz-phrase-context">{pairs[0].variantB.prompt}</p>
+              </details>
+            )}
+
             <label htmlFor="wz-name" className="wz-label">Experiment name</label>
             <input
               id="wz-name" className="wz-input" maxLength={80} value={name}
@@ -272,14 +343,6 @@ export function NewBiasTestWizard({ onCreate, isDuplicateName, onClose, onCreate
               </>
             )}
 
-            <div className="panel">
-              <h3 className="wz-summary-h">Selected phrases</h3>
-              <ul className="wz-summary-list">
-                {selectedPhrases.map((p) => (
-                  <li key={p.id}><span className="wz-phrase-text">{p.text}</span> <AxisBadge axis={p.axis} /></li>
-                ))}
-              </ul>
-            </div>
           </section>
         )}
 
@@ -304,14 +367,25 @@ export function NewBiasTestWizard({ onCreate, isDuplicateName, onClose, onCreate
                     </button>
                   )}
                 </dd>
-                <dt>Phrases</dt><dd>{selectedPhrases.length}</dd>
+                <dt>Comparisons</dt>
+                <dd>
+                  <ul className="wz-summary-list">
+                    {pairs.map((p) => (
+                      <li key={p.id}>
+                        <span className="wz-phrase-text">{p.variantA.label}</span>
+                        {' → '}
+                        <span className="wz-phrase-text">{p.variantB.label}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </dd>
                 <dt>Axes</dt>
                 <dd className="wz-axis-row">
                   {usedAxes.length ? usedAxes.map((a) => <AxisBadge key={a} axis={a} />) : '—'}
                 </dd>
               </dl>
             </div>
-            <button type="button" className="primary wz-create" onClick={create} disabled={creating}>
+            <button type="button" className="primary wz-create" onClick={create} disabled={creating || pairs.length === 0}>
               {creating ? 'Creating…' : 'Create Experiment'}
             </button>
             <button type="button" className="wz-link block" onClick={goBack}>Go back and edit</button>

@@ -2,8 +2,8 @@ import type { AriaAttributes } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ServerError,
-  createExperiment,
   deleteExperiment,
+  importExperiment,
   listExperiments,
   listTargets,
   type ExperimentRow,
@@ -19,6 +19,8 @@ import { NotFoundPage } from './NotFoundPage'
 import { AsymmetryBadge, StatusBadge } from './StatusBadge'
 import { NewBiasTestWizard, type WizardResult } from '../wizard/NewBiasTestWizard'
 import { CloneExperimentButton } from './CloneExperimentButton'
+import { ImportExperimentDialog } from './ImportExperimentDialog'
+import type { ExperimentImportDocument } from '../lib/experimentImport'
 
 const PAGE_SIZES = [10, 20, 50]
 const DEFAULT_PAGE_SIZE = 20
@@ -105,6 +107,7 @@ export function ExperimentHistoryList() {
   const [error, setError] = useState<string | null>(null)
   const [notFound, setNotFound] = useState(false)
   const [wizardOpen, setWizardOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
   const [createdId, setCreatedId] = useState<number | null>(null)
   const [openMenuId, setOpenMenuId] = useState<number | null>(null)
   const [cloneRetry, setCloneRetry] = useState<(() => void) | null>(null)
@@ -303,7 +306,16 @@ export function ExperimentHistoryList() {
   }
 
   const createFromWizard = async (result: WizardResult): Promise<number> =>
-    call((token) => createExperiment(token, result))
+    call((token) => importExperiment(token, {
+      schemaVersion: 1,
+      name: result.name,
+      ...(result.description ? { description: result.description } : {}),
+      repeats: 1,
+      pairs: result.pairs,
+    })).id
+
+  const createFromImport = async (document: ExperimentImportDocument): Promise<number> =>
+    call((token) => importExperiment(token, document)).id
 
   const isDuplicateName = (name: string): boolean =>
     (data?.rows ?? []).some((row) => row.name.toLowerCase() === name.toLowerCase())
@@ -323,6 +335,20 @@ export function ExperimentHistoryList() {
     )
   }
 
+  if (importOpen) {
+    return (
+      <ImportExperimentDialog
+        onClose={() => setImportOpen(false)}
+        onImport={createFromImport}
+        onCreated={(id) => {
+          setCreatedId(id)
+          setImportOpen(false)
+          load()
+        }}
+      />
+    )
+  }
+
   const loading = data === null || showSkeleton
   const hasAny = data !== null && data.total > 0
   const noResults = data !== null && data.total === 0
@@ -335,9 +361,16 @@ export function ExperimentHistoryList() {
       {error && <div className="banner error" role="alert">{error}</div>}
       {cloneRetry && <div className="banner error" role="alert">Clone failed. Try again. <button className="link" onClick={cloneRetry}>Retry</button></div>}
 
-      <div className="wz-row-between">
-        <span />
-        <button className="primary" onClick={() => setWizardOpen(true)}>New Bias Test</button>
+      <div className="creation-actions">
+        <div>
+          <p className="eyebrow">Experiments</p>
+          <h2>What do you want to test?</h2>
+          <p className="muted">Start from a pair of complete prompts or build one manually.</p>
+        </div>
+        <div className="creation-buttons">
+          <button className="primary" onClick={() => setImportOpen(true)}>Import JSON</button>
+          <button className="secondary" onClick={() => setWizardOpen(true)}>Create manually</button>
+        </div>
       </div>
 
       <div className="search-bar">

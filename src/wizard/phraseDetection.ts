@@ -64,6 +64,80 @@ const TERMS: Record<DemographicAxis, string[]> = {
   ],
 }
 
+/** Applies the capitalization of the matched text to the replacement. */
+function matchCase(original: string, replacement: string): string {
+  if (original === original.toUpperCase() && original !== original.toLowerCase()) {
+    return replacement.toUpperCase()
+  }
+  if (original[0] === original[0]?.toUpperCase()) {
+    return replacement[0].toUpperCase() + replacement.slice(1)
+  }
+  return replacement
+}
+
+/**
+ * Replaces every whole-word occurrence of `phrase` with `replacement`.
+ * The match ignores case; the replacement copies the case of each match.
+ */
+export function substitutePhrase(prompt: string, phrase: string, replacement: string): string {
+  const term = phrase.trim()
+  if (!term || !replacement.trim()) return prompt
+  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return prompt.replace(
+    new RegExp(`\\b${escaped}\\b`, 'gi'),
+    (match) => matchCase(match, replacement.trim()),
+  )
+}
+
+/** One phrase together with the values it must be compared against. */
+export interface ComparisonEntry {
+  text: string
+  axis: DemographicAxis
+  /** Replacement values. Each one makes a separate matched pair. */
+  values: string[]
+}
+
+export interface ComparisonPair {
+  id: string
+  question: string
+  variantA: { label: string; prompt: string }
+  variantB: { label: string; prompt: string }
+}
+
+function slug(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'value'
+}
+
+/**
+ * Builds one matched pair per replacement value. Variant A keeps the original
+ * prompt; variant B is the same prompt with the phrase swapped. Values that
+ * change nothing are dropped, because a pair needs two different prompts.
+ */
+export function buildComparisonPairs(prompt: string, entries: ComparisonEntry[]): ComparisonPair[] {
+  const pairs: ComparisonPair[] = []
+  const usedIds = new Set<string>()
+
+  for (const entry of entries) {
+    for (const value of entry.values) {
+      const swapped = substitutePhrase(prompt, entry.text, value)
+      if (swapped.trim() === prompt.trim()) continue
+
+      let id = `${slug(entry.text)}-vs-${slug(value)}`
+      while (usedIds.has(id)) id = `${id}-x`
+      usedIds.add(id)
+
+      pairs.push({
+        id,
+        question: `${AXES[entry.axis].label}: ${entry.text} vs ${value.trim()}`,
+        variantA: { label: entry.text, prompt },
+        variantB: { label: value.trim(), prompt: swapped },
+      })
+    }
+  }
+
+  return pairs
+}
+
 export interface DetectedPhrase {
   /** Stable id for React keys and selection state. */
   id: string

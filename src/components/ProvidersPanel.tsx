@@ -53,22 +53,32 @@ export function ProvidersPanel({ onTargetsChange }: { onTargetsChange?: (targets
         <div>
           <p className="eyebrow">Execution connections</p>
           <h2 id="providers-title">Provider targets</h2>
-          <p className="muted">Connect a subscription or add an advanced API target, then select it when configuring a run.</p>
+          <p className="muted">Add an API key for OpenAI, Anthropic, Google Gemini, OpenRouter, or a custom HTTP endpoint, then select it when configuring a run.</p>
         </div>
       </header>
       {notice && <div className="banner success" role="status">{notice}</div>}
       <div className="local-security-note" role="note">
-        <strong>Subscription-safe:</strong> OAuth credentials stay in the official provider CLI and never enter this browser.
+        <strong>API keys only:</strong> a bias test needs a raw model endpoint. Keys are held in this
+        browser and are shown redacted after saving. Every request is billed by the provider.
       </div>
-      <SubscriptionProviders targets={targets} onUseSubscription={handleUseSubscription} />
+
+      <TargetsPanel
+        targets={targets.filter((target) => targetAuthMode(target) === 'api-key')}
+        onSave={handleSave}
+        onDelete={handleDelete}
+      />
+
       <details className="advanced-providers">
-        <summary>Advanced: API keys and custom endpoints</summary>
-        <p className="muted">Use this only for pay-as-you-go APIs, OpenRouter, or a custom compatible endpoint.</p>
-        <TargetsPanel
-          targets={targets.filter((target) => targetAuthMode(target) === 'api-key')}
-          onSave={handleSave}
-          onDelete={handleDelete}
-        />
+        <summary>Subscription sign-in (unavailable for experiments)</summary>
+        <p className="muted">
+          A Claude, ChatGPT, or Gemini subscription can only be reached through that provider’s
+          coding-agent CLI. Running a prompt there starts an agent session that carries the working
+          directory, repository files, and a tool loop, so the answer would not be the raw model
+          response. These options stay visible for sign-in status only and cannot be selected for a run.
+        </p>
+        <div className="subscription-disabled" aria-disabled="true">
+          <SubscriptionProviders targets={targets} onUseSubscription={handleUseSubscription} />
+        </div>
       </details>
     </section>
   )

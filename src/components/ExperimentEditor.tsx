@@ -18,6 +18,7 @@ import { createTargetExecutionAdapter } from '../engine/targetAdapter'
 import { createSubscriptionExecutionAdapter } from '../engine/subscriptionAdapter'
 import { loadTargets, targetAuthMode, type TargetConfig } from '../store/targetStore'
 import { ProvidersPanel } from './ProvidersPanel'
+import { estimateRequests, targetReadiness } from '../domain/targetReadiness'
 import { createSimulatedAdapter, type RunTarget } from '../engine/adapter'
 import type { RunPair } from '../engine/types'
 
@@ -114,7 +115,7 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
       }]
     }
     const target = availableTargets.find((item) => item.id === id)
-    if (!target) return []
+    if (!target || !targetReadiness(target).ready) return []
     return [{
       id: target.id,
       label: `${target.name} — ${target.modelId}`,
@@ -158,30 +159,34 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
               </span>
             </label>
             {availableTargets.map((target) => {
-              const subscription = targetAuthMode(target) === 'subscription'
+              const readiness = targetReadiness(target)
               return (
                 <label
                   key={target.id}
-                  className={subscription ? 'target-option disabled' : 'target-option'}
+                  className={readiness.ready ? 'target-option' : 'target-option disabled'}
                 >
                   <input
                     type="checkbox"
                     checked={selectedTargetIds.includes(target.id)}
-                    disabled={subscription}
+                    disabled={!readiness.ready}
                     onChange={() => toggleTarget(target.id)}
                   />
                   <span>
                     <strong>{target.name}</strong>
-                    <small>
-                      {target.provider} · {target.modelId} ·{' '}
-                      {subscription ? 'Subscription' : 'API key'}
-                    </small>
-                    {subscription && (
-                      <small className="target-unsupported">
-                        Not usable for a bias test. This sign-in only works through the provider's
-                        coding-agent CLI, which would add repository and tool context to the answer.
-                        Add an API-key provider for this model.
-                      </small>
+                    <small>{target.provider} · {target.modelId}</small>
+                    <span className="target-badges">
+                      <span className={readiness.configured ? 'badge ok' : 'badge missing'}>
+                        {readiness.configured ? 'Credentials saved' : 'No credentials'}
+                      </span>
+                      <span className={readiness.ready ? 'badge ok' : 'badge missing'}>
+                        {readiness.ready ? 'Ready to run' : 'Not runnable'}
+                      </span>
+                      <span className="badge">
+                        {readiness.billing === 'api-billed' ? 'API-billed' : 'Subscription'}
+                      </span>
+                    </span>
+                    {readiness.blockedReason && (
+                      <small className="target-unsupported">{readiness.blockedReason}</small>
                     )}
                   </span>
                 </label>
@@ -209,10 +214,23 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
           />
           <div className="workload-readout" aria-label="Run workload">
             <span>
-              {pairCount} matched {pairCount === 1 ? 'question' : 'questions'} ×{' '}
-              {runTargets.length} {runTargets.length === 1 ? 'model' : 'models'}
+              {pairCount} {pairCount === 1 ? 'pair' : 'pairs'} × 2 variants × {repeats}{' '}
+              {repeats === 1 ? 'repeat' : 'repeats'} × {runTargets.length}{' '}
+              {runTargets.length === 1 ? 'model' : 'models'}
             </span>
-            <strong>{pairCount * 2 * repeats * runTargets.length} requests</strong>
+            <strong>
+              {estimateRequests({
+                pairs: pairCount,
+                variantsPerPair: 2,
+                repeats,
+                models: runTargets.length,
+              }).toLocaleString('en-US')}{' '}
+              requests
+            </strong>
+            <small className="muted">
+              Each request is billed by the provider. This app has no pricing data, so no cost
+              estimate is shown.
+            </small>
           </div>
         </div>
 

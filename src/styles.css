@@ -704,3 +704,9 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 .inline-provider-setup { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
 .target-option.disabled { opacity: 0.6; cursor: not-allowed; }
 .target-unsupported { color: var(--warn, #f5a524); }
+.target-badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.target-badges .badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
+.target-badges .badge.ok { border-color: #30a46c; color: #30a46c; }
+.target-badges .badge.missing { border-color: #e5484d; color: #e5484d; }
+.workload-readout small { display: block; margin-top: 4px; }
+.subscription-disabled { opacity: 0.65; }

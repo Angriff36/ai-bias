@@ -4,6 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "start": "vite build && bun server/index.ts",
+    "serve": "bun server/index.ts",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",

@@ -1,8 +1,13 @@
-import initSqlJs, { type Database } from 'sql.js'
-import wasmUrl from 'sql.js/dist/sql-wasm.wasm?url'
+import type { Database } from 'sql.js'
 import { migrations, type Migration } from './migrations'
 
-const STORAGE_KEY = 'ai-bias-db'
+/**
+ * The open database handle and its persistence hook.
+ *
+ * Storage is decided by whoever opens the database: the local server keeps a
+ * SQLite file on disk (see server/db.ts) and tests keep it in memory. Server
+ * functions only ever call getDb() and persist().
+ */
 
 export interface MigrationRecord {
   id: string
@@ -28,51 +33,34 @@ export class MigrationError extends Error {
 }
 
 let db: Database | null = null
-
-// The open database lives in this module. If the dev server hot-swaps this
-// module (or the migrations it imports), the handle would be lost and every
-// save would fail with "Database not initialized" until the page reloads.
-// On a hot update of this module, reload the page so the database is reopened.
-if (import.meta.hot) import.meta.hot.accept(() => window.location.reload())
+let persistFn: (() => void) | null = null
 
 export function getDb(): Database {
   if (!db) throw new Error('Database not initialized')
   return db
 }
 
-function loadPersisted(): Uint8Array | null {
-  const raw = localStorage.getItem(STORAGE_KEY)
-  if (!raw) return null
-  const bin = atob(raw)
-  const bytes = new Uint8Array(bin.length)
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
-  return bytes
+/** Makes `database` the active handle; `save` is called after every write. */
+export function attachDatabase(database: Database, save: () => void): void {
+  db = database
+  persistFn = save
 }
 
 export function persist(): void {
   if (!db) return
-  const bytes = db.export()
-  let bin = ''
-  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i])
-  localStorage.setItem(STORAGE_KEY, btoa(bin))
+  persistFn?.()
 }
 
-/** Opens the database and applies pending migrations in order. */
-export async function openDatabase(
-  onProgress?: (p: MigrationProgress) => void,
-): Promise<Database> {
-  const SQL = await initSqlJs({ locateFile: () => wasmUrl })
-  const persisted = loadPersisted()
-  db = persisted ? new SQL.Database(persisted) : new SQL.Database()
-  db.run('PRAGMA foreign_keys = ON;')
-  db.run(`CREATE TABLE IF NOT EXISTS schema_migrations (
+/** Applies pending migrations in order, each in its own transaction. */
+export function runMigrations(database: Database, onProgress?: (p: MigrationProgress) => void): void {
+  database.run(`CREATE TABLE IF NOT EXISTS schema_migrations (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     applied_at TEXT NOT NULL DEFAULT (datetime('now'))
   );`)
 
   const applied = new Set<string>(
-    db.exec('SELECT id FROM schema_migrations')[0]?.values.map((r) => String(r[0])) ?? [],
+    database.exec('SELECT id FROM schema_migrations')[0]?.values.map((r) => String(r[0])) ?? [],
   )
 
   const pending = migrations.filter((m) => !applied.has(m.id))
@@ -80,20 +68,18 @@ export async function openDatabase(
     const m = pending[i]
     onProgress?.({ current: i + 1, total: pending.length, migration: m })
     try {
-      db.run('BEGIN;')
-      m.up(db)
-      db.run('INSERT INTO schema_migrations (id, name) VALUES (?, ?)', [m.id, m.name])
-      db.run('COMMIT;')
+      database.run('BEGIN;')
+      m.up(database)
+      database.run('INSERT INTO schema_migrations (id, name) VALUES (?, ?)', [m.id, m.name])
+      database.run('COMMIT;')
     } catch (e) {
-      db.run('ROLLBACK;')
+      database.run('ROLLBACK;')
       throw new MigrationError({
         migration: m,
         message: e instanceof Error ? e.message : String(e),
       })
     }
   }
-  persist()
-  return db
 }
 
 export function getMigrationRecords(): MigrationRecord[] {
@@ -144,19 +130,4 @@ export function friendlyConstraintError(message: string): string {
     return 'A record with this name already exists. Use a different name.'
   }
   return message
-}
-
-/**
- * Deletes the stored database so the next load starts from a clean schema.
- * Used by the Admin reset, which is the only recovery when an interrupted
- * write leaves rows that block further imports. Returns false if the browser
- * refused the delete.
- */
-export function clearPersistedDatabase(): boolean {
-  try {
-    localStorage.removeItem(STORAGE_KEY)
-    return true
-  } catch {
-    return false
-  }
 }

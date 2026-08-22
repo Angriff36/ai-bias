@@ -1,13 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import {
-  completeOfflineRun,
-  getExperiment,
-  getExperimentRunSummary,
-  updateExperimentName,
-  type ExperimentDetail,
-  type ExperimentRunSummary,
-} from '../server/functions'
-import { useAuth } from '../auth/AuthContext'
+import { api, type ExperimentDetail, type ExperimentRunSummary } from '../api'
 import { CloneExperimentButton } from './CloneExperimentButton'
 import { DropdownSelect } from './DropdownSelect'
 import { EmptyState } from './EmptyState'
@@ -27,7 +19,6 @@ import type { MatchedPrompt } from '../capture/types'
 type WorkspaceView = 'overview' | 'run' | 'results' | 'capture'
 
 export function ExperimentEditor({ experimentId }: { experimentId: number }) {
-  const { call } = useAuth()
   const [experiment, setExperiment] = useState<ExperimentDetail | null>(null)
   const [name, setName] = useState('')
   const [error, setError] = useState(false)
@@ -45,37 +36,38 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
   const nameRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    try {
-      const loaded = call((token) => getExperiment(token, experimentId))
-      setExperiment(loaded)
-      setName(loaded.name)
-      setRepeats(loaded.default_repeats)
-      try {
-        setRunSummary(call((token) => getExperimentRunSummary(token, experimentId)))
-      } catch {
+    let cancelled = false
+    api.getExperiment(experimentId)
+      .then(async (loaded) => {
+        if (cancelled) return
+        setExperiment(loaded)
+        setName(loaded.name)
+        setRepeats(loaded.default_repeats)
         // The experiment itself loaded; treat a missing summary as "no runs yet".
-        setRunSummary(null)
-      }
-      requestAnimationFrame(() => {
-        nameRef.current?.focus()
-        nameRef.current?.select()
+        const summary = await api.getExperimentRunSummary(experimentId).catch(() => null)
+        if (cancelled) return
+        setRunSummary(summary)
+        requestAnimationFrame(() => {
+          nameRef.current?.focus()
+          nameRef.current?.select()
+        })
       })
-    } catch {
-      setError(true)
-    }
-  }, [call, experimentId])
+      .catch(() => { if (!cancelled) setError(true) })
+    return () => { cancelled = true }
+  }, [experimentId])
 
   const saveName = () => {
     if (!experiment || name === experiment.name) return
     setNameError(null)
-    try {
-      const updated = call((token) => updateExperimentName(token, experiment.id, name))
-      setExperiment(updated)
-      setName(updated.name)
-    } catch (cause) {
-      setName(experiment.name)
-      setNameError(cause instanceof Error ? cause.message : 'The new name could not be saved.')
-    }
+    api.updateExperimentName(experiment.id, name)
+      .then((updated) => {
+        setExperiment(updated)
+        setName(updated.name)
+      })
+      .catch((cause: unknown) => {
+        setName(experiment.name)
+        setNameError(cause instanceof Error ? cause.message : 'The new name could not be saved.')
+      })
   }
 
   const navigateToClone = (cloned: ExperimentDetail) => {
@@ -85,14 +77,15 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
 
   const saveCompletedRun = (completion: RunCompletion) => {
     if (!experiment) return
-    try {
-      const summary = call((token) => completeOfflineRun(token, experiment.id, completion.records))
-      setRunSummary(summary)
-      setExperiment(call((token) => getExperiment(token, experiment.id)))
-      setRunSaveError(null)
-    } catch (runError) {
-      setRunSaveError(runError instanceof Error ? runError.message : 'Run completed, but its evidence could not be saved.')
-    }
+    api.completeOfflineRun(experiment.id, completion.records)
+      .then(async (summary) => {
+        setRunSummary(summary)
+        setExperiment(await api.getExperiment(experiment.id))
+        setRunSaveError(null)
+      })
+      .catch((runError: unknown) => {
+        setRunSaveError(runError instanceof Error ? runError.message : 'Run completed, but its evidence could not be saved.')
+      })
   }
 
   if (error) return <NotFoundPage onBack={() => { window.location.hash = '#/experiments' }} />

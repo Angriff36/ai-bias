@@ -1,31 +1,42 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useAuth } from '../auth/AuthContext'
-import { getReportDetail, type ReportDetail, type ReportQuestion, type ReportEvidenceRow } from '../server/functions'
+import { api, ServerError, type ReportDetail, type ReportQuestion, type ReportEvidenceRow } from '../api'
 import { RecordedHashBadge } from './StatusBadge'
 import { PairInspector } from '../features/pair-inspector/PairInspector'
 import { buildReportPairs } from '../features/pair-inspector/fromReport'
 
 export function ReportDetailView({ reportId }: { reportId: number }) {
-  const { call } = useAuth()
   const [report, setReport] = useState<ReportDetail | null>(null)
   const [missing, setMissing] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
   /** Pair id open in the side-by-side inspector, or null for the report itself. */
   const [inspecting, setInspecting] = useState<string | null>(null)
   const pairs = useMemo(() => (report ? buildReportPairs(report) : []), [report])
 
   useEffect(() => {
-    try {
-      setReport(call((token) => getReportDetail(token, reportId)))
-    } catch {
-      setMissing(true)
-    }
-  }, [call, reportId])
+    let cancelled = false
+    api.getReportDetail(reportId)
+      .then((detail) => { if (!cancelled) setReport(detail) })
+      .catch((e: unknown) => {
+        if (cancelled) return
+        if (e instanceof ServerError && e.status === 404) setMissing(true)
+        else setLoadError(e instanceof Error ? e.message : 'The report could not be loaded.')
+      })
+    return () => { cancelled = true }
+  }, [reportId])
 
   if (missing) {
     return (
       <section className="report-detail panel">
         <h2>Report not found</h2>
-        <p className="muted">This report does not exist or belongs to another account.</p>
+        <p className="muted">This report does not exist.</p>
+        <button className="secondary" onClick={() => { window.location.hash = '#/reports' }}>Back to reports</button>
+      </section>
+    )
+  }
+  if (loadError) {
+    return (
+      <section className="report-detail panel">
+        <div className="banner error" role="alert"><span>{loadError}</span></div>
         <button className="secondary" onClick={() => { window.location.hash = '#/reports' }}>Back to reports</button>
       </section>
     )

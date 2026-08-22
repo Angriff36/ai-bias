@@ -1,4 +1,5 @@
 import { getDb, persist } from '../db/database'
+import { ServerError } from './errors'
 import type { RawRecord } from '../engine/types'
 import { parseExperimentImport, type ExperimentImportDocument } from '../lib/experimentImport'
 
@@ -8,11 +9,7 @@ import { parseExperimentImport, type ExperimentImportDocument } from '../lib/exp
  * (never 403) so resource existence is not confirmed to other users.
  */
 
-export class ServerError extends Error {
-  constructor(public status: 401 | 404 | 500, message: string) {
-    super(message)
-  }
-}
+export { ServerError }
 
 export interface SessionUser {
   id: number

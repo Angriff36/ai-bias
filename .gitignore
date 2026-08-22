@@ -6,3 +6,4 @@ playwright-report/
 .playwright-cli/
 .aboardai/
 .worktrees/
+data/

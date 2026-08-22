@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { cloneExperiment, type ExperimentDetail } from '../server/functions'
-import { useAuth } from '../auth/AuthContext'
+import { api, type ExperimentDetail } from '../api'
 
 export interface CloneSource {
   id: number
@@ -18,7 +17,6 @@ interface Props {
 
 /** A non-destructive clone trigger with the required active-run safeguard. */
 export function CloneExperimentButton({ source, inMenu = false, onCloned, onFailure }: Props) {
-  const { call } = useAuth()
   const [warningOpen, setWarningOpen] = useState(false)
   const [cloning, setCloning] = useState(false)
   const [showSpinner, setShowSpinner] = useState(false)
@@ -32,21 +30,16 @@ export function CloneExperimentButton({ source, inMenu = false, onCloned, onFail
     setWarningOpen(false)
     setCloning(true)
     const spinnerTimer = window.setTimeout(() => setShowSpinner(true), 150)
-    // Allow the disabled state to paint before doing the synchronous local DB transaction.
-    window.setTimeout(() => {
-      try {
-        const cloned = call((token) => cloneExperiment(token, source.id))
-        onCloned(cloned)
-      } catch {
-        onFailure(completeClone)
-      } finally {
+    api.cloneExperiment(source.id)
+      .then((cloned) => onCloned(cloned))
+      .catch(() => onFailure(completeClone))
+      .finally(() => {
         window.clearTimeout(spinnerTimer)
         setShowSpinner(false)
         // Runs on success too: if the caller does not navigate away, the button
         // must become usable again instead of staying disabled.
         setCloning(false)
-      }
-    }, 0)
+      })
   }
 
   const requestClone = () => {

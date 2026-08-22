@@ -1,16 +1,5 @@
 import { useEffect, useState } from 'react'
-import {
-  openDatabase,
-  clearPersistedDatabase,
-  getMigrationRecords,
-  getSchemaVersion,
-  MigrationError,
-  type MigrationRecord,
-  type MigrationProgress,
-} from './db/database'
-import { listReports, type ReportRow } from './server/functions'
-import { AuthProvider, useAuth } from './auth/AuthContext'
-import { LoginPage } from './auth/LoginPage'
+import { api, type MigrationRecord, type ReportRow } from './api'
 import { EmptyState, SkeletonRows } from './components/EmptyState'
 import { ReadOnlyBadge, RecordedHashBadge } from './components/StatusBadge'
 import { ExperimentHistoryList } from './components/ExperimentHistoryList'
@@ -20,10 +9,10 @@ import { ProvidersPanel } from './components/ProvidersPanel'
 import { TemplateLibrary } from './components/TemplateLibrary'
 import { ObservationsPanel } from './components/ObservationsPanel'
 
-type DbState =
-  | { phase: 'migrating'; progress: MigrationProgress | null }
-  | { phase: 'ready'; version: number; readyAt: string }
-  | { phase: 'failed'; migrationName: string; message: string }
+type ServerState =
+  | { phase: 'connecting' }
+  | { phase: 'ready'; version: number }
+  | { phase: 'failed'; message: string }
 
 type Tab = 'experiments' | 'templates' | 'observations' | 'targets' | 'reports' | 'admin'
 
@@ -38,43 +27,27 @@ function tabFromHash(hash = window.location.hash): Tab {
 }
 
 export default function App() {
-  const [state, setState] = useState<DbState>({ phase: 'migrating', progress: null })
-  const [showLogs, setShowLogs] = useState(false)
+  const [state, setState] = useState<ServerState>({ phase: 'connecting' })
+  const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
     let cancelled = false
-    openDatabase((p) => {
-      if (!cancelled) setState({ phase: 'migrating', progress: p })
-    })
-      .then(() => {
+    setState({ phase: 'connecting' })
+    api.health()
+      .then((health) => { if (!cancelled) setState({ phase: 'ready', version: health.schemaVersion }) })
+      .catch((e: unknown) => {
         if (cancelled) return
-        setState({
-          phase: 'ready',
-          version: getSchemaVersion(),
-          readyAt: new Date().toLocaleString(),
-        })
-      })
-      .catch((e) => {
-        if (cancelled) return
-        if (e instanceof MigrationError) {
-          setState({ phase: 'failed', migrationName: e.failure.migration.name, message: e.failure.message })
-        } else {
-          setState({ phase: 'failed', migrationName: 'startup', message: String(e) })
-        }
+        setState({ phase: 'failed', message: e instanceof Error ? e.message : 'The app’s local server is not answering.' })
       })
     return () => { cancelled = true }
-  }, [])
+  }, [attempt])
 
-  if (state.phase === 'migrating') {
+  if (state.phase === 'connecting') {
     return (
       <div className="app">
         <div className="banner info" role="status">
           <div className="spinner" aria-hidden="true" />
-          <span>
-            Preparing the database…
-            {state.progress && ` Running migration ${state.progress.current} of ${state.progress.total}: `}
-            {state.progress && <code>{state.progress.migration.id}_{state.progress.migration.name}</code>}
-          </span>
+          <span>Connecting to the local server…</span>
         </div>
       </div>
     )
@@ -85,62 +58,19 @@ export default function App() {
       <div className="app">
         <div className="banner error" role="alert">
           <span>
-            The app cannot start because a database migration failed. Migration:{' '}
-            <code>{state.migrationName}</code>. Try reloading the page. If the problem continues,
-            contact support.
+            {state.message} The app runs as one local program: open a terminal in the app folder and run{' '}
+            <code>npm start</code>, then try again.
           </span>
-          <button className="secondary" onClick={() => setShowLogs((v) => !v)}>View logs</button>
+          <button className="secondary" onClick={() => setAttempt((n) => n + 1)}>Try again</button>
         </div>
-        {showLogs && (
-          <div className="panel">
-            <pre className="mono">{state.message}</pre>
-          </div>
-        )}
       </div>
     )
   }
 
-  return (
-    <AuthProvider>
-      <AuthGate version={state.version} readyAt={state.readyAt} />
-    </AuthProvider>
-  )
+  return <MainApp version={state.version} />
 }
 
-/**
- * Gates rendering on the auth check so unauthenticated content never
- * flashes. While checking, the existing skeleton pattern is shown.
- */
-function AuthGate({ version, readyAt }: { version: number; readyAt: string }) {
-  const { state, consumeReturnTo } = useAuth()
-
-  useEffect(() => {
-    if (state.phase === 'signedIn') {
-      const returnTo = consumeReturnTo()
-      if (returnTo) window.location.hash = returnTo
-    }
-  }, [state.phase, consumeReturnTo])
-
-  if (state.phase === 'checking') {
-    return (
-      <div className="app">
-        <table>
-          <caption>Loading</caption>
-          <tbody><SkeletonRows columns={3} /></tbody>
-        </table>
-      </div>
-    )
-  }
-
-  if (state.phase === 'signedOut') {
-    return <LoginPage notice={state.notice} />
-  }
-
-  return <MainApp version={version} readyAt={readyAt} />
-}
-
-function MainApp({ version, readyAt }: { version: number; readyAt: string }) {
-  const { signOut, state } = useAuth()
+function MainApp({ version }: { version: number }) {
   const [route, setRoute] = useState(window.location.hash)
   const tab = tabFromHash(route)
   const [toast, setToast] = useState<string | null>(null)
@@ -184,10 +114,7 @@ function MainApp({ version, readyAt }: { version: number; readyAt: string }) {
       <header className="app-header">
         <div className="app-brand"><h1>AI Bias Lab</h1></div>
         <div className="app-header-right">
-          <p className="db-status" role="status">Database ready · schema v{version} · {readyAt}</p>
-          <button className="secondary" onClick={signOut}>
-            Sign out{state.phase === 'signedIn' ? ` (${state.user.email})` : ''}
-          </button>
+          <p className="db-status" role="status">Local database · schema v{version}</p>
         </div>
       </header>
       <nav className="tabs" role="tablist" aria-label="Main sections">
@@ -226,15 +153,15 @@ function ReportsRoute() {
 }
 
 function ReportsList() {
-  const { call } = useAuth()
   const [rows, setRows] = useState<ReportRow[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
   useEffect(() => {
-    try {
-      setRows(call(listReports))
-    } catch {
-      // 401 already triggered the login redirect
-    }
-  }, [call])
+    let cancelled = false
+    api.listReports()
+      .then((list) => { if (!cancelled) setRows(list) })
+      .catch((e: unknown) => { if (!cancelled) setError(e instanceof Error ? e.message : 'The reports could not be loaded.') })
+    return () => { cancelled = true }
+  }, [])
 
   const header = (
     <div className="page-header">
@@ -245,6 +172,14 @@ function ReportsList() {
       </div>
     </div>
   )
+  if (error) {
+    return (
+      <section className="report-list">
+        {header}
+        <div className="banner error" role="alert"><span>{error}</span></div>
+      </section>
+    )
+  }
   if (rows === null) {
     return (
       <section className="report-list">
@@ -290,21 +225,33 @@ function ReportsList() {
 }
 
 function AdminPanel({ version }: { version: number }) {
-  const [records] = useState<MigrationRecord[]>(getMigrationRecords)
+  const [records, setRecords] = useState<MigrationRecord[]>([])
   const [resetError, setResetError] = useState<string | null>(null)
+  const [resetting, setResetting] = useState(false)
   const last = records[records.length - 1]
 
-  const resetDatabase = () => {
+  useEffect(() => {
+    let cancelled = false
+    api.getMigrationRecords()
+      .then((list) => { if (!cancelled) setRecords(list) })
+      .catch(() => { /* the schema table is informational; the version is already shown */ })
+    return () => { cancelled = true }
+  }, [])
+
+  const resetDatabase = async () => {
     const confirmed = window.confirm(
-      'Delete every experiment, run, and report stored in this browser? ' +
+      'Delete every experiment, run, and report stored by this app? ' +
       'Provider targets and API keys are kept. This cannot be undone.',
     )
     if (!confirmed) return
-    if (!clearPersistedDatabase()) {
-      setResetError('This browser refused to clear the stored database.')
-      return
+    setResetting(true)
+    try {
+      await api.resetDatabase()
+      window.location.reload()
+    } catch (e) {
+      setResetError(e instanceof Error ? e.message : 'The database could not be reset.')
+      setResetting(false)
     }
-    window.location.reload()
   }
 
   return (
@@ -313,7 +260,7 @@ function AdminPanel({ version }: { version: number }) {
         <div>
           <p className="eyebrow">Local storage</p>
           <h2>Admin</h2>
-          <p className="lead">The database lives in this browser. Check its schema or start it fresh.</p>
+          <p className="lead">The database is one file in the app’s data folder. Check its schema or start it fresh.</p>
         </div>
       </div>
       <div className="panel">
@@ -326,11 +273,13 @@ function AdminPanel({ version }: { version: number }) {
       <div className="panel">
         <h2>Reset local database</h2>
         <p className="muted">
-          Everything this app stores lives in this browser. Resetting starts the schema fresh.
-          Experiments, runs, and reports are deleted. Provider targets and API keys are kept.
+          Resetting starts the database fresh. Experiments, runs, and reports are deleted.
+          Provider targets and API keys are kept.
         </p>
-        {resetError && <div className="banner error" role="alert">{resetError}</div>}
-        <button className="secondary" onClick={resetDatabase}>Reset local database</button>
+        {resetError && <div className="banner error" role="alert"><span>{resetError}</span></div>}
+        <button className="secondary" onClick={() => void resetDatabase()} disabled={resetting}>
+          {resetting ? 'Resetting…' : 'Reset local database'}
+        </button>
       </div>
       <div className="panel">
         <h2>Applied migrations</h2>

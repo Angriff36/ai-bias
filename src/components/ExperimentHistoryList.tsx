@@ -1,18 +1,14 @@
 import type { AriaAttributes } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  api,
   ServerError,
-  deleteExperiment,
-  importExperiment,
-  listExperiments,
-  listTargets,
   type ExperimentRow,
   type ExperimentSortField,
   type SortDir,
   type TargetRow,
-} from '../server/functions'
-import { cascadeCounts, friendlyConstraintError } from '../db/database'
-import { useAuth } from '../auth/AuthContext'
+} from '../api'
+import { friendlyConstraintError } from '../db/database'
 import { ConfirmDeleteDialog } from './ConfirmDeleteDialog'
 import { EmptyState, SkeletonRows } from './EmptyState'
 import { NotFoundPage } from './NotFoundPage'
@@ -97,7 +93,6 @@ function formatDate(iso: string | null, short = false): string {
 }
 
 export function ExperimentHistoryList() {
-  const { call } = useAuth()
   const [query, setQuery] = useState(readParams)
   const [debounced, setDebounced] = useState(query)
   const [searchInput, setSearchInput] = useState(query.search)
@@ -105,6 +100,7 @@ export function ExperimentHistoryList() {
   const [data, setData] = useState<{ rows: ExperimentRow[]; total: number } | null>(null)
   const [showSkeleton, setShowSkeleton] = useState(true)
   const [deleting, setDeleting] = useState<ExperimentRow | null>(null)
+  const [deleteCounts, setDeleteCounts] = useState<Record<string, number>>({})
   const [error, setError] = useState<string | null>(null)
   const [notFound, setNotFound] = useState(false)
   const [wizardOpen, setWizardOpen] = useState(false)
@@ -127,14 +123,24 @@ export function ExperimentHistoryList() {
   const firstRowRef = useRef<HTMLTableRowElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
 
-  // Load target options for the Target filter (scoped to the user's targets).
+  // Load target options for the Target filter.
   useEffect(() => {
-    try {
-      setTargets(call(listTargets))
-    } catch {
-      // 401 already triggered the login redirect
-    }
-  }, [call])
+    let cancelled = false
+    api.listTargets()
+      .then((rows) => { if (!cancelled) setTargets(rows) })
+      .catch(() => { /* the filter simply stays hidden; the list itself reports load failures */ })
+    return () => { cancelled = true }
+  }, [])
+
+  // Child-record counts for the delete confirmation.
+  useEffect(() => {
+    if (!deleting) { setDeleteCounts({}); return }
+    let cancelled = false
+    api.cascadeCounts('experiment', deleting.id)
+      .then((counts) => { if (!cancelled) setDeleteCounts(counts) })
+      .catch(() => { if (!cancelled) setDeleteCounts({}) })
+    return () => { cancelled = true }
+  }, [deleting])
 
   // Debounce the search text (300ms) before it enters the query state.
   useEffect(() => {
@@ -170,35 +176,33 @@ export function ExperimentHistoryList() {
   // Fetch the current page only; keep the previous data visible while
   // re-fetching so filter changes do not flash the skeleton.
   const load = useCallback(() => {
-    let result: { rows: ExperimentRow[]; total: number }
-    try {
-      result = call((token) =>
-        listExperiments(token, {
-          page: debounced.page,
-          pageSize: debounced.pageSize,
-          sort: debounced.sort,
-          dir: debounced.dir,
-          statuses: debounced.statuses,
-          asymmetryLevels: debounced.levels,
-          targetIds: debounced.targetIds,
-          search: debounced.search,
-          dateFrom: debounced.dateFrom,
-          dateTo: debounced.dateTo,
-        }),
-      )
-    } catch (cause) {
-      // A 401 already redirected to sign-in, so there is nothing to say here.
-      // Any other failure must be shown, or the skeleton spins forever.
-      if (!(cause instanceof ServerError && cause.status === 401)) {
+    let cancelled = false
+    api.listExperiments({
+      page: debounced.page,
+      pageSize: debounced.pageSize,
+      sort: debounced.sort,
+      dir: debounced.dir,
+      statuses: debounced.statuses,
+      asymmetryLevels: debounced.levels,
+      targetIds: debounced.targetIds,
+      search: debounced.search,
+      dateFrom: debounced.dateFrom,
+      dateTo: debounced.dateTo,
+    })
+      .then((result) => {
+        if (cancelled) return
+        setError(null)
+        setData(result)
+        setShowSkeleton(false)
+      })
+      .catch((cause: unknown) => {
+        if (cancelled) return
+        // Any failure must be shown, or the skeleton spins forever.
         setError(cause instanceof Error ? cause.message : 'Could not load experiments.')
         setShowSkeleton(false)
-      }
-      return
-    }
-    setError(null)
-    setData(result)
-    setShowSkeleton(false)
-  }, [call, debounced])
+      })
+    return () => { cancelled = true }
+  }, [debounced])
   useEffect(load, [load])
 
   // Minimum skeleton display threshold: only show it if load took >300ms.
@@ -289,19 +293,20 @@ export function ExperimentHistoryList() {
 
   const confirmDelete = () => {
     if (!deleting) return
-    try {
-      call((token) => deleteExperiment(token, deleting.id))
-      setDeleting(null)
-      setError(null)
-      load()
-    } catch (e) {
-      setDeleting(null)
-      if (e instanceof ServerError && e.status === 404) {
-        setNotFound(true)
-        return
-      }
-      setError(friendlyConstraintError(e instanceof Error ? e.message : String(e)))
-    }
+    const target = deleting
+    setDeleting(null)
+    api.deleteExperiment(target.id)
+      .then(() => {
+        setError(null)
+        load()
+      })
+      .catch((e: unknown) => {
+        if (e instanceof ServerError && e.status === 404) {
+          setNotFound(true)
+          return
+        }
+        setError(friendlyConstraintError(e instanceof Error ? e.message : String(e)))
+      })
   }
 
   const navigateToClone = (cloned: { id: number; name: string }) => {
@@ -324,7 +329,7 @@ export function ExperimentHistoryList() {
   }
 
   const createFromWizard = async (result: WizardResult): Promise<number> =>
-    call((token) => importExperiment(token, {
+    (await api.importExperiment({
       schemaVersion: 1,
       name: result.name,
       ...(result.description ? { description: result.description } : {}),
@@ -333,7 +338,7 @@ export function ExperimentHistoryList() {
     })).id
 
   const createFromImport = async (document: ExperimentImportDocument): Promise<number> =>
-    call((token) => importExperiment(token, document)).id
+    (await api.importExperiment(document)).id
 
   const isDuplicateName = (name: string): boolean =>
     (data?.rows ?? []).some((row) => row.name.toLowerCase() === name.toLowerCase())
@@ -618,7 +623,7 @@ export function ExperimentHistoryList() {
       <ConfirmDeleteDialog
         open={deleting !== null}
         title={`Delete ${deleting?.name ?? ''}? This cannot be undone.`}
-        childCounts={deleting ? cascadeCounts('experiment', deleting.id) : {}}
+        childCounts={deleteCounts}
         onConfirm={confirmDelete}
         onCancel={() => setDeleting(null)}
       />

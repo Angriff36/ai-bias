@@ -5,23 +5,39 @@ import userEvent from '@testing-library/user-event'
 import { readFileSync } from 'node:fs'
 import type { Database } from 'sql.js'
 
-// The real database module loads the sql.js wasm over the network, which a
-// jsdom worker cannot do (that is what used to crash this test). The engine
-// is given the wasm bytes directly instead and runs fully in memory.
+// The page talks to the local server over HTTP. Here the API client is
+// replaced by the real server functions running against an in-memory
+// database, so the editor is exercised end to end without a network.
 let db: Database
-vi.mock('../db/database', () => ({
-  getDb: () => db,
-  persist: vi.fn(),
-  cascadeCounts: () => ({}),
-  friendlyConstraintError: (message: string) => message,
-}))
+const session = vi.hoisted(() => ({ token: '' }))
+vi.mock('../db/database', async () => {
+  const actual = await vi.importActual<typeof import('../db/database')>('../db/database')
+  return { ...actual, getDb: () => db, persist: vi.fn() }
+})
+vi.mock('../api', async () => {
+  const fns = await import('../server/functions')
+  const errors = await import('../server/errors')
+  const call = <T,>(run: () => T): Promise<T> => {
+    try { return Promise.resolve(run()) } catch (e) { return Promise.reject(e) }
+  }
+  return {
+    ServerError: errors.ServerError,
+    api: {
+      getExperiment: (id: number) => call(() => fns.getExperiment(session.token, id)),
+      getExperimentRunSummary: (id: number) => call(() => fns.getExperimentRunSummary(session.token, id)),
+      updateExperimentName: (id: number, name: string) => call(() => fns.updateExperimentName(session.token, id, name)),
+      completeOfflineRun: (id: number, records: never[]) => call(() => fns.completeOfflineRun(session.token, id, records)),
+      cloneExperiment: (id: number) => call(() => fns.cloneExperiment(session.token, id)),
+    },
+  }
+})
 
-import { AuthProvider } from '../auth/AuthContext'
 import { importExperiment, signIn } from '../server/functions'
 import { ExperimentEditor } from './ExperimentEditor'
 
 beforeAll(async () => {
   const initSqlJs = (await import('sql.js')).default
+  // jsdom cannot fetch the sql.js wasm; hand it the bytes directly.
   const bytes = readFileSync('node_modules/sql.js/dist/sql-wasm.wasm')
   const wasmBinary = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
   const SQL = await initSqlJs({ wasmBinary })
@@ -29,13 +45,12 @@ beforeAll(async () => {
   db.run('PRAGMA foreign_keys = ON')
   const { migrations } = await import('../db/migrations')
   migrations.forEach((migration) => migration.up(db))
+  session.token = signIn('editor-test@example.com', 'unused').token
 })
 
 afterEach(() => { cleanup(); localStorage.clear() })
 
 function createExperiment(name: string): number {
-  const session = signIn('editor-test@example.com', 'unused')
-  localStorage.setItem('ai-bias-session', session.token)
   return importExperiment(session.token, {
     schemaVersion: 1,
     name,
@@ -49,14 +64,10 @@ function createExperiment(name: string): number {
   }).id
 }
 
-function mount(id: number) {
-  return render(<AuthProvider><ExperimentEditor experimentId={id} /></AuthProvider>)
-}
-
 describe('the experiment editor', () => {
   it('opens the experiment and lets the name be changed', async () => {
     const id = createExperiment('Editor smoke')
-    mount(id)
+    render(<ExperimentEditor experimentId={id} />)
 
     const name = await screen.findByLabelText(/experiment name/i) as HTMLInputElement
     expect(name.value).toBe('Editor smoke')
@@ -65,12 +76,12 @@ describe('the experiment editor', () => {
     await userEvent.type(name, 'Renamed by hand')
     await userEvent.tab()
 
-    expect((screen.getByLabelText(/experiment name/i) as HTMLInputElement).value).toBe('Renamed by hand')
+    expect((await screen.findByLabelText(/experiment name/i) as HTMLInputElement).value).toBe('Renamed by hand')
   })
 
   it('pre-selects no model on the run screen and only offers a run once one is chosen', async () => {
     const id = createExperiment('Run screen check')
-    mount(id)
+    render(<ExperimentEditor experimentId={id} />)
 
     await userEvent.click(await screen.findByRole('button', { name: /configure run/i }))
 
@@ -90,7 +101,7 @@ describe('the experiment editor', () => {
 
   it('shows the matched questions and their exact prompts before a run', async () => {
     const id = createExperiment('Prompt review')
-    mount(id)
+    render(<ExperimentEditor experimentId={id} />)
 
     await userEvent.click(await screen.findByRole('button', { name: /configure run/i }))
 

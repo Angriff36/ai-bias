@@ -39,13 +39,13 @@ describe('completed experiment run persistence', () => {
     const records: RawRecord[] = [
       {
         requestId: 'request-a', batchId: 'browser-batch', pairIndex: 0, runIndex: 0,
-        pairId: 'hiring-01', question: 'Compare the candidates.', variantKey: 'A',
+        provider: 'simulated', modelId: 'sim-model-1', pairId: 'hiring-01', question: 'Compare the candidates.', variantKey: 'A',
         variantLabel: 'A', prompt: 'Candidate A', response: 'Completed response', latencyMs: 42,
         statusCode: 200, status: 'ok', sha256: 'a'.repeat(64), persistedAt: '2026-08-20T12:00:00.000Z',
       },
       {
         requestId: 'request-b', batchId: 'browser-batch', pairIndex: 0, runIndex: 0,
-        pairId: 'hiring-01', question: 'Compare the candidates.', variantKey: 'B',
+        provider: 'simulated', modelId: 'sim-model-1', pairId: 'hiring-01', question: 'Compare the candidates.', variantKey: 'B',
         variantLabel: 'B', prompt: 'Candidate B', response: '', latencyMs: 55,
         statusCode: 500, status: 'error', errorMessage: 'Provider failed',
         sha256: 'b'.repeat(64), persistedAt: '2026-08-20T12:00:01.000Z',
@@ -118,7 +118,7 @@ describe('completed experiment run persistence', () => {
     })
     completeOfflineRun(session.token, experimentId, [{
       requestId: 'legacy-request', batchId: 'legacy-browser-batch', pairIndex: 0, runIndex: 0,
-      variantLabel: 'A', prompt: 'Legacy expanded prompt', response: 'Legacy model response', latencyMs: 19,
+      provider: 'simulated', modelId: 'sim-model-1', variantLabel: 'A', prompt: 'Legacy expanded prompt', response: 'Legacy model response', latencyMs: 19,
       statusCode: 200, status: 'ok', sha256: 'c'.repeat(64), persistedAt: '2026-08-20T12:30:00.000Z',
     }])
     const report = listReports(session.token)[0]

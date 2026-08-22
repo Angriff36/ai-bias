@@ -30,6 +30,7 @@ export function createTargetExecutionAdapter(target: TargetConfig): ProviderAdap
           latencyMs: result.latencyMs,
           provider: result.provider,
           modelId: result.modelId,
+          truncated: result.truncated,
         }
       } catch (error) {
         if (isAdapterError(error)) {

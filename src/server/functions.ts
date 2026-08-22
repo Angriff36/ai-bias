@@ -97,6 +97,8 @@ export interface ReportEvidenceRow {
   latencyMs: number | null
   recordedAt: string
   recordHash: string
+  /** The provider cut this reply at its length limit. */
+  truncated?: boolean
 }
 export interface ReportQuestionVariant {
   key: 'A' | 'B'
@@ -629,6 +631,7 @@ export function completeOfflineRun(
         latencyMs: record.latencyMs,
         recordedAt: record.persistedAt,
         recordHash: record.sha256,
+        truncated: record.truncated === true,
       })),
     })
     const reportHash = records.map((record) => record.sha256).join('')
@@ -813,6 +816,7 @@ export function getReportDetail(token: string | null, reportId: number): ReportD
       latencyMs: typeof record.latencyMs === 'number' ? record.latencyMs : null,
       recordedAt: String(record.recordedAt ?? ''),
       recordHash: String(record.recordHash ?? ''),
+      truncated: record.truncated === true,
     }]
   })
 
@@ -874,6 +878,7 @@ function buildReportQuestions(records: RawRecord[]): ReportQuestion[] {
     latencyMs: record.latencyMs,
     recordedAt: record.persistedAt,
     recordHash: record.sha256,
+    truncated: record.truncated === true,
   })))
 }
 

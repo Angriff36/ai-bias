@@ -60,6 +60,13 @@ describe('buildReportPairs', () => {
     expect(pairs[0].variantB.outcome).toBe('empty')
   })
 
+  it('carries the cut-off flag so an incomplete reply is never shown as a full answer', () => {
+    const cut = { ...record('b-m-p0-A-r0', 'A', 'Half an ans'), truncated: true }
+    const pairs = buildReportPairs(report([cut], [record('b-m-p0-B-r0', 'B', 'Whole answer.')]))
+    expect(pairs[0].variantA.truncated).toBe(true)
+    expect(pairs[0].variantB.truncated).toBe(false)
+  })
+
   it('still shows a pair when one side has no stored record', () => {
     const pairs = buildReportPairs(report([record('b-m-p0-A-r0', 'A', 'only A')], []))
     expect(pairs).toHaveLength(1)

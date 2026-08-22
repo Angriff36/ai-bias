@@ -67,12 +67,14 @@ export function createBatchExecutor(
     let statusCode = 0
     let latencyMs = 0
     let errorMessage: string | undefined
+    let truncated = false
     const started = performance.now()
     try {
       const result = await adapter.callModel(request, abort.signal)
       response = result.content
       statusCode = result.statusCode
       latencyMs = result.latencyMs
+      truncated = result.truncated === true
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') {
         inFlight--
@@ -111,6 +113,7 @@ export function createBatchExecutor(
       statusCode,
       status,
       errorMessage,
+      ...(truncated ? { truncated } : {}),
     })
     callbacks.onRecord(record)
 

@@ -31,6 +31,7 @@ export const openrouterAdapter: ProviderAdapter = {
       modelId: config.modelId,
       provider: 'openrouter',
       latencyMs: Date.now() - start,
+      truncated: json.choices?.[0]?.finish_reason === 'length',
     }
   },
 

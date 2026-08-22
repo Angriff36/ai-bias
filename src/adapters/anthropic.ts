@@ -3,6 +3,8 @@ import { classifyHttpError, emptyResponseError, joinTextBlocks } from './util'
 
 const BASE = 'https://api.anthropic.com/v1'
 const VERSION = '2023-06-01'
+/** High enough that a normal answer is never cut; a reply that still hits it is flagged. */
+const MAX_OUTPUT_TOKENS = 4096
 
 const KNOWN_MODELS = [
   'claude-fable-5',
@@ -25,7 +27,7 @@ export const anthropicAdapter: ProviderAdapter = {
       },
       body: JSON.stringify({
         model: config.modelId,
-        max_tokens: 512,
+        max_tokens: MAX_OUTPUT_TOKENS,
         messages: [{ role: 'user', content: prompt }],
       }),
     }).catch(() => { throw { kind: 'timeout', message: 'fetch failed' } })
@@ -40,6 +42,7 @@ export const anthropicAdapter: ProviderAdapter = {
       modelId: config.modelId,
       provider: 'anthropic',
       latencyMs: Date.now() - start,
+      truncated: json.stop_reason === 'max_tokens',
     }
   },
 

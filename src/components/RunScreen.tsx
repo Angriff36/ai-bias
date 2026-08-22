@@ -380,7 +380,7 @@ export function RunScreen({
                   <p className="inspector-row">
                     <span className="inspector-label">Status</span>
                     {selectedRecord.status === 'ok'
-                      ? `Complete · ${selectedRecord.latencyMs}ms · HTTP ${selectedRecord.statusCode}`
+                      ? `Complete · ${selectedRecord.latencyMs}ms · HTTP ${selectedRecord.statusCode}${selectedRecord.truncated ? ' · cut off at the length limit' : ''}`
                       : `Failed · ${failureReason(selectedRecord.statusCode)}${selectedRecord.errorMessage ? ` · ${selectedRecord.errorMessage}` : ''}`}
                   </p>
                   <p className="inspector-row">

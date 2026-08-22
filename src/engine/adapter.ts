@@ -12,6 +12,8 @@ export interface AdapterResult {
   latencyMs: number
   provider: ProviderId
   modelId: string
+  /** The provider stopped at its length limit; the reply is incomplete. */
+  truncated?: boolean
 }
 
 export interface AdapterFailure {

@@ -28,6 +28,7 @@ export const googleAdapter: ProviderAdapter = {
       modelId: config.modelId,
       provider: 'google',
       latencyMs: Date.now() - start,
+      truncated: json.candidates?.[0]?.finishReason === 'MAX_TOKENS',
     }
   },
 

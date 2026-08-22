@@ -60,6 +60,8 @@ export interface RawRecord {
   statusCode: number
   status: 'ok' | 'error'
   errorMessage?: string
+  /** The provider cut the reply at its length limit; stored as-is and flagged, never as a full answer. */
+  truncated?: boolean
   /** SHA-256 hex over prompt + response + status, computed before classification. */
   sha256: string
   persistedAt: string

@@ -144,6 +144,9 @@ export function ResponseColumn({
         {isRefusal && !hasError && (
           <span className="badge warning">Refusal detected</span>
         )}
+        {side.truncated && !hasError && (
+          <span className="badge warning" title="The provider stopped at its length limit, so this reply is incomplete.">Cut off at the length limit</span>
+        )}
 
         <div className="pi-meta">
           <CorrectableClassification

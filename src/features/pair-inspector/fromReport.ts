@@ -79,6 +79,7 @@ function toSide(label: string, record: ReportEvidenceRow | undefined): ResponseS
     body: record.status === 'error' ? '' : record.response,
     outcome: outcomeFor(record),
     latencyMs: record.latencyMs,
+    truncated: record.truncated === true,
     ...(record.status === 'error'
       ? { error: { statusCode: record.statusCode ?? undefined, providerMessage: record.response.trim() || 'Provider request failed' } }
       : {}),

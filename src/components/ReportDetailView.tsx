@@ -160,7 +160,12 @@ function ResponseEvidence({ record }: { record: ReportEvidenceRow }) {
   return (
     <div className="response-evidence">
       <div className="response-evidence-heading">
-        <span className={record.status === 'error' ? 'badge danger' : 'badge success'}>{statusText}</span>
+        <span className="response-evidence-badges">
+          <span className={record.status === 'error' ? 'badge danger' : 'badge success'}>{statusText}</span>
+          {record.truncated && record.status === 'ok' && (
+            <span className="badge warning" title="The provider stopped at its length limit, so this reply is incomplete.">Cut off at the length limit</span>
+          )}
+        </span>
         <span className="muted">{record.latencyMs == null ? '' : `${record.latencyMs} ms`}</span>
       </div>
       <pre>{record.response || '(No response body)'}</pre>

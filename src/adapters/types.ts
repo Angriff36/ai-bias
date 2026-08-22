@@ -20,6 +20,8 @@ export interface CallModelResult {
   modelId: string
   provider: ProviderId
   latencyMs: number
+  /** True when the provider stopped at its length limit, so the reply is incomplete. */
+  truncated?: boolean
 }
 
 export interface DiscoverModelsResult {

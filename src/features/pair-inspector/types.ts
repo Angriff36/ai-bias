@@ -85,6 +85,8 @@ export interface ResponseSide {
   error?: ResponseError;
   /** True if the response body contains a hard refusal. */
   refusalDetected?: boolean;
+  /** The provider cut the reply at its length limit; it is incomplete. */
+  truncated?: boolean;
 }
 
 export interface PairData {

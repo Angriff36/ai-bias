@@ -2,6 +2,8 @@ import type { CallModelResult, DiscoverModelsResult, ProviderAdapter } from './t
 import { classifyHttpError, emptyResponseError } from './util'
 
 const BASE = 'https://api.openai.com/v1'
+/** High enough that a normal answer is never cut; a reply that still hits it is flagged. */
+const MAX_OUTPUT_TOKENS = 4096
 
 export const openaiAdapter: ProviderAdapter = {
   async callModel(prompt, config, apiKey, signal): Promise<CallModelResult> {
@@ -13,7 +15,7 @@ export const openaiAdapter: ProviderAdapter = {
       body: JSON.stringify({
         model: config.modelId,
         messages: [{ role: 'user', content: prompt }],
-        max_tokens: 512,
+        max_tokens: MAX_OUTPUT_TOKENS,
       }),
     }).catch(() => { throw { kind: 'timeout', message: 'fetch failed' } })
 
@@ -28,6 +30,7 @@ export const openaiAdapter: ProviderAdapter = {
       modelId: config.modelId,
       provider: 'openai',
       latencyMs: Date.now() - start,
+      truncated: json.choices?.[0]?.finish_reason === 'length',
     }
   },
 

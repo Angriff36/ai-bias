@@ -48,8 +48,6 @@ export default function App() {
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
 
-  if (route.startsWith('#/preview')) return <AlternatesPreview />
-
   useEffect(() => {
     let cancelled = false
     openDatabase((p) => {
@@ -73,6 +71,10 @@ export default function App() {
       })
     return () => { cancelled = true }
   }, [])
+
+  // Placed after every hook: an early return above them changes hook order
+  // between renders, which crashes React when leaving the preview route.
+  if (route.startsWith('#/preview')) return <AlternatesPreview />
 
   if (state.phase === 'migrating') {
     return (

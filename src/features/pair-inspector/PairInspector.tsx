@@ -6,15 +6,19 @@ import type { ClassificationOutcome, PairData } from "./types";
 
 export interface PairInspectorProps {
   data: PairData | null; // null while loading
-  /** Persist a classification correction. Reject to trigger optimistic revert. */
-  onCorrectClassification: (
+  /**
+   * Persist a classification correction. Reject to trigger optimistic revert.
+   * When absent, classifications are shown read-only.
+   */
+  onCorrectClassification?: (
     side: "A" | "B",
     next: ClassificationOutcome,
   ) => Promise<void>;
   /** Lazily fetch full judge reasoning for a side. */
-  loadJudgeReasoning: (side: "A" | "B") => Promise<string> | string;
+  loadJudgeReasoning?: (side: "A" | "B") => Promise<string> | string;
   onNavigate: (pairId: string) => void;
-  onBackToMatrix: () => void;
+  onBack: () => void;
+  backLabel?: string;
 }
 
 type SideKey = "A" | "B";
@@ -24,7 +28,8 @@ export function PairInspector({
   onCorrectClassification,
   loadJudgeReasoning,
   onNavigate,
-  onBackToMatrix,
+  onBack,
+  backLabel = "← Back to report",
 }: PairInspectorProps) {
   // Local optimistic overrides for each side's classification.
   const [override, setOverride] = useState<
@@ -68,11 +73,7 @@ export function PairInspector({
   }, [data?.previousPairId, data?.nextPairId, onNavigate]);
 
   if (!data) {
-    return (
-      <div className="h-full bg-white">
-        <PairInspectorSkeleton />
-      </div>
-    );
+    return <PairInspectorSkeleton />;
   }
 
   const sides: Record<SideKey, PairData["variantA"]> = {
@@ -82,6 +83,7 @@ export function PairInspector({
   const bothFailed = !!data.variantA.error && !!data.variantB.error;
 
   async function correct(side: SideKey, next: ClassificationOutcome) {
+    if (!onCorrectClassification) return;
     const previous = sides[side].outcome;
     // Optimistic update (<50ms, no await before the state set).
     setOverride((o) => ({ ...o, [side]: next }));
@@ -113,8 +115,8 @@ export function PairInspector({
       <ResponseColumn
         side={effective}
         saveError={saveError[side]}
-        onCorrect={(next) => correct(side, next)}
-        loadJudgeReasoning={() => loadJudgeReasoning(side)}
+        onCorrect={onCorrectClassification ? (next) => correct(side, next) : undefined}
+        loadJudgeReasoning={loadJudgeReasoning ? () => loadJudgeReasoning(side) : undefined}
         now={now}
       />
     );
@@ -124,102 +126,71 @@ export function PairInspector({
     <section
       role="region"
       aria-label={`Pair inspector: ${data.variantA.demographicValue} vs ${data.variantB.demographicValue}`}
-      className="panel-enter flex h-full flex-col bg-white"
+      className="pi"
     >
-      {/* Breadcrumb / context header */}
-      <header className="flex items-center justify-between border-b border-gray-200 px-4 py-2">
-        <nav aria-label="Breadcrumb" className="min-w-0 truncate text-sm text-gray-600">
-          <span className="font-medium text-gray-900">{data.experimentName}</span>
-          <span className="mx-1 text-gray-400">→</span>
+      <header className="pi-header">
+        <nav aria-label="Breadcrumb" className="pi-breadcrumb">
+          <strong>{data.experimentName}</strong>
+          <span aria-hidden="true"> → </span>
           Run #{data.runNumber}
-          <span className="mx-1 text-gray-400">→</span>
+          <span aria-hidden="true"> → </span>
           Pair #{data.pairNumber}
         </nav>
-        <button
-          type="button"
-          onClick={onBackToMatrix}
-          className="whitespace-nowrap text-sm text-blue-600 hover:underline focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
-          ← Back to matrix
+        <button type="button" className="link" onClick={onBack}>
+          {backLabel}
         </button>
       </header>
 
       {bothFailed && (
-        <div
-          role="alert"
-          className="flex items-center justify-between gap-2 border-b border-red-200 bg-red-50 px-4 py-2 text-sm text-red-800"
-        >
-          <span>Both responses failed to complete.</span>
-          <button
-            type="button"
-            onClick={() => onNavigate(data.pairId)}
-            className="rounded border border-red-300 px-2 py-0.5 text-red-700 hover:bg-red-100"
-          >
-            Retry
-          </button>
+        <div role="alert" className="banner error">
+          <span>Both responses failed to complete. Check the provider target, then run the experiment again.</span>
         </div>
       )}
 
-      {/* Zone 1: prompt diff */}
       <PromptDiffPanel
         template={data.promptTemplate}
         variableName={data.variableName}
-        valueA={data.variantA.demographicValue}
-        valueB={data.variantB.demographicValue}
+        valueA={data.promptValueA ?? data.variantA.demographicValue}
+        valueB={data.promptValueB ?? data.variantB.demographicValue}
       />
 
-      {/* Mobile tab bar (< 768px) */}
-      <div className="flex border-b border-gray-200 md:hidden" role="tablist" aria-label="Response variant">
+      <div className="pi-tabs" role="tablist" aria-label="Response variant">
         {(["A", "B"] as SideKey[]).map((s) => (
           <button
             key={s}
             role="tab"
             aria-selected={activeTab === s}
             onClick={() => setActiveTab(s)}
-            className={`flex-1 py-2 text-sm font-medium ${
-              activeTab === s
-                ? "border-b-2 border-blue-600 text-blue-600"
-                : "text-gray-500"
-            }`}
           >
             Response {s}
           </button>
         ))}
       </div>
 
-      {/* Zone 2: response columns */}
-      <div className="flex-1 overflow-auto">
-        {/* Desktop / tablet: two columns (side-by-side >=1280, stacked 768-1279) */}
-        <div className="hidden md:grid md:grid-cols-1 md:divide-y md:divide-gray-200 xl:grid-cols-2 xl:divide-x xl:divide-y-0">
-          {renderColumn("A")}
-          {renderColumn("B")}
-        </div>
-        {/* Mobile: single column via tabs */}
-        <div className="md:hidden">
-          {activeTab === "A" ? renderColumn("A") : renderColumn("B")}
-        </div>
+      <div className="pi-columns" data-active={activeTab}>
+        <div className="pi-col" data-side="A">{renderColumn("A")}</div>
+        <div className="pi-col" data-side="B">{renderColumn("B")}</div>
       </div>
 
-      {/* Zone 3: sticky action bar */}
-      <footer className="sticky bottom-0 flex items-center justify-between border-t border-gray-200 bg-white px-4 py-2">
+      <footer className="pi-footer">
         <button
           type="button"
+          className="secondary"
           disabled={!data.previousPairId}
           onClick={() => data.previousPairId && onNavigate(data.previousPairId)}
           aria-keyshortcuts="["
-          className="flex items-center gap-1 rounded px-2 py-1 text-sm text-gray-700 enabled:hover:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-300"
         >
-          ‹ Previous <kbd className="ml-1 rounded border px-1 text-xs">[</kbd>
+          ‹ Previous <kbd>[</kbd>
         </button>
-        <span className="text-xs text-gray-400">Pair #{data.pairNumber}</span>
+        <span className="muted">Pair #{data.pairNumber} · run #{data.runNumber}</span>
         <button
           type="button"
+          className="secondary"
           disabled={!data.nextPairId}
           onClick={() => data.nextPairId && onNavigate(data.nextPairId)}
           aria-keyshortcuts="]"
-          className="flex items-center gap-1 rounded px-2 py-1 text-sm text-gray-700 enabled:hover:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-300"
         >
-          <kbd className="mr-1 rounded border px-1 text-xs">]</kbd> Next ›
+          <kbd>]</kbd> Next ›
         </button>
       </footer>
     </section>

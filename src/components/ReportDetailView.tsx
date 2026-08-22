@@ -1,12 +1,17 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../auth/AuthContext'
 import { getReportDetail, type ReportDetail, type ReportQuestion, type ReportEvidenceRow } from '../server/functions'
 import { RecordedHashBadge } from './StatusBadge'
+import { PairInspector } from '../features/pair-inspector/PairInspector'
+import { buildReportPairs } from '../features/pair-inspector/fromReport'
 
 export function ReportDetailView({ reportId }: { reportId: number }) {
   const { call } = useAuth()
   const [report, setReport] = useState<ReportDetail | null>(null)
   const [missing, setMissing] = useState(false)
+  /** Pair id open in the side-by-side inspector, or null for the report itself. */
+  const [inspecting, setInspecting] = useState<string | null>(null)
+  const pairs = useMemo(() => (report ? buildReportPairs(report) : []), [report])
 
   useEffect(() => {
     try {
@@ -26,6 +31,26 @@ export function ReportDetailView({ reportId }: { reportId: number }) {
     )
   }
   if (!report) return <div className="panel" role="status">Loading report…</div>
+
+  if (inspecting !== null) {
+    const current = pairs.find((pair) => pair.pairId === inspecting) ?? null
+    return (
+      <article className="report-detail" aria-labelledby="report-title">
+        <header className="page-header">
+          <div>
+            <p className="eyebrow">Persisted run evidence</p>
+            <h2 id="report-title">{report.title}</h2>
+            <p className="lead">One matched pair at a time: the swapped phrase, then each reply side by side.</p>
+          </div>
+        </header>
+        <PairInspector
+          data={current}
+          onNavigate={setInspecting}
+          onBack={() => setInspecting(null)}
+        />
+      </article>
+    )
+  }
 
   return (
     <article className="report-detail" aria-labelledby="report-title">
@@ -62,7 +87,17 @@ export function ReportDetailView({ reportId }: { reportId: number }) {
             <div><p className="eyebrow">Observed responses</p><h3 id="report-questions-title">Matched questions</h3></div>
             <span className="muted">Compare A and B question by question.</span>
           </div>
-          {report.questions.map((question, index) => <QuestionReportCard key={question.id} index={index} question={question} />)}
+          {report.questions.map((question, index) => {
+            const firstPair = pairs.find((pair) => pair.pairId.startsWith(`${question.id}::`))
+            return (
+              <QuestionReportCard
+                key={question.id}
+                index={index}
+                question={question}
+                onInspect={firstPair ? () => setInspecting(firstPair.pairId) : undefined}
+              />
+            )
+          })}
         </section>
       ) : (
         <LegacyEvidence evidence={report.evidence} />
@@ -76,12 +111,19 @@ export function ReportDetailView({ reportId }: { reportId: number }) {
   )
 }
 
-function QuestionReportCard({ index, question }: { index: number; question: ReportQuestion }) {
+function QuestionReportCard({ index, question, onInspect }: { index: number; question: ReportQuestion; onInspect?: () => void }) {
   return (
     <article className="question-report-card card">
-      <header>
-        <p className="eyebrow">Question {index + 1}</p>
-        <h3>{question.question || 'Matched question'}</h3>
+      <header className="question-report-heading">
+        <div>
+          <p className="eyebrow">Question {index + 1}</p>
+          <h3>{question.question || 'Matched question'}</h3>
+        </div>
+        {onInspect && (
+          <button type="button" className="secondary" onClick={onInspect}>
+            Inspect pair
+          </button>
+        )}
       </header>
       <div className="question-report-variants">
         <ReportVariant variant={question.variantA} />

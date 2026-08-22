@@ -97,6 +97,9 @@ export interface PairData {
   promptTemplate: string;
   /** The demographic variable name, e.g. "Name". */
   variableName: string;
+  /** The exact text substituted on each side; falls back to the side's label. */
+  promptValueA?: string;
+  promptValueB?: string;
   variantA: ResponseSide;
   variantB: ResponseSide;
   /** Ids for previous/next navigation; null when at an edge. */

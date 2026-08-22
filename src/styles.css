@@ -373,7 +373,7 @@ dialog.confirm input {
 }
 .workspace-heading h2 { margin: 3px 0 6px; font-size: clamp(22px, 4vw, 34px); letter-spacing: -.025em; }
 .eyebrow { margin: 0; color: #8eb2ff; font: 700 11px/1.2 ui-monospace, 'Cascadia Code', monospace; text-transform: uppercase; letter-spacing: .12em; }
-.run-config { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 24px; }
+.run-config { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; }
 .run-config p { margin: 5px 0 0; }
 .dropdown-field { position: relative; display: grid; gap: 6px; min-width: 145px; color: var(--muted); font-size: 12px; }
 .dropdown-label { display: block; }
@@ -711,3 +711,9 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 .workload-readout small { display: block; margin-top: 4px; }
 .subscription-disabled { opacity: 0.65; }
 .field-warning { color: #f5a524; font-size: 13px; margin-top: 4px; }
+
+/* Run configuration lays out as: model picker, then controls beneath it. */
+.run-config-controls { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 24px; }
+.run-config-controls .workload-readout { text-align: right; margin-left: auto; }
+.inline-provider-setup { max-width: 100%; overflow-x: auto; }
+.inline-provider-setup .providers-page-header h2 { font-size: 18px; }

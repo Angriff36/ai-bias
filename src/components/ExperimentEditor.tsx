@@ -214,6 +214,7 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
               </div>
             )}
           </fieldset>
+          <div className="run-config-controls">
           <DropdownSelect
             label="Repeats per variant"
             value={String(repeats)}
@@ -241,6 +242,7 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
               Each request is billed by the provider. This app has no pricing data, so no cost
               estimate is shown.
             </small>
+          </div>
           </div>
         </div>
 

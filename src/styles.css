@@ -578,6 +578,11 @@ dialog.confirm .actions { display: flex; gap: 8px; justify-content: flex-end; ma
 .observation-list p { overflow-wrap: anywhere; }
 .observation-hash { margin-top: 8px; color: var(--muted); font-size: 11px; }
 
+/* ---------- Capture by hand (browser-assisted, per experiment) ---------- */
+.capture-badges { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 16px; }
+.prompt-text { margin: 0 0 12px; padding: 12px 14px; border-left: 3px solid var(--accent); border-radius: var(--radius-sm); background: var(--bg); line-height: 1.6; white-space: pre-wrap; }
+.table-wrap { overflow-x: auto; }
+
 /* =====================================================================
    New bias test wizard
    ===================================================================== */

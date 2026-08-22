@@ -36,9 +36,10 @@ export const OUTCOME_LABELS: Record<Outcome, string> = {
   other: 'Other',
 }
 
-/** A matched prompt queued for consumer-UI capture. */
+/** A matched prompt from an experiment, queued for consumer-UI capture. */
 export interface MatchedPrompt {
-  id: number
+  /** Stable id: the experiment pair id plus the variant key. */
+  id: string
   variantLabel: string
   text: string
 }
@@ -46,7 +47,7 @@ export interface MatchedPrompt {
 /** One captured observation. Immutable once stored. */
 export interface CaptureRecord {
   id: string
-  promptId: number
+  promptId: string
   variantLabel: string
   promptText: string
   responseText: string

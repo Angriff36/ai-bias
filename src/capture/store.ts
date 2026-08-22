@@ -18,7 +18,7 @@ function persist(records: CaptureRecord[]): void {
 }
 
 export interface NewCapture {
-  promptId: number
+  promptId: string
   variantLabel: string
   promptText: string
   responseText: string

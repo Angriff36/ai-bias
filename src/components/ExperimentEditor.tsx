@@ -21,8 +21,10 @@ import { ProvidersPanel } from './ProvidersPanel'
 import { estimateRequests, targetReadiness } from '../domain/targetReadiness'
 import { createSimulatedAdapter, type RunTarget } from '../engine/adapter'
 import type { RunPair } from '../engine/types'
+import { CapturePage } from '../capture/CapturePage'
+import type { MatchedPrompt } from '../capture/types'
 
-type WorkspaceView = 'overview' | 'run' | 'results'
+type WorkspaceView = 'overview' | 'run' | 'results' | 'capture'
 
 export function ExperimentEditor({ experimentId }: { experimentId: number }) {
   const { call } = useAuth()
@@ -305,6 +307,29 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
     )
   }
 
+  if (view === 'capture') {
+    const capturePrompts: MatchedPrompt[] = importedPairs.flatMap((pair, index) => [
+      { id: `${pair.id}:A`, variantLabel: `Question ${index + 1} · ${pair.variantA.label}`, text: pair.variantA.prompt },
+      { id: `${pair.id}:B`, variantLabel: `Question ${index + 1} · ${pair.variantB.label}`, text: pair.variantB.prompt },
+    ])
+    return (
+      <section className="experiment-workspace" aria-labelledby="capture-title">
+        <button className="link workspace-back" onClick={() => setView('overview')}>← Back to experiment</button>
+        <div className="page-header">
+          <div>
+            <p className="eyebrow">{experiment.name}</p>
+            <h2 id="capture-title">Capture by hand</h2>
+            <p className="lead">
+              Paste each matched prompt into a chat product yourself and record what it showed. This
+              catches refusals and removed answers that an API call cannot see.
+            </p>
+          </div>
+        </div>
+        <CapturePage prompts={capturePrompts} experimentName={experiment.name} />
+      </section>
+    )
+  }
+
   if (view === 'results') {
     return (
       <section className="experiment-workspace" aria-labelledby="experiment-results-title">
@@ -400,6 +425,7 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
       <div className="workspace-actions experiment-primary-actions panel">
         {runSummary && <button className="primary" onClick={() => setView('run')}>Configure another run</button>}
         {runSummary && <button className="secondary" onClick={() => setView('results')}>View latest results</button>}
+        {importedPairs.length > 0 && <button className="secondary" onClick={() => setView('capture')}>Capture by hand</button>}
         <button className="secondary" onClick={() => { window.location.hash = '#/experiments' }}>Back to experiments</button>
       </div>
 

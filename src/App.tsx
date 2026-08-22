@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   openDatabase,
+  clearPersistedDatabase,
   getMigrationRecords,
   getSchemaVersion,
   MigrationError,
@@ -249,7 +250,22 @@ function ReportsList() {
 
 function AdminPanel({ version }: { version: number }) {
   const [records] = useState<MigrationRecord[]>(getMigrationRecords)
+  const [resetError, setResetError] = useState<string | null>(null)
   const last = records[records.length - 1]
+
+  const resetDatabase = () => {
+    const confirmed = window.confirm(
+      'Delete every experiment, run, and report stored in this browser? ' +
+      'Provider targets and API keys are kept. This cannot be undone.',
+    )
+    if (!confirmed) return
+    if (!clearPersistedDatabase()) {
+      setResetError('This browser refused to clear the stored database.')
+      return
+    }
+    window.location.reload()
+  }
+
   return (
     <div>
       <div className="panel">
@@ -258,6 +274,16 @@ function AdminPanel({ version }: { version: number }) {
           Version: <code>v{version}</code>
           {last && <> · Last migration: <code>{last.id}_{last.name}</code> at <code>{last.applied_at}</code></>}
         </p>
+      </div>
+      <div className="panel">
+        <h2>Reset local database</h2>
+        <p className="muted">
+          Everything this app stores lives in this browser. If an import fails with a message about
+          rows from an interrupted import, resetting clears that and starts the schema fresh.
+          Experiments, runs, and reports are deleted. Provider targets and API keys are kept.
+        </p>
+        {resetError && <div className="banner error" role="alert">{resetError}</div>}
+        <button className="secondary" onClick={resetDatabase}>Reset local database</button>
       </div>
       <div className="panel">
         <h2>Applied migrations</h2>

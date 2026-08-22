@@ -90,7 +90,9 @@ describe('importExperiment', () => {
       return originalRun(sql, params as never)
     }) as typeof db.run)
 
-    expect(() => importExperiment(session.token, importedDocument)).toThrowError('simulated pair insert failure')
+    // The raw database message is replaced by an actionable one; the rollback still happens.
+    expect(() => importExperiment(session.token, importedDocument))
+      .toThrowError('The experiment could not be saved. Reload the page and try again.')
     expect(db.exec('SELECT COUNT(*) FROM experiments WHERE created_by = (SELECT id FROM users WHERE email = ?)', [
       'rollback-import-owner@example.com',
     ])[0].values[0][0]).toBe(1)

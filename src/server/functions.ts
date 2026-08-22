@@ -158,6 +158,30 @@ function newToken(): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
 }
 
+/**
+ * Turns a raw SQLite message into something a person can act on. A duplicate
+ * question id means the stored database still holds rows from an interrupted
+ * import, which the user cannot fix by editing their JSON.
+ */
+export function importFailure(error: unknown): ServerError {
+  if (error instanceof ServerError) return error
+  const message = error instanceof Error ? error.message : String(error)
+  if (message.includes('experiment_pairs')) {
+    return new ServerError(
+      500,
+      'This import could not be saved because the local database still holds question rows ' +
+      'from an interrupted import. Open the Admin tab and reset the local database, then import again.',
+    )
+  }
+  if (message.includes('UNIQUE constraint failed')) {
+    return new ServerError(500, 'A record with these details already exists. Change the experiment name and try again.')
+  }
+  if (message.includes('FOREIGN KEY constraint failed')) {
+    return new ServerError(500, 'This import references a record that no longer exists. Reload the page and try again.')
+  }
+  return new ServerError(500, 'The experiment could not be saved. Reload the page and try again.')
+}
+
 function lastInsertId(db: ReturnType<typeof getDb>): number {
   return Number(db.exec('SELECT last_insert_rowid()')[0]?.values[0]?.[0])
 }
@@ -439,7 +463,7 @@ export function importExperiment(token: string | null, input: ExperimentImportDo
     return getExperiment(token, experimentId)
   } catch (error) {
     try { db.run('ROLLBACK') } catch { /* transaction was not opened */ }
-    throw error
+    throw importFailure(error)
   }
 }
 

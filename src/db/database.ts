@@ -139,3 +139,18 @@ export function friendlyConstraintError(message: string): string {
   }
   return message
 }
+
+/**
+ * Deletes the stored database so the next load starts from a clean schema.
+ * Used by the Admin reset, which is the only recovery when an interrupted
+ * write leaves rows that block further imports. Returns false if the browser
+ * refused the delete.
+ */
+export function clearPersistedDatabase(): boolean {
+  try {
+    localStorage.removeItem(STORAGE_KEY)
+    return true
+  } catch {
+    return false
+  }
+}

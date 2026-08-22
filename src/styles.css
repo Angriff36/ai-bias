@@ -709,7 +709,3 @@ dialog.confirm .actions { display: flex; gap: 8px; justify-content: flex-end; ma
   .app { max-width: none; padding: 0; color: #111; background: #fff; }
   .panel, .card, table { break-inside: avoid; page-break-inside: avoid; }
 }
-
-/* Preview of unused alternate screens (removed with the preview route). */
-.preview-alternate { margin-bottom: 16px; }
-.preview-frame { margin-top: 16px; border: 2px dashed var(--border); border-radius: 10px; padding: 12px; overflow-x: auto; background: var(--bg); }

@@ -17,15 +17,19 @@ import { ExperimentHistoryList } from './components/ExperimentHistoryList'
 import { ExperimentEditor } from './components/ExperimentEditor'
 import { ReportDetailView } from './components/ReportDetailView'
 import { ProvidersPanel } from './components/ProvidersPanel'
+import { TemplateLibrary } from './components/TemplateLibrary'
 
 type DbState =
   | { phase: 'migrating'; progress: MigrationProgress | null }
   | { phase: 'ready'; version: number; readyAt: string }
   | { phase: 'failed'; migrationName: string; message: string }
 
-type Tab = 'experiments' | 'targets' | 'reports' | 'admin'
+type Tab = 'experiments' | 'templates' | 'targets' | 'reports' | 'admin'
 
-const TABS: Tab[] = ['experiments', 'targets', 'reports', 'admin']
+const TABS: Tab[] = ['experiments', 'templates', 'targets', 'reports', 'admin']
+
+/** A prompt handed from the template library to the new-experiment wizard. */
+export const PENDING_PROMPT_KEY = 'ai-bias-pending-prompt'
 
 function tabFromHash(hash = window.location.hash): Tab {
   const t = hash.replace(/^#\//, '').split('/')[0]
@@ -168,6 +172,7 @@ function MainApp({ version, readyAt }: { version: number; readyAt: string }) {
 
   const tabs: { id: Tab; label: string }[] = [
     { id: 'experiments', label: 'Experiments' },
+    { id: 'templates', label: 'Templates' },
     { id: 'targets', label: 'Providers' },
     { id: 'reports', label: 'Reports' },
     { id: 'admin', label: 'Admin' },
@@ -192,6 +197,14 @@ function MainApp({ version, readyAt }: { version: number; readyAt: string }) {
       </nav>
       {toast && <div className="toast" role="status" aria-live="polite"><span>{toast}</span><button aria-label="Dismiss notification" onClick={() => setToast(null)}>×</button></div>}
       {tab === 'experiments' && <ExperimentRoute />}
+      {tab === 'templates' && (
+        <TemplateLibrary
+          onUsePrompt={(prompt, name) => {
+            sessionStorage.setItem(PENDING_PROMPT_KEY, JSON.stringify({ prompt, name }))
+            selectTab('experiments')
+          }}
+        />
+      )}
       {tab === 'targets' && <ProvidersPanel />}
       {tab === 'reports' && <ReportsRoute />}
       {tab === 'admin' && <AdminPanel version={version} />}

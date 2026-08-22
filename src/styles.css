@@ -717,3 +717,7 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 .run-config-controls .workload-readout { text-align: right; margin-left: auto; }
 .inline-provider-setup { max-width: 100%; overflow-x: auto; }
 .inline-provider-setup .providers-page-header h2 { font-size: 18px; }
+
+/* Template library grid. */
+.template-library { display: flex; flex-direction: column; gap: 8px; }
+.template-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; margin-bottom: 8px; }

@@ -18,6 +18,7 @@ import { EmptyState, SkeletonRows } from './EmptyState'
 import { NotFoundPage } from './NotFoundPage'
 import { AsymmetryBadge, StatusBadge } from './StatusBadge'
 import { NewBiasTestWizard, type WizardResult } from '../wizard/NewBiasTestWizard'
+import { PENDING_PROMPT_KEY } from '../App'
 import { CloneExperimentButton } from './CloneExperimentButton'
 import { ImportExperimentDialog } from './ImportExperimentDialog'
 import type { ExperimentImportDocument } from '../lib/experimentImport'
@@ -107,6 +108,17 @@ export function ExperimentHistoryList() {
   const [error, setError] = useState<string | null>(null)
   const [notFound, setNotFound] = useState(false)
   const [wizardOpen, setWizardOpen] = useState(false)
+  // A prompt handed over from the Templates tab opens the wizard pre-filled.
+  const [pendingPrompt, setPendingPrompt] = useState<{ prompt: string; name: string } | null>(() => {
+    const raw = sessionStorage.getItem(PENDING_PROMPT_KEY)
+    if (!raw) return null
+    sessionStorage.removeItem(PENDING_PROMPT_KEY)
+    try {
+      return JSON.parse(raw) as { prompt: string; name: string }
+    } catch {
+      return null
+    }
+  })
   const [importOpen, setImportOpen] = useState(false)
   const [createdId, setCreatedId] = useState<number | null>(null)
   const [openMenuId, setOpenMenuId] = useState<number | null>(null)
@@ -326,15 +338,18 @@ export function ExperimentHistoryList() {
   const isDuplicateName = (name: string): boolean =>
     (data?.rows ?? []).some((row) => row.name.toLowerCase() === name.toLowerCase())
 
-  if (wizardOpen) {
+  if (wizardOpen || pendingPrompt) {
     return (
       <NewBiasTestWizard
+        initialPrompt={pendingPrompt?.prompt}
+        initialName={pendingPrompt?.name}
         onCreate={createFromWizard}
         isDuplicateName={isDuplicateName}
-        onClose={() => setWizardOpen(false)}
+        onClose={() => { setWizardOpen(false); setPendingPrompt(null) }}
         onCreated={(id) => {
           setCreatedId(id)
           setWizardOpen(false)
+          setPendingPrompt(null)
           load()
         }}
       />

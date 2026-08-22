@@ -26,6 +26,10 @@ interface Props {
   onClose: () => void
   /** Called after a successful create so the host can navigate. */
   onCreated: (id: number) => void
+  /** Prompt handed over from the template library. */
+  initialPrompt?: string
+  /** Experiment name suggested by the template. */
+  initialName?: string
 }
 
 function suggestedName(): string {
@@ -34,16 +38,18 @@ function suggestedName(): string {
   return `Bias Test — ${month} ${d.getDate()}`
 }
 
-export function NewBiasTestWizard({ onCreate, isDuplicateName, onClose, onCreated }: Props) {
+export function NewBiasTestWizard({
+  onCreate, isDuplicateName, onClose, onCreated, initialPrompt, initialName,
+}: Props) {
   const [step, setStep] = useState(0)
-  const [prompt, setPrompt] = useState('')
+  const [prompt, setPrompt] = useState(initialPrompt ?? '')
   const [phrases, setPhrases] = useState<DetectedPhrase[] | null>(null)
   const [detecting, setDetecting] = useState(false)
   const [detectFailed, setDetectFailed] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [manualPhrase, setManualPhrase] = useState('')
   const [manualAxis, setManualAxis] = useState<DemographicAxis>('race')
-  const [name, setName] = useState(suggestedName())
+  const [name, setName] = useState(initialName?.trim() || suggestedName())
   const [description, setDescription] = useState('')
   const [showDescription, setShowDescription] = useState(false)
   const [creating, setCreating] = useState(false)

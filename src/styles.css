@@ -710,3 +710,4 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 .target-badges .badge.missing { border-color: #e5484d; color: #e5484d; }
 .workload-readout small { display: block; margin-top: 4px; }
 .subscription-disabled { opacity: 0.65; }
+.field-warning { color: #f5a524; font-size: 13px; margin-top: 4px; }

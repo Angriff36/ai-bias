@@ -7,6 +7,8 @@ import type { TargetConfig } from '../store/targetStore'
 
 // ---------- Provider metadata ----------
 
+import { keyProviderMismatch, providerForKey } from '../adapters/keyFormat'
+
 const PROVIDERS: { id: ProviderId; label: string }[] = [
   { id: 'openai', label: 'OpenAI' },
   { id: 'anthropic', label: 'Anthropic' },
@@ -115,6 +117,7 @@ export function ProviderConfigForm({ initial, onSave, onCancel }: Props) {
 
   // Model discovery
   const [discoveredModels, setDiscoveredModels] = useState<string[]>([])
+  const [discoverError, setDiscoverError] = useState<string | null>(null)
   const [discoverState, setDiscoverState] = useState<'idle' | 'loading' | 'error'>('idle')
 
   // Connection test
@@ -156,8 +159,10 @@ export function ProviderConfigForm({ initial, onSave, onCancel }: Props) {
         abortRef.current.signal,
       )
       setDiscoveredModels(result.models)
+      setDiscoverError(null)
       setDiscoverState('idle')
-    } catch {
+    } catch (error) {
+      setDiscoverError(isAdapterError(error) ? friendlyError(error) : null)
       setDiscoverState('error')
     }
   }, [provider, modelId, endpointUrl])
@@ -209,6 +214,9 @@ export function ProviderConfigForm({ initial, onSave, onCancel }: Props) {
     }
     onSave(target, key)
   }
+
+  const mismatchWarning = keyProviderMismatch(resolvedKey(), provider)
+  const mismatchProvider = mismatchWarning ? providerForKey(resolvedKey())?.provider : undefined
 
   const testDisabled = !resolvedKey() || (provider === 'custom' && !endpointUrl.trim())
   const canDiscover = !!resolvedKey() && (provider !== 'custom' || !!endpointUrl.trim())
@@ -277,6 +285,14 @@ export function ProviderConfigForm({ initial, onSave, onCancel }: Props) {
             ? 'A key is already saved. Enter a new key to replace it.'
             : 'This local build sends the key directly from your browser to the selected provider.'}
         </p>
+        {mismatchWarning && (
+          <p className="field-warning" role="status">
+            {mismatchWarning}{' '}
+            <button type="button" className="link" onClick={() => handleProviderChange(mismatchProvider!)}>
+              Switch provider
+            </button>
+          </p>
+        )}
         {errors.apiKey && <FieldError id={id('apikey-err')} message={errors.apiKey} />}
       </div>
 
@@ -342,7 +358,8 @@ export function ProviderConfigForm({ initial, onSave, onCancel }: Props) {
         </div>
         {discoverState === 'error' && (
           <p className="field-error" aria-live="polite">
-            Could not fetch models. Enter a model ID manually.
+            {discoverError ?? 'Could not reach the provider. Check your connection.'}
+            {' '}Enter a model ID manually to continue.
           </p>
         )}
         {errors.modelId && <FieldError id={id('model-err')} message={errors.modelId} />}

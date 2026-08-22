@@ -74,3 +74,32 @@ export function Button({
     </button>
   )
 }
+
+export function ChevronIcon({ open = false, expanded }: { open?: boolean; expanded?: boolean }) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 20 20"
+      className="h-4 w-4 fill-current"
+      style={{ transform: (expanded ?? open) ? 'rotate(90deg)' : undefined, transition: 'transform 120ms ease' }}
+    >
+      <path d="M7 4l6 6-6 6z" />
+    </svg>
+  )
+}
+
+export function LockIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4 fill-current">
+      <path d="M10 2a4 4 0 0 0-4 4v2H5v10h10V8h-1V6a4 4 0 0 0-4-4zm0 2a2 2 0 0 1 2 2v2H8V6a2 2 0 0 1 2-2z" />
+    </svg>
+  )
+}
+
+export function InfoIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4 fill-current">
+      <path d="M10 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16zm1 12H9V9h2v5zm0-6H9V6h2v2z" />
+    </svg>
+  )
+}

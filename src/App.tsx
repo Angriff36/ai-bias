@@ -18,6 +18,7 @@ import { ExperimentEditor } from './components/ExperimentEditor'
 import { ReportDetailView } from './components/ReportDetailView'
 import { ProvidersPanel } from './components/ProvidersPanel'
 import { TemplateLibrary } from './components/TemplateLibrary'
+import { AlternatesPreview } from './preview/AlternatesPreview'
 
 type DbState =
   | { phase: 'migrating'; progress: MigrationProgress | null }
@@ -39,6 +40,15 @@ function tabFromHash(hash = window.location.hash): Tab {
 export default function App() {
   const [state, setState] = useState<DbState>({ phase: 'migrating', progress: null })
   const [showLogs, setShowLogs] = useState(false)
+  const [route, setRoute] = useState(window.location.hash)
+
+  useEffect(() => {
+    const onHash = () => setRoute(window.location.hash)
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+  }, [])
+
+  if (route.startsWith('#/preview')) return <AlternatesPreview />
 
   useEffect(() => {
     let cancelled = false

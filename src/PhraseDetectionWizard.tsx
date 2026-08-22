@@ -206,7 +206,7 @@ function AnnotatedPrompt({ prompt, spans, filter, activeId, onInspect, spanRefs 
       <mark
         key={span.id}
         ref={(element) => { spanRefs.current[span.id] = element }}
-        className={`detected-span category-${span.category.replaceAll(' ', '-')} ${span.status} ${faded ? 'filtered-out' : ''} ${activeId === span.id ? 'active' : ''}`}
+        className={`detected-span category-${span.category.split(' ').join('-')} ${span.status} ${faded ? 'filtered-out' : ''} ${activeId === span.id ? 'active' : ''}`}
         aria-label={`Detected: ${span.category}, span: ${span.text}`}
         aria-pressed={activeId === span.id}
         role="button"
@@ -224,7 +224,7 @@ function AnnotatedPrompt({ prompt, spans, filter, activeId, onInspect, spanRefs 
 }
 
 function CategoryLegend({ counts, filter, onToggle }: { counts: Record<DemographicCategory, number>; filter: DemographicCategory | null; onToggle: (category: DemographicCategory) => void }) {
-  return <aside className="category-legend" aria-label="Demographic category legend"><h2>Categories</h2>{demographicCategories.map((category) => <button key={category} className={`legend-row category-${category.replaceAll(' ', '-')} ${counts[category] === 0 ? 'zero' : ''} ${filter === category ? 'selected' : ''}`} onClick={() => onToggle(category)} aria-pressed={filter === category}><span className={`legend-swatch ${categoryDetails[category].pattern}`} aria-hidden="true">{categoryDetails[category].icon}</span><span>{labelFor(category)}</span><strong>{counts[category]}</strong></button>)}</aside>
+  return <aside className="category-legend" aria-label="Demographic category legend"><h2>Categories</h2>{demographicCategories.map((category) => <button key={category} className={`legend-row category-${category.split(' ').join('-')} ${counts[category] === 0 ? 'zero' : ''} ${filter === category ? 'selected' : ''}`} onClick={() => onToggle(category)} aria-pressed={filter === category}><span className={`legend-swatch ${categoryDetails[category].pattern}`} aria-hidden="true">{categoryDetails[category].icon}</span><span>{labelFor(category)}</span><strong>{counts[category]}</strong></button>)}</aside>
 }
 
 function SpanPopover({ span, onAccept, onReject, onClose }: { span: AnnotatedSpan; onAccept: () => void; onReject: () => void; onClose: () => void }) {
@@ -235,5 +235,5 @@ function SpanPopover({ span, onAccept, onReject, onClose }: { span: AnnotatedSpa
     const index = controls.current.findIndex((control) => control === document.activeElement)
     controls.current[(index + 1 + controls.current.length) % controls.current.length]?.focus()
   }
-  return <div className="span-popover" role="dialog" aria-label={`Review ${span.text}`} onKeyDown={onKeyDown}><div><span className={`popover-icon category-${span.category.replaceAll(' ', '-')}`}>{categoryDetails[span.category].icon}</span><div><strong>{labelFor(span.category)}</strong><p>“{span.text}” · {Math.round(span.confidence * 100)}% confidence</p></div></div><div className="popover-actions"><button ref={(element) => { if (element) controls.current[0] = element }} className="primary" onClick={onAccept}>Accept</button><button ref={(element) => { if (element) controls.current[1] = element }} className="secondary" onClick={onReject}>Reject</button><button ref={(element) => { if (element) controls.current[2] = element }} className="icon-button" aria-label="Close phrase review" onClick={onClose}>×</button></div></div>
+  return <div className="span-popover" role="dialog" aria-label={`Review ${span.text}`} onKeyDown={onKeyDown}><div><span className={`popover-icon category-${span.category.split(' ').join('-')}`}>{categoryDetails[span.category].icon}</span><div><strong>{labelFor(span.category)}</strong><p>“{span.text}” · {Math.round(span.confidence * 100)}% confidence</p></div></div><div className="popover-actions"><button ref={(element) => { if (element) controls.current[0] = element }} className="primary" onClick={onAccept}>Accept</button><button ref={(element) => { if (element) controls.current[1] = element }} className="secondary" onClick={onReject}>Reject</button><button ref={(element) => { if (element) controls.current[2] = element }} className="icon-button" aria-label="Close phrase review" onClick={onClose}>×</button></div></div>
 }

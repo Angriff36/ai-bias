@@ -721,3 +721,7 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 /* Template library grid. */
 .template-library { display: flex; flex-direction: column; gap: 8px; }
 .template-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; margin-bottom: 8px; }
+
+/* Preview of unused alternate screens. */
+.preview-alternate { margin-bottom: 16px; }
+.preview-frame { margin-top: 16px; border: 2px dashed var(--border); border-radius: 10px; padding: 12px; overflow-x: auto; background: var(--bg); }

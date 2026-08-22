@@ -252,4 +252,20 @@ export const migrations: Migration[] = [
       `)
     },
   },
+  {
+    id: '0008',
+    name: 'drop_orphaned_experiment_pairs',
+    // Question rows whose experiment no longer exists block later imports,
+    // because a deleted experiment's id is reused by the next one created.
+    up(db) {
+      db.run(`
+        DELETE FROM experiment_pair_variants
+         WHERE pair_id IN (
+           SELECT p.id FROM experiment_pairs p
+            WHERE p.experiment_id NOT IN (SELECT id FROM experiments)
+         );
+        DELETE FROM experiment_pairs WHERE experiment_id NOT IN (SELECT id FROM experiments);
+      `)
+    },
+  },
 ]

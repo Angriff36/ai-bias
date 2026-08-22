@@ -2,12 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { importFailure, ServerError } from '../functions'
 
 describe('importFailure', () => {
-  it('explains a duplicate question row and names the recovery', () => {
+  it('explains a duplicate question id as something the user can fix in the JSON', () => {
     const failure = importFailure(new Error(
       'UNIQUE constraint failed: experiment_pairs.experiment_id, experiment_pairs.external_id',
     ))
-    expect(failure.message).toContain('interrupted import')
-    expect(failure.message).toContain('Admin')
+    expect(failure.message).toContain('same id')
+    expect(failure.message).not.toContain('reset')
   })
 
   it('never repeats raw SQL text to the user', () => {

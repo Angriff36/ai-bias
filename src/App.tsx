@@ -326,8 +326,7 @@ function AdminPanel({ version }: { version: number }) {
       <div className="panel">
         <h2>Reset local database</h2>
         <p className="muted">
-          Everything this app stores lives in this browser. If an import fails with a message about
-          rows from an interrupted import, resetting clears that and starts the schema fresh.
+          Everything this app stores lives in this browser. Resetting starts the schema fresh.
           Experiments, runs, and reports are deleted. Provider targets and API keys are kept.
         </p>
         {resetError && <div className="banner error" role="alert">{resetError}</div>}

@@ -161,18 +161,28 @@ function newToken(): string {
 }
 
 /**
- * Turns a raw SQLite message into something a person can act on. A duplicate
- * question id means the stored database still holds rows from an interrupted
- * import, which the user cannot fix by editing their JSON.
+ * Experiment ids are SQLite rowids, which are reused after a delete. If an
+ * older build ever removed an experiment without cascading, its question rows
+ * are still there under that id and the next experiment to get the id would
+ * collide with them. Clearing them inside the same transaction makes the new
+ * experiment start clean; a brand-new id has no legitimate rows yet.
  */
+function clearLeftoverPairs(db: ReturnType<typeof getDb>, experimentId: number): void {
+  db.run(
+    'DELETE FROM experiment_pair_variants WHERE pair_id IN (SELECT id FROM experiment_pairs WHERE experiment_id = ?)',
+    [experimentId],
+  )
+  db.run('DELETE FROM experiment_pairs WHERE experiment_id = ?', [experimentId])
+}
+
+/** Turns a raw SQLite message into something a person can act on. */
 export function importFailure(error: unknown): ServerError {
   if (error instanceof ServerError) return error
   const message = error instanceof Error ? error.message : String(error)
   if (message.includes('experiment_pairs')) {
     return new ServerError(
       500,
-      'This import could not be saved because the local database still holds question rows ' +
-      'from an interrupted import. Open the Admin tab and reset the local database, then import again.',
+      'Two questions in this import share the same id. Give each question its own id and try again.',
     )
   }
   if (message.includes('UNIQUE constraint failed')) {
@@ -441,6 +451,7 @@ export function importExperiment(token: string | null, input: ExperimentImportDo
       [parsed.value.name, parsed.value.description ?? null, Number(targetId), userId, parsed.value.repeats],
     )
     const experimentId = lastInsertId(db)
+    clearLeftoverPairs(db, experimentId)
     db.run(
       'INSERT INTO templates (experiment_id, name, body) VALUES (?, ?, ?)',
       [experimentId, 'Imported complete prompts', 'Imported complete prompts; see matched questions.'],
@@ -504,6 +515,7 @@ export function cloneExperiment(token: string | null, id: number): ExperimentDet
         }
       }
     }
+    clearLeftoverPairs(db, cloneId)
     const pairRows = db.exec(
       'SELECT id, external_id, ordinal, question FROM experiment_pairs WHERE experiment_id = ? ORDER BY ordinal, id',
       [Number(source[0])],

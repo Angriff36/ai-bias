@@ -16,6 +16,17 @@ import { ProgressGrid } from './ProgressGrid'
 
 type RunPhase = 'idle' | 'running' | 'paused' | 'complete' | 'cancelled'
 
+/** Plain-language reason for a failed request, so the list is readable. */
+function failureReason(statusCode: number): string {
+  if (statusCode === 0) return 'Could not reach the provider'
+  if (statusCode === 401 || statusCode === 403) return 'Provider rejected the API key'
+  if (statusCode === 404) return 'Model not found'
+  if (statusCode === 429) return 'Rate limited by the provider'
+  if (statusCode === 501) return 'This provider cannot run bias tests'
+  if (statusCode >= 500) return 'Provider error'
+  return 'Request rejected'
+}
+
 interface RunScreenProps {
   pairs?: number
   runsPerVariant?: number
@@ -348,7 +359,8 @@ export function RunScreen({
                   {failedRecords.map((r) => (
                     <li key={r.requestId}>
                       Question {r.pairIndex + 1}, {r.variantLabel}, run {r.runIndex + 1} —{' '}
-                      HTTP {r.statusCode}: {r.errorMessage}
+                      {failureReason(r.statusCode)}
+                      {r.errorMessage && <span className="error-detail"> ({r.errorMessage})</span>}
                     </li>
                   ))}
                 </ul>
@@ -369,7 +381,7 @@ export function RunScreen({
                     <span className="inspector-label">Status</span>
                     {selectedRecord.status === 'ok'
                       ? `Complete · ${selectedRecord.latencyMs}ms · HTTP ${selectedRecord.statusCode}`
-                      : `Failed · HTTP ${selectedRecord.statusCode} · ${selectedRecord.errorMessage}`}
+                      : `Failed · ${failureReason(selectedRecord.statusCode)}${selectedRecord.errorMessage ? ` · ${selectedRecord.errorMessage}` : ''}`}
                   </p>
                   <p className="inspector-row">
                     <span className="inspector-label">Prompt</span>

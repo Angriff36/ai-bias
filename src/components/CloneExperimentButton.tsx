@@ -39,10 +39,12 @@ export function CloneExperimentButton({ source, inMenu = false, onCloned, onFail
         onCloned(cloned)
       } catch {
         onFailure(completeClone)
-        setCloning(false)
       } finally {
         window.clearTimeout(spinnerTimer)
         setShowSpinner(false)
+        // Runs on success too: if the caller does not navigate away, the button
+        // must become usable again instead of staying disabled.
+        setCloning(false)
       }
     }, 0)
   }

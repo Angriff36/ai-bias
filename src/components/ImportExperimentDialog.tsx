@@ -80,7 +80,7 @@ export function ImportExperimentDialog({ onClose, onImport, onCreated }: Props) 
           <div>
             <p className="eyebrow">New experiment</p>
             <h2 id="import-title">Import matched questions</h2>
-            <p className="muted">Paste complete prompts for both variants. Nothing will be inferred or rewritten.</p>
+            <p className="lead">Paste complete prompts for both variants. Nothing will be inferred or rewritten.</p>
           </div>
           <button type="button" className="link" onClick={onClose}>Close</button>
         </header>
@@ -114,7 +114,7 @@ export function ImportExperimentDialog({ onClose, onImport, onCreated }: Props) 
 
         {error && <p className="banner error" role="alert">{error}</p>}
         {parsed && !parsed.ok && (
-          <div className="import-errors" role="alert">
+          <div className="banner error stack" role="alert">
             <strong>Fix these fields before importing</strong>
             <ul>
               {parsed.issues.map((issue) => <li key={`${issue.path}-${issue.message}`}><code>{issue.path}</code> — {issue.message}</li>)}
@@ -139,11 +139,11 @@ function ImportPreview({ document }: { document: ExperimentImportDocument }) {
   const requestCount = document.pairs.length * 2 * document.repeats
   return (
     <section className="import-preview" aria-label="Import preview">
-      <div className="import-stats">
-        <div><span>Experiment</span><strong>{document.name}</strong></div>
-        <div><span>Questions</span><strong>{document.pairs.length}</strong></div>
-        <div><span>Repeats</span><strong>{document.repeats}</strong></div>
-        <div><span>Total requests</span><strong>{requestCount.toLocaleString('en-US')}</strong></div>
+      <div className="metrics">
+        <div className="metric text"><span>Experiment</span><strong>{document.name}</strong></div>
+        <div className="metric"><span>Questions</span><strong>{document.pairs.length}</strong></div>
+        <div className="metric"><span>Repeats</span><strong>{document.repeats}</strong></div>
+        <div className="metric"><span>Total requests</span><strong>{requestCount.toLocaleString('en-US')}</strong></div>
       </div>
       <div className="import-question-list">
         {document.pairs.slice(0, 3).map((pair, index) => (

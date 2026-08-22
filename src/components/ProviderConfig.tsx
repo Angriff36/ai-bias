@@ -4,6 +4,7 @@ import { friendlyError, isAdapterError } from '../adapters/types'
 import { discoverModels, testConnection } from '../adapters/registry'
 import { getKey, hasKey, REDACTED } from '../store/keyStore'
 import type { TargetConfig } from '../store/targetStore'
+import { EmptyState } from './EmptyState'
 
 // ---------- Provider metadata ----------
 
@@ -69,7 +70,7 @@ function TestConnectionButton({
     <div className="conn-wrap">
       <button
         ref={btnRef}
-        className={`btn-test ${status}`}
+        className={`secondary btn-test ${status}`}
         disabled={disabled || status === 'testing'}
         onClick={onClick}
         aria-busy={status === 'testing'}
@@ -222,7 +223,7 @@ export function ProviderConfigForm({ initial, onSave, onCancel }: Props) {
   const canDiscover = !!resolvedKey() && (provider !== 'custom' || !!endpointUrl.trim())
 
   return (
-    <div className="provider-form">
+    <div>
       <div aria-live="polite" className="sr-only" />
 
       {/* Name */}
@@ -273,7 +274,7 @@ export function ProviderConfigForm({ initial, onSave, onCancel }: Props) {
           />
           <button
             type="button"
-            className="show-hide-btn"
+            className="secondary"
             aria-label={showKey ? 'Hide API key' : 'Show API key'}
             onClick={() => setShowKey((v) => !v)}
           >
@@ -348,7 +349,7 @@ export function ProviderConfigForm({ initial, onSave, onCancel }: Props) {
           )}
           <button
             type="button"
-            className="btn-discover"
+            className="secondary"
             disabled={!canDiscover || discoverState === 'loading'}
             onClick={handleDiscover}
             aria-busy={discoverState === 'loading'}
@@ -377,9 +378,9 @@ export function ProviderConfigForm({ initial, onSave, onCancel }: Props) {
       {/* Actions */}
       <div className="form-actions">
         {onCancel && (
-          <button type="button" className="btn-secondary" onClick={onCancel}>Cancel</button>
+          <button type="button" className="secondary" onClick={onCancel}>Cancel</button>
         )}
-        <button type="button" className="btn-primary" onClick={handleSave}>Save provider target</button>
+        <button type="button" className="primary" onClick={handleSave}>Save provider target</button>
       </div>
     </div>
   )
@@ -396,10 +397,10 @@ interface CardProps {
 export function TargetCard({ target, onEdit, onDelete }: CardProps) {
   const provLabel = PROVIDERS.find((p) => p.id === target.provider)?.label ?? target.provider
   return (
-    <div className="target-card">
+    <div className="target-card card">
       <div className="target-card-header">
         <strong>{target.name}</strong>
-        <span className="target-badge">{provLabel}</span>
+        <span className="badge accent">{provLabel}</span>
       </div>
       <p className="target-meta">
         Model: <code>{target.modelId || '—'}</code>
@@ -409,8 +410,8 @@ export function TargetCard({ target, onEdit, onDelete }: CardProps) {
         {hasKey(target.id) ? '🔒 Key stored — ' + REDACTED : '⚠ No key saved'}
       </p>
       <div className="target-card-actions">
-        <button className="btn-secondary" onClick={onEdit}>Edit</button>
-        <button className="btn-danger" onClick={onDelete}>Delete</button>
+        <button className="secondary" onClick={onEdit}>Edit</button>
+        <button className="danger" onClick={onDelete}>Delete</button>
       </div>
     </div>
   )
@@ -436,7 +437,7 @@ export function TargetsPanel({
 
   if (editMode === 'new' || editMode === 'edit') {
     return (
-      <div>
+      <div className="provider-form">
         <h2>{editMode === 'new' ? 'Add provider target' : `Edit: ${editTarget?.name ?? ''}`}</h2>
         <ProviderConfigForm
           initial={editTarget ?? undefined}
@@ -449,14 +450,12 @@ export function TargetsPanel({
 
   if (targets.length === 0) {
     return (
-      <div className="empty-state">
-        <div className="empty-card">
-          <p>Add your first provider target to run experiments against a real model.</p>
-          <button className="btn-primary" onClick={startNew}>
-            Add provider
-          </button>
-        </div>
-      </div>
+      <EmptyState
+        heading="No provider targets yet"
+        body="Add your first provider target to run experiments against a real model."
+        actionLabel="Add provider"
+        onAction={startNew}
+      />
     )
   }
 
@@ -464,7 +463,7 @@ export function TargetsPanel({
     <div>
       <div className="targets-header">
         <h2>Provider targets</h2>
-        <button className="btn-primary" onClick={startNew}>Add provider</button>
+        <button className="primary" onClick={startNew}>Add provider</button>
       </div>
       <div className="targets-list">
         {targets.map((t) => (

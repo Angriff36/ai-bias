@@ -58,18 +58,18 @@ export function ProvidersPanel({ onTargetsChange }: { onTargetsChange?: (targets
 
   return (
     <section className="providers-page" aria-labelledby="providers-title">
-      <header className="providers-page-header">
+      <header className="page-header">
         <div>
           <p className="eyebrow">Execution connections</p>
           <h2 id="providers-title">Provider targets</h2>
-          <p className="muted">Add an API key for OpenAI, Anthropic, Google Gemini, OpenRouter, or a custom HTTP endpoint, then select it when configuring a run.</p>
+          <p className="lead">Add an API key for OpenAI, Anthropic, Google Gemini, OpenRouter, or a custom HTTP endpoint, then select it when configuring a run.</p>
         </div>
       </header>
       {notice && <div className="banner success" role="status">{notice}</div>}
       {saveWarning && <div className="banner error" role="alert">{saveWarning}</div>}
-      <div className="local-security-note" role="note">
-        <strong>API keys only:</strong> a bias test needs a raw model endpoint. Keys are held in this
-        browser and are shown redacted after saving. Every request is billed by the provider.
+      <div className="banner warning" role="note">
+        <span><strong>API keys only:</strong> a bias test needs a raw model endpoint. Keys are held in this
+        browser and are shown redacted after saving. Every request is billed by the provider.</span>
       </div>
 
       <TargetsPanel

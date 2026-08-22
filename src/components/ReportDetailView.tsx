@@ -30,25 +30,25 @@ export function ReportDetailView({ reportId }: { reportId: number }) {
   return (
     <article className="report-detail" aria-labelledby="report-title">
       <button className="link workspace-back" onClick={() => { window.location.hash = '#/reports' }}>← Back to reports</button>
-      <header className="report-detail-header">
+      <header className="page-header">
         <div>
           <p className="eyebrow">Persisted run evidence</p>
           <h2 id="report-title">{report.title}</h2>
-          <p className="muted">Generated {formatDate(report.generatedAt)} · Report #{report.id}</p>
+          <p className="lead">Generated {formatDate(report.generatedAt)} · Report #{report.id}</p>
         </div>
-        <div className="report-header-actions">
-          <button className="secondary" onClick={() => downloadReport(report)}>Download JSON</button>
+        <div className="page-actions">
           <RecordedHashBadge />
+          <button className="secondary" onClick={() => downloadReport(report)}>Download JSON</button>
         </div>
       </header>
 
-      <section className="report-summary" aria-label="Run summary">
+      <section className="metrics" aria-label="Run summary">
         <SummaryMetric label="Evidence records" value={report.summary.evidenceCount} />
         <SummaryMetric label="Succeeded" value={report.summary.succeeded} tone="success" />
         <SummaryMetric label="Failed" value={report.summary.failed} tone={report.summary.failed ? 'danger' : undefined} />
       </section>
 
-      <section className="report-block report-tested" aria-labelledby="report-tested-title">
+      <section className="report-block panel report-tested" aria-labelledby="report-tested-title">
         <div className="report-block-heading">
           <div><p className="eyebrow">What we tested</p><h3 id="report-tested-title">{report.questions.length ? `${report.questions.length} matched question${report.questions.length === 1 ? '' : 's'}` : 'Legacy prompt run'}</h3></div>
           <span className="muted">Exact prompts are preserved below.</span>
@@ -78,7 +78,7 @@ export function ReportDetailView({ reportId }: { reportId: number }) {
 
 function QuestionReportCard({ index, question }: { index: number; question: ReportQuestion }) {
   return (
-    <article className="question-report-card">
+    <article className="question-report-card card">
       <header>
         <p className="eyebrow">Question {index + 1}</p>
         <h3>{question.question || 'Matched question'}</h3>
@@ -118,7 +118,7 @@ function ResponseEvidence({ record }: { record: ReportEvidenceRow }) {
   return (
     <div className="response-evidence">
       <div className="response-evidence-heading">
-        <span className={`report-status ${record.status}`}>{statusText}</span>
+        <span className={record.status === 'error' ? 'badge danger' : 'badge success'}>{statusText}</span>
         <span className="muted">{record.latencyMs == null ? '' : `${record.latencyMs} ms`}</span>
       </div>
       <pre>{record.response || '(No response body)'}</pre>
@@ -137,7 +137,7 @@ function ResponseEvidence({ record }: { record: ReportEvidenceRow }) {
 
 function LegacyEvidence({ evidence }: { evidence: ReportEvidenceRow[] }) {
   return (
-    <section className="report-block" aria-labelledby="report-evidence-title">
+    <section className="report-block panel" aria-labelledby="report-evidence-title">
       <div className="report-block-heading">
         <div><p className="eyebrow">Legacy evidence</p><h3 id="report-evidence-title">Recorded responses</h3></div>
         <span className="muted">This report predates question grouping.</span>
@@ -148,7 +148,7 @@ function LegacyEvidence({ evidence }: { evidence: ReportEvidenceRow[] }) {
 }
 
 function SummaryMetric({ label, value, tone }: { label: string; value: number; tone?: string }) {
-  return <div className={`report-summary-metric ${tone ?? ''}`}><span>{label}</span><strong>{value}</strong></div>
+  return <div className={`metric ${tone ?? ''}`}><span>{label}</span><strong>{value}</strong></div>
 }
 
 function formatDate(value: string): string {

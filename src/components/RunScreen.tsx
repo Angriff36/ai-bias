@@ -247,7 +247,7 @@ export function RunScreen({
             <li>Check the endpoint URL and model id on the target.</li>
             <li>Provider rate limits (429) usually clear after a short wait.</li>
           </ul>
-          <button type="button" className="btn" onClick={start}>
+          <button type="button" className="secondary" onClick={start}>
             Retry run
           </button>
         </div>
@@ -267,7 +267,7 @@ export function RunScreen({
             {pairDefinitions ? pairDefinitions.length : pairs} questions × 2 variants × {runsPerVariant} runs ={' '}
             <strong>{(pairDefinitions ? pairDefinitions.length : pairs) * 2 * runsPerVariant} requests</strong>, shuffled.
           </p>
-          <button type="button" className="btn btn-primary touch-target" onClick={start}>
+          <button type="button" className="primary" onClick={start}>
             {startButtonLabel}
           </button>
         </div>
@@ -281,17 +281,17 @@ export function RunScreen({
             </p>
             <div className="run-controls">
               {phase === 'running' && (
-                <button type="button" className="btn touch-target" onClick={pause}>
+                <button type="button" className="secondary" onClick={pause}>
                   Pause
                 </button>
               )}
               {phase === 'paused' && (
-                <button type="button" className="btn btn-primary touch-target" onClick={resume}>
+                <button type="button" className="primary" onClick={resume}>
                   Resume
                 </button>
               )}
               {(phase === 'running' || phase === 'paused') && (
-                <button type="button" className="btn touch-target" onClick={cancel}>
+                <button type="button" className="secondary" onClick={cancel}>
                   Cancel
                 </button>
               )}
@@ -299,21 +299,21 @@ export function RunScreen({
           </div>
 
           {phase === 'paused' && (
-            <p className="banner banner-info" data-testid="pause-note">
+            <p className="banner info" data-testid="pause-note">
               Paused. {done} of {total} requests are already recorded and will not re-run;{' '}
               {total - done} will run on resume.
             </p>
           )}
 
           {toast && phase !== 'complete' && (
-            <p className="banner banner-warning" role="status" data-testid="failure-toast">
+            <p className="banner warning" role="status" data-testid="failure-toast">
               <span aria-hidden="true">⚠ </span>
               {toast}
             </p>
           )}
 
           {streakWarning != null && phase === 'running' && (
-            <p className="banner banner-warning" role="status" data-testid="streak-warning">
+            <p className="banner warning" role="status" data-testid="streak-warning">
               <span aria-hidden="true">⚠ </span>
               Many requests are failing ({streakWarning} in a row). Pause to check provider
               settings?
@@ -328,16 +328,16 @@ export function RunScreen({
           />
 
           {phase === 'complete' && (
-            <div className="banner banner-success end-banner" data-testid="run-complete">
-              <strong>Run complete</strong> — {done - failed} succeeded, {failed} failed.
-              <button type="button" className="btn btn-primary touch-target" onClick={onViewResults}>
+            <div className="banner success end-banner" data-testid="run-complete">
+              <span><strong>Run complete</strong> — {done - failed} succeeded, {failed} failed.</span>
+              <button type="button" className="primary" onClick={onViewResults}>
                 View Results
               </button>
             </div>
           )}
 
           {phase === 'cancelled' && (
-            <p className="banner banner-info" data-testid="cancelled-note">
+            <p className="banner info" data-testid="cancelled-note">
               Run cancelled. {done} of {total} raw records were persisted and are available in
               results.
             </p>
@@ -347,7 +347,7 @@ export function RunScreen({
             <div className="error-summary" data-testid="error-summary">
               <button
                 type="button"
-                className="btn error-summary-toggle touch-target"
+                className="secondary error-summary-toggle"
                 aria-expanded={errorsOpen}
                 onClick={() => setErrorsOpen((o) => !o)}
               >

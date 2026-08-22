@@ -43,11 +43,11 @@ export function TemplateLibrary({ onUsePrompt }: { onUsePrompt: (prompt: string,
 
   return (
     <section className="template-library" aria-labelledby="templates-title">
-      <header className="providers-page-header">
+      <header className="page-header">
         <div>
           <p className="eyebrow">Prompt library</p>
           <h2 id="templates-title">Templates</h2>
-          <p className="muted">
+          <p className="lead">
             Fill in a template's placeholders to produce a prompt, then send it straight to the
             new-experiment wizard, which finds the demographic phrases to compare.
           </p>
@@ -56,7 +56,7 @@ export function TemplateLibrary({ onUsePrompt }: { onUsePrompt: (prompt: string,
 
       {notice && <div className="banner success" role="status">{notice}</div>}
 
-      <h3 className="wz-summary-h">Your templates</h3>
+      <h3 className="section-title">Your templates</h3>
       {library.userTemplatesLoading ? (
         <SkeletonGrid />
       ) : library.userTemplates.length === 0 ? (
@@ -74,7 +74,7 @@ export function TemplateLibrary({ onUsePrompt }: { onUsePrompt: (prompt: string,
         </div>
       )}
 
-      <h3 className="wz-summary-h">Starter templates</h3>
+      <h3 className="section-title">Starter templates</h3>
       <div className="template-grid">
         {library.seedTemplates.map((template) => (
           <TemplateCard

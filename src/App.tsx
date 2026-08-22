@@ -79,7 +79,7 @@ export default function App() {
   if (state.phase === 'migrating') {
     return (
       <div className="app">
-        <div className="banner progress" role="status">
+        <div className="banner info" role="status">
           <div className="spinner" aria-hidden="true" />
           <span>
             Preparing the database…
@@ -192,14 +192,14 @@ function MainApp({ version, readyAt }: { version: number; readyAt: string }) {
   return (
     <div className="app">
       <header className="app-header">
-        <h1>AI Bias Lab</h1>
-        <button className="secondary" onClick={signOut}>
-          Sign out{state.phase === 'signedIn' ? ` (${state.user.email})` : ''}
-        </button>
+        <div className="app-brand"><h1>AI Bias Lab</h1></div>
+        <div className="app-header-right">
+          <p className="db-status" role="status">Database ready · schema v{version} · {readyAt}</p>
+          <button className="secondary" onClick={signOut}>
+            Sign out{state.phase === 'signedIn' ? ` (${state.user.email})` : ''}
+          </button>
+        </div>
       </header>
-      <div className="banner success" role="status">
-        Database ready — schema v{version} · {readyAt}
-      </div>
       <nav className="tabs" role="tablist" aria-label="Main sections">
         {tabs.map((t) => (
           <button key={t.id} role="tab" aria-selected={tab === t.id} onClick={() => selectTab(t.id)}>
@@ -245,31 +245,56 @@ function ReportsList() {
     }
   }, [call])
 
+  const header = (
+    <div className="page-header">
+      <div>
+        <p className="eyebrow">Evidence</p>
+        <h2>Reports</h2>
+        <p className="lead">Every completed run writes a read-only report with the exact prompts and replies.</p>
+      </div>
+    </div>
+  )
   if (rows === null) {
     return (
-      <table>
-        <caption>Reports</caption>
-        <thead><tr><th scope="col">Title</th><th scope="col">Evidence</th></tr></thead>
-        <tbody><SkeletonRows columns={2} /></tbody>
-      </table>
+      <section className="report-list">
+        {header}
+        <table>
+          <caption>Reports</caption>
+          <thead><tr><th scope="col">Title</th><th scope="col">Evidence</th></tr></thead>
+          <tbody><SkeletonRows columns={2} /></tbody>
+        </table>
+      </section>
     )
   }
   if (rows.length === 0) {
-    return <EmptyState message="No reports generated — complete a run first" actionLabel="Go to experiments" />
+    return (
+      <section className="report-list">
+        {header}
+        <EmptyState
+          heading="No reports yet"
+          body="Complete a run on an experiment and its report appears here."
+          actionLabel="Go to experiments"
+          onAction={() => { window.location.hash = '#/experiments' }}
+        />
+      </section>
+    )
   }
   return (
-    <table>
-      <caption>Reports</caption>
-      <thead><tr><th scope="col">Title</th><th scope="col">Evidence</th></tr></thead>
-      <tbody>
-        {rows.map((r) => (
-          <tr key={r.id}>
-            <td><a className="report-link" href={`#/reports/${r.id}`}>{r.title}</a> <ReadOnlyBadge /></td>
-            <td><RecordedHashBadge /></td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <section className="report-list">
+      {header}
+      <table>
+        <caption>Reports</caption>
+        <thead><tr><th scope="col">Title</th><th scope="col">Evidence</th></tr></thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.id}>
+              <td><a className="report-link" href={`#/reports/${r.id}`}>{r.title}</a> <ReadOnlyBadge /></td>
+              <td><RecordedHashBadge /></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
   )
 }
 
@@ -293,6 +318,13 @@ function AdminPanel({ version }: { version: number }) {
 
   return (
     <div>
+      <div className="page-header">
+        <div>
+          <p className="eyebrow">Local storage</p>
+          <h2>Admin</h2>
+          <p className="lead">The database lives in this browser. Check its schema or start it fresh.</p>
+        </div>
+      </div>
       <div className="panel">
         <h2>Schema</h2>
         <p>

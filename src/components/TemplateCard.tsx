@@ -31,7 +31,7 @@ export function TemplateCard({
   };
 
   return (
-    <Card pulse={pulse} className="flex flex-col p-4">
+    <Card pulse={pulse} className="template-card">
       <div
         ref={cardRef}
         data-template-card
@@ -40,11 +40,11 @@ export function TemplateCard({
         aria-label={`Use template ${template.name}`}
         onKeyDown={handleKeyDown}
         onClick={onOpen}
-        className="cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 rounded-lg -m-1 p-1"
+        className="template-card-main"
       >
-        <div className="flex items-start justify-between gap-2">
-          <h3 className="text-base font-bold text-slate-900">{template.name}</h3>
-          <div className="flex items-center gap-1.5 shrink-0">
+        <div className="template-card-head">
+          <h3>{template.name}</h3>
+          <div className="template-card-badges">
             {template.seeded && <Badge tone="muted">Sample</Badge>}
             <Badge tone="amber">
               {template.variables.length} variable
@@ -53,20 +53,16 @@ export function TemplateCard({
           </div>
         </div>
         {template.duplicatedFrom && (
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="muted" style={{ fontSize: 12 }}>
             Duplicated from {template.duplicatedFrom}
           </p>
         )}
-        <p className="mt-2 text-sm text-slate-600 line-clamp-2">
-          {template.description}
-        </p>
-        <pre className="mt-3 text-xs text-slate-700 bg-slate-50 rounded-lg p-2 whitespace-pre-wrap line-clamp-3">
-          {template.body}
-        </pre>
+        <p className="template-card-desc">{template.description}</p>
+        <pre className="template-card-body">{template.body}</pre>
       </div>
-      <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-end">
+      <div className="template-card-actions">
         <button
-          className="inline-flex items-center min-h-[44px] px-3 text-sm font-medium text-slate-700 hover:text-slate-900 hover:bg-slate-50 rounded-lg"
+          className="secondary"
           onClick={(e) => {
             e.stopPropagation();
             onDuplicate();
@@ -74,10 +70,7 @@ export function TemplateCard({
         >
           Duplicate
         </button>
-        <button
-          className="inline-flex items-center min-h-[44px] px-4 ml-1 text-sm font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg"
-          onClick={onOpen}
-        >
+        <button className="primary" onClick={onOpen}>
           Use
         </button>
       </div>

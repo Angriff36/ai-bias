@@ -382,13 +382,13 @@ export function ExperimentHistoryList() {
       {error && <div className="banner error" role="alert">{error}</div>}
       {cloneRetry && <div className="banner error" role="alert">Clone failed. Try again. <button className="link" onClick={cloneRetry}>Retry</button></div>}
 
-      <div className="creation-actions">
+      <div className="page-header">
         <div>
           <p className="eyebrow">Experiments</p>
           <h2>What do you want to test?</h2>
-          <p className="muted">Start from a pair of complete prompts or build one manually.</p>
+          <p className="lead">Start from a pair of complete prompts or build one manually.</p>
         </div>
-        <div className="creation-buttons">
+        <div className="page-actions">
           <button className="primary" onClick={() => setImportOpen(true)}>Import JSON</button>
           <button className="secondary" onClick={() => setWizardOpen(true)}>Create manually</button>
         </div>

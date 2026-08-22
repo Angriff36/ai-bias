@@ -142,11 +142,11 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
     return (
       <section className="experiment-workspace" aria-labelledby="run-experiment-title">
         <button className="link workspace-back" onClick={() => setView('overview')}>← Back to experiment</button>
-        <div className="workspace-heading">
+        <div className="page-header">
           <div>
             <p className="eyebrow">{experiment.name}</p>
             <h2 id="run-experiment-title">Run experiment</h2>
-            <p className="muted">Review the exact questions and prompts, choose a target, then run the experiment.</p>
+            <p className="lead">Review the exact questions and prompts, choose a target, then run the experiment.</p>
           </div>
           <StatusBadge status={experiment.status} />
         </div>
@@ -309,21 +309,21 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
     return (
       <section className="experiment-workspace" aria-labelledby="experiment-results-title">
         <button className="link workspace-back" onClick={() => setView('overview')}>← Back to experiment</button>
-        <div className="workspace-heading">
+        <div className="page-header">
           <div>
             <p className="eyebrow">{experiment.name}</p>
             <h2 id="experiment-results-title">Experiment results</h2>
-            <p className="muted">Observed system behavior from the latest persisted run.</p>
+            <p className="lead">Observed system behavior from the latest persisted run.</p>
           </div>
           <StatusBadge status="complete" />
         </div>
         {runSaveError && <div className="banner error" role="alert">{runSaveError}</div>}
         {runSummary ? (
           <>
-            <div className="result-metrics" aria-label="Latest run summary">
-              <article><span>Evidence</span><strong>{runSummary.evidenceCount}</strong><small>evidence records captured</small></article>
-              <article><span>Succeeded</span><strong>{runSummary.succeeded}</strong><small>provider responses</small></article>
-              <article><span>Failed</span><strong>{runSummary.failed}</strong><small>preserved error records</small></article>
+            <div className="metrics" aria-label="Latest run summary">
+              <div className="metric"><span>Evidence</span><strong>{runSummary.evidenceCount}</strong><small>evidence records captured</small></div>
+              <div className="metric success"><span>Succeeded</span><strong>{runSummary.succeeded}</strong><small>provider responses</small></div>
+              <div className={runSummary.failed ? 'metric danger' : 'metric'}><span>Failed</span><strong>{runSummary.failed}</strong><small>preserved error records</small></div>
             </div>
             {runSummary.models.length > 0 && (
               <div className="panel">
@@ -380,8 +380,9 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
   return (
     <section className="experiment-editor" aria-labelledby="experiment-editor-title">
       {cloneRetry && <div className="banner error" role="alert">Clone failed. Try again. <button className="link" onClick={cloneRetry}>Retry</button></div>}
-      <header className="experiment-editor-header">
+      <header className="page-header">
         <div>
+          <p className="eyebrow">Experiment</p>
           <div className="title-row">
             <h2 id="experiment-editor-title">Experiment editor</h2>
             <StatusBadge status={experiment.status} />
@@ -396,7 +397,7 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
         <CloneExperimentButton source={experiment} onCloned={navigateToClone} onFailure={setCloneRetry} />
       </header>
 
-      <div className="workspace-actions experiment-primary-actions">
+      <div className="workspace-actions experiment-primary-actions panel">
         {runSummary && <button className="primary" onClick={() => setView('run')}>Configure another run</button>}
         {runSummary && <button className="secondary" onClick={() => setView('results')}>View latest results</button>}
         <button className="secondary" onClick={() => { window.location.hash = '#/experiments' }}>Back to experiments</button>
@@ -416,13 +417,12 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
         ))}
       </div>
 
-      <section className="run-history" aria-labelledby="run-history-title">
+      <section className="run-history panel" aria-labelledby="run-history-title">
         <h3 id="run-history-title">Run history</h3>
         {experiment.run_count === 0 ? (
           <EmptyState
-            icon="◌"
-            heading="No runs yet — adjust your setup and start a run"
-            body="Evidence from the source experiment is not included. Start a new run to generate fresh results."
+            heading="No runs yet"
+            body="Choose the models to compare and start a run. Every reply is stored as evidence."
             actionLabel="Configure Run"
             onAction={() => setView('run')}
           />

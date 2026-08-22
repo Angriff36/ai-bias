@@ -46,65 +46,47 @@ export function EditTemplateDialog({
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-center justify-center p-4"
+      className="modal-backdrop"
       role="dialog"
       aria-modal="true"
       aria-label="Edit template"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="absolute inset-0 bg-slate-900/40" onClick={onClose} />
-      <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-xl p-4 max-h-[90dvh] overflow-y-auto">
-        <h2 className="text-lg font-bold text-slate-900 mb-4">Edit template</h2>
+      <div className="modal">
+        <div className="modal-header">
+          <h2>Edit template</h2>
+          <button type="button" className="modal-close" aria-label="Close" onClick={onClose}>×</button>
+        </div>
         <form
-          className="space-y-4"
+          className="modal-body"
           onSubmit={(e) => {
             e.preventDefault();
             void save();
           }}
         >
-          <div>
-            <label
-              htmlFor="tpl-name"
-              className="block text-sm font-medium text-slate-700"
-            >
-              Name <span className="text-slate-900">*</span>
-            </label>
-            <input
-              id="tpl-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900"
-            />
+          <div className="field">
+            <label htmlFor="tpl-name">Name <span className="muted">(required)</span></label>
+            <input id="tpl-name" value={name} onChange={(e) => setName(e.target.value)} />
           </div>
-          <div>
-            <label
-              htmlFor="tpl-desc"
-              className="block text-sm font-medium text-slate-700"
-            >
-              Description
-            </label>
+          <div className="field">
+            <label htmlFor="tpl-desc">Description</label>
             <textarea
               id="tpl-desc"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={2}
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900"
             />
           </div>
-          <div>
-            <label
-              htmlFor="tpl-body"
-              className="block text-sm font-medium text-slate-700"
-            >
-              Template body — use {"{{variable}}"} placeholders
-            </label>
+          <div className="field">
+            <label htmlFor="tpl-body">Template body — use {"{{variable}}"} placeholders</label>
             <textarea
               id="tpl-body"
+              className="mono"
               value={body}
               onChange={(e) => setBody(e.target.value)}
               rows={5}
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-slate-900"
             />
-            <p className="mt-1 text-xs text-slate-500">
+            <p className="field-hint">
               Detected variables:{" "}
               {vars.length > 0
                 ? vars.map((v) => `{{${v}}}`).join(", ")
@@ -112,23 +94,15 @@ export function EditTemplateDialog({
             </p>
           </div>
           {error && (
-            <p className="text-sm text-red-600" role="alert">
+            <p className="field-error" role="alert">
               {error}
             </p>
           )}
-          <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="min-h-[44px] px-4 rounded-lg text-sm font-medium text-slate-700 ring-1 ring-slate-300 hover:bg-slate-50"
-            >
+          <div className="form-actions">
+            <button type="button" className="secondary" onClick={onClose}>
               Cancel
             </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="min-h-[44px] px-4 rounded-lg text-sm font-semibold text-white bg-slate-900 hover:bg-slate-800 disabled:opacity-50"
-            >
+            <button type="submit" className="primary" disabled={saving}>
               {saving ? "Saving…" : "Save"}
             </button>
           </div>

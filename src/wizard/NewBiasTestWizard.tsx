@@ -338,7 +338,7 @@ export function NewBiasTestWizard({
             </div>
 
             {!showDescription ? (
-              <button type="button" className="wz-disclosure" onClick={() => setShowDescription(true)}>
+              <button type="button" className="link" onClick={() => setShowDescription(true)}>
                 Add description (optional)
               </button>
             ) : (
@@ -368,7 +368,7 @@ export function NewBiasTestWizard({
                 <dd>
                   {expanded || prompt.length <= 200 ? prompt : `${prompt.slice(0, 200)}… `}
                   {prompt.length > 200 && (
-                    <button type="button" className="wz-link" onClick={() => setExpanded((v) => !v)}>
+                    <button type="button" className="link" onClick={() => setExpanded((v) => !v)}>
                       {expanded ? 'Show less' : 'Expand'}
                     </button>
                   )}
@@ -394,7 +394,7 @@ export function NewBiasTestWizard({
             <button type="button" className="primary wz-create" onClick={create} disabled={creating || pairs.length === 0}>
               {creating ? 'Creating…' : 'Create Experiment'}
             </button>
-            <button type="button" className="wz-link block" onClick={goBack}>Go back and edit</button>
+            <button type="button" className="link block" onClick={goBack}>Go back and edit</button>
           </section>
         )}
       </div>

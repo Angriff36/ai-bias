@@ -68,10 +68,10 @@ export function SubscriptionProviders({
           <h2 id="subscriptions-title">Subscriptions</h2>
           <p className="muted">Use the Claude, ChatGPT, or Google account already authenticated on this computer.</p>
         </div>
-        <button className="btn-secondary" onClick={() => void refresh()} disabled={statuses === null}>Refresh status</button>
+        <button className="secondary" onClick={() => void refresh()} disabled={statuses === null}>Refresh status</button>
       </div>
 
-      {error && <p className="banner banner-warning" role="alert">{error}</p>}
+      {error && <p className="banner warning" role="alert">{error}</p>}
       {statuses === null ? (
         <div className="subscription-status-loading" role="status">Checking local subscription sessions…</div>
       ) : (
@@ -81,7 +81,7 @@ export function SubscriptionProviders({
               (target) => targetAuthMode(target) === 'subscription' && target.id === `subscription-${status.provider}`,
             )
             return (
-              <article className="subscription-card" key={status.provider}>
+              <article className="subscription-card card" key={status.provider}>
                 <div className="subscription-card-top">
                   <div>
                     <strong>{status.label}</strong>
@@ -89,7 +89,7 @@ export function SubscriptionProviders({
                       {status.authenticated ? 'Connected' : status.installed ? 'Sign in required' : 'Not installed'}
                     </span>
                   </div>
-                  <span className="target-badge">OAuth</span>
+                  <span className="badge accent">OAuth</span>
                 </div>
                 <p className="target-meta">
                   {status.version ? `CLI ${status.version}` : status.authenticated ? 'Subscription session ready' : status.message ?? 'Local CLI required'}
@@ -102,7 +102,7 @@ export function SubscriptionProviders({
                 )}
                 {status.authenticated ? (
                   <button
-                    className="btn-primary"
+                    className="primary"
                     onClick={() => onUseSubscription({
                       id: `subscription-${status.provider}`,
                       name: `${status.label} subscription`,
@@ -115,7 +115,7 @@ export function SubscriptionProviders({
                   </button>
                 ) : status.installed ? (
                   <button
-                    className="btn-primary"
+                    className="primary"
                     disabled={connecting === status.provider}
                     onClick={() => void connect(status.provider)}
                   >

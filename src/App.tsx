@@ -18,15 +18,16 @@ import { ExperimentEditor } from './components/ExperimentEditor'
 import { ReportDetailView } from './components/ReportDetailView'
 import { ProvidersPanel } from './components/ProvidersPanel'
 import { TemplateLibrary } from './components/TemplateLibrary'
+import { ObservationsPanel } from './components/ObservationsPanel'
 
 type DbState =
   | { phase: 'migrating'; progress: MigrationProgress | null }
   | { phase: 'ready'; version: number; readyAt: string }
   | { phase: 'failed'; migrationName: string; message: string }
 
-type Tab = 'experiments' | 'templates' | 'targets' | 'reports' | 'admin'
+type Tab = 'experiments' | 'templates' | 'observations' | 'targets' | 'reports' | 'admin'
 
-const TABS: Tab[] = ['experiments', 'templates', 'targets', 'reports', 'admin']
+const TABS: Tab[] = ['experiments', 'templates', 'observations', 'targets', 'reports', 'admin']
 
 /** A prompt handed from the template library to the new-experiment wizard. */
 export const PENDING_PROMPT_KEY = 'ai-bias-pending-prompt'
@@ -173,6 +174,7 @@ function MainApp({ version, readyAt }: { version: number; readyAt: string }) {
   const tabs: { id: Tab; label: string }[] = [
     { id: 'experiments', label: 'Experiments' },
     { id: 'templates', label: 'Templates' },
+    { id: 'observations', label: 'Observations' },
     { id: 'targets', label: 'Providers' },
     { id: 'reports', label: 'Reports' },
     { id: 'admin', label: 'Admin' },
@@ -205,6 +207,7 @@ function MainApp({ version, readyAt }: { version: number; readyAt: string }) {
           }}
         />
       )}
+      {tab === 'observations' && <ObservationsPanel />}
       {tab === 'targets' && <ProvidersPanel />}
       {tab === 'reports' && <ReportsRoute />}
       {tab === 'admin' && <AdminPanel version={version} />}

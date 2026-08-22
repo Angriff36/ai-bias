@@ -555,6 +555,30 @@ dialog.confirm .actions { display: flex; gap: 8px; justify-content: flex-end; ma
 .skeleton-card .skeleton-line { height: 12px; }
 
 /* =====================================================================
+   Observations (manual, consumer UI)
+   ===================================================================== */
+.observation-form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+.observation-form .card { display: flex; flex-direction: column; }
+.observation-form .field:last-of-type { margin-bottom: 0; }
+.observation-form .form-actions { margin-top: auto; padding-top: 16px; }
+.radio-list { display: grid; gap: 2px; margin: 0 0 14px; padding: 0; border: 0; }
+.radio-list legend { margin-bottom: 6px; font-size: 13px; font-weight: 600; }
+.radio-list label { display: flex; align-items: center; gap: 10px; min-height: 32px; padding: 4px 8px; border-radius: var(--radius-sm); cursor: pointer; }
+.radio-list label:hover { background: rgba(255, 255, 255, 0.03); }
+.radio-list input[type='radio'] { width: 16px; height: 16px; accent-color: var(--accent); flex: none; }
+.radio-list.inline { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.radio-list.inline legend { width: 100%; }
+.kv-list { display: grid; gap: 6px; margin: 0 0 14px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); font-size: 12px; }
+.kv-list > div { display: flex; justify-content: space-between; gap: 12px; }
+.kv-list dt { color: var(--muted); }
+.kv-list dd { margin: 0; }
+.observation-list { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.observation-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+.observation-meta .readonly { margin-left: auto; }
+.observation-list p { overflow-wrap: anywhere; }
+.observation-hash { margin-top: 8px; color: var(--muted); font-size: 11px; }
+
+/* =====================================================================
    New bias test wizard
    ===================================================================== */
 .wizard { overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); }
@@ -659,7 +683,7 @@ dialog.confirm .actions { display: flex; gap: 8px; justify-content: flex-end; ma
   .page-header, .report-block-heading, .question-review-heading, .subscriptions-heading, .import-header { flex-direction: column; align-items: stretch; }
   .page-actions { width: 100%; }
   .page-actions button { flex: 1; }
-  .metrics, .targets-list, .subscription-grid, .question-review-prompts, .import-variant-grid, .question-report-variants, .modal-body.two-col { grid-template-columns: 1fr; }
+  .metrics, .targets-list, .subscription-grid, .question-review-prompts, .import-variant-grid, .question-report-variants, .modal-body.two-col, .observation-form { grid-template-columns: 1fr; }
   .import-preview .metrics { grid-template-columns: 1fr 1fr; }
   .import-preview .metrics > .metric:first-child { grid-column: 1 / -1; }
   .question-review-prompts { padding-left: 14px; }

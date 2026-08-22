@@ -34,3 +34,17 @@ describe('importFailure', () => {
     expect(importFailure(original)).toBe(original)
   })
 })
+
+describe('importFailure — storage problems', () => {
+  it('names a lost database handle and the reload that fixes it', () => {
+    const failure = importFailure(new Error('Database not initialized'))
+    expect(failure.message).toContain('lost its connection')
+    expect(failure.message).toContain('Reload')
+  })
+
+  it('names full browser storage and what to delete', () => {
+    const failure = importFailure(new DOMException('The quota has been exceeded.', 'QuotaExceededError'))
+    expect(failure.message).toContain('storage is full')
+    expect(failure.message).not.toContain('quota')
+  })
+})

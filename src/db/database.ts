@@ -29,6 +29,12 @@ export class MigrationError extends Error {
 
 let db: Database | null = null
 
+// The open database lives in this module. If the dev server hot-swaps this
+// module (or the migrations it imports), the handle would be lost and every
+// save would fail with "Database not initialized" until the page reloads.
+// On a hot update of this module, reload the page so the database is reopened.
+if (import.meta.hot) import.meta.hot.accept(() => window.location.reload())
+
 export function getDb(): Database {
   if (!db) throw new Error('Database not initialized')
   return db

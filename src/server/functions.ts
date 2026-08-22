@@ -191,6 +191,17 @@ export function importFailure(error: unknown): ServerError {
   if (message.includes('FOREIGN KEY constraint failed')) {
     return new ServerError(500, 'This import references a record that no longer exists. Reload the page and try again.')
   }
+  if (message.includes('Database not initialized')) {
+    return new ServerError(500, 'The page lost its connection to the local database. Reload the page and try again.')
+  }
+  if (/quota/i.test(message)) {
+    return new ServerError(
+      500,
+      "This browser's storage is full, so nothing more can be saved. Delete experiments or reports you no longer need, then try again.",
+    )
+  }
+  // The precise reason is kept out of the screen but stays available to a developer.
+  console.error('[import] could not save the experiment:', error)
   return new ServerError(500, 'The experiment could not be saved. Reload the page and try again.')
 }
 

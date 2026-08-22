@@ -1,5 +1,17 @@
 # Prompt: finish the AI Bias Lab app
 
+> **Status, 2026-08-22:** the five steps below are done. The live screens share
+> one design, the duplicate screens and the preview route are gone, the
+> Observations tab, capture-by-hand and the report pair inspector are connected
+> and tested, every file in `src/`, `tests/` and `server/` typechecks
+> (`npm run typecheck` runs both configs), and mounting `ExperimentEditor` in a
+> test works (see `src/components/ExperimentEditor.test.tsx`: give sql.js the
+> wasm bytes directly). The blinded judge was removed rather than connected: its
+> service never called a model — it computed scores from text length — so
+> showing them would have been fake results. Still unbuilt, by choice: a real
+> LLM judge, classification corrections, a results analysis view on top of
+> `src/asymmetry.ts` / `src/aggregate.ts`, and CSV/Markdown report export.
+
 Copy everything below the line into a new agent session.
 
 ---

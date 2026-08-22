@@ -32,7 +32,7 @@ afterEach(() => vi.unstubAllGlobals())
 
 function stubModelResponse(text: string) {
   const fetchMock = vi.fn().mockResolvedValue(new Response(
-    JSON.stringify({ content: [{ text }] }),
+    JSON.stringify({ content: [{ type: 'text', text }], stop_reason: 'end_turn' }),
     { status: 200, headers: { 'Content-Type': 'application/json' } },
   ))
   vi.stubGlobal('fetch', fetchMock)

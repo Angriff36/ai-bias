@@ -1,5 +1,5 @@
 import type { CallModelResult, DiscoverModelsResult, ProviderAdapter } from './types'
-import { classifyHttpError } from './util'
+import { classifyHttpError, emptyResponseError } from './util'
 
 const BASE = 'https://api.openai.com/v1'
 
@@ -18,9 +18,13 @@ export const openaiAdapter: ProviderAdapter = {
     }).catch(() => { throw { kind: 'timeout', message: 'fetch failed' } })
 
     if (!res.ok) throw classifyHttpError(res.status)
-    const json = await res.json() as { choices?: { message?: { content?: string } }[] }
+    const json = await res.json() as {
+      choices?: { message?: { content?: string | null }; finish_reason?: string }[]
+    }
+    const content = (json.choices?.[0]?.message?.content ?? '').trim()
+    if (!content) throw emptyResponseError(json.choices?.[0]?.finish_reason)
     return {
-      content: json.choices?.[0]?.message?.content ?? '',
+      content,
       modelId: config.modelId,
       provider: 'openai',
       latencyMs: Date.now() - start,

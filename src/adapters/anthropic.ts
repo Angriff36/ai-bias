@@ -1,5 +1,5 @@
 import type { CallModelResult, DiscoverModelsResult, ProviderAdapter } from './types'
-import { classifyHttpError } from './util'
+import { classifyHttpError, emptyResponseError, joinTextBlocks } from './util'
 
 const BASE = 'https://api.anthropic.com/v1'
 const VERSION = '2023-06-01'
@@ -31,9 +31,12 @@ export const anthropicAdapter: ProviderAdapter = {
     }).catch(() => { throw { kind: 'timeout', message: 'fetch failed' } })
 
     if (!res.ok) throw classifyHttpError(res.status)
-    const json = await res.json() as { content?: { text?: string }[] }
+    const json = await res.json() as { content?: unknown; stop_reason?: unknown }
+    // Thinking-capable models put a reasoning block first; take every text block.
+    const content = joinTextBlocks(json.content, (block) => (block.type === 'text' ? block.text : ''))
+    if (!content) throw emptyResponseError(json.stop_reason)
     return {
-      content: json.content?.[0]?.text ?? '',
+      content,
       modelId: config.modelId,
       provider: 'anthropic',
       latencyMs: Date.now() - start,

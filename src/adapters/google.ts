@@ -1,5 +1,5 @@
 import type { CallModelResult, DiscoverModelsResult, ProviderAdapter } from './types'
-import { classifyHttpError } from './util'
+import { classifyHttpError, emptyResponseError, joinTextBlocks } from './util'
 
 const BASE = 'https://generativelanguage.googleapis.com/v1beta'
 
@@ -17,9 +17,14 @@ export const googleAdapter: ProviderAdapter = {
     ).catch(() => { throw { kind: 'timeout', message: 'fetch failed' } })
 
     if (!res.ok) throw classifyHttpError(res.status)
-    const json = await res.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] }
+    const json = await res.json() as {
+      candidates?: { content?: { parts?: unknown }; finishReason?: unknown }[]
+    }
+    // Reasoning parts can precede the answer; join every text part.
+    const content = joinTextBlocks(json.candidates?.[0]?.content?.parts, (part) => part.text)
+    if (!content) throw emptyResponseError(json.candidates?.[0]?.finishReason)
     return {
-      content: json.candidates?.[0]?.content?.parts?.[0]?.text ?? '',
+      content,
       modelId: config.modelId,
       provider: 'google',
       latencyMs: Date.now() - start,

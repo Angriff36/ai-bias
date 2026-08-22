@@ -32,10 +32,17 @@ export function loadTargets(): TargetConfig[] {
   }
 }
 
-export function saveTargets(targets: TargetConfig[]): void {
+/**
+ * Returns false when the browser refused the write (private mode, full quota).
+ * Callers must tell the user, or the target silently disappears on reload.
+ */
+export function saveTargets(targets: TargetConfig[]): boolean {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(targets))
-  } catch { /* ignore */ }
+    return true
+  } catch {
+    return false
+  }
 }
 
 export function upsertTarget(targets: TargetConfig[], target: TargetConfig): TargetConfig[] {

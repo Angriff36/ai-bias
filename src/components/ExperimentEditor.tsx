@@ -34,10 +34,11 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
   const [repeats, setRepeats] = useState(1)
   const [runSummary, setRunSummary] = useState<ExperimentRunSummary | null>(null)
   const [runSaveError, setRunSaveError] = useState<string | null>(null)
+  const [nameError, setNameError] = useState<string | null>(null)
   const [questionSearch, setQuestionSearch] = useState('')
   const [availableTargets, setAvailableTargets] = useState<TargetConfig[]>(loadTargets)
   /** Every selected model runs the whole experiment, so results can be compared. */
-  const [selectedTargetIds, setSelectedTargetIds] = useState<string[]>(['offline'])
+  const [selectedTargetIds, setSelectedTargetIds] = useState<string[]>([])
   const [providerSetupOpen, setProviderSetupOpen] = useState(false)
   const nameRef = useRef<HTMLInputElement>(null)
 
@@ -47,7 +48,12 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
       setExperiment(loaded)
       setName(loaded.name)
       setRepeats(loaded.default_repeats)
-      setRunSummary(call((token) => getExperimentRunSummary(token, experimentId)))
+      try {
+        setRunSummary(call((token) => getExperimentRunSummary(token, experimentId)))
+      } catch {
+        // The experiment itself loaded; treat a missing summary as "no runs yet".
+        setRunSummary(null)
+      }
       requestAnimationFrame(() => {
         nameRef.current?.focus()
         nameRef.current?.select()
@@ -59,12 +65,14 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
 
   const saveName = () => {
     if (!experiment || name === experiment.name) return
+    setNameError(null)
     try {
       const updated = call((token) => updateExperimentName(token, experiment.id, name))
       setExperiment(updated)
       setName(updated.name)
-    } catch {
+    } catch (cause) {
       setName(experiment.name)
+      setNameError(cause instanceof Error ? cause.message : 'The new name could not be saved.')
     }
   }
 
@@ -209,7 +217,9 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
           <DropdownSelect
             label="Repeats per variant"
             value={String(repeats)}
-            options={[1, 3, 5, 10].map((option) => ({ value: String(option), label: String(option) }))}
+            options={Array.from(new Set([1, 3, 5, 10, repeats]))
+              .sort((a, b) => a - b)
+              .map((option) => ({ value: String(option), label: String(option) }))}
             onChange={(option) => setRepeats(Number(option))}
           />
           <div className="workload-readout" aria-label="Run workload">
@@ -265,9 +275,11 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
         )}
 
         {runSaveError && <div className="banner error" role="alert">{runSaveError}</div>}
-        {runTargets.length === 0 && (
-          <p className="banner error" role="alert">Select at least one model to run against.</p>
-        )}
+        {runTargets.length === 0 ? (
+          <p className="banner error" role="alert">
+            Select at least one model to run against. Nothing is selected, so there is no run to start.
+          </p>
+        ) : (
         <RunScreen
           key={runTargets.map((target) => target.id).join('|')}
           targets={runTargets}
@@ -286,6 +298,7 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
           onComplete={saveCompletedRun}
           onViewResults={() => setView('results')}
         />
+        )}
       </section>
     )
   }
@@ -302,6 +315,7 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
           </div>
           <StatusBadge status="complete" />
         </div>
+        {runSaveError && <div className="banner error" role="alert">{runSaveError}</div>}
         {runSummary ? (
           <>
             <div className="result-metrics" aria-label="Latest run summary">
@@ -337,7 +351,14 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
               <h3>Run #{runSummary.batchId} is persisted</h3>
               <p>Raw responses and their recorded hashes are stored in the project database. Open the report to inspect every persisted result.</p>
               <div className="workspace-actions">
-                <button className="primary" onClick={() => { window.location.hash = runSummary.reportId ? `#/reports/${runSummary.reportId}` : '#/reports' }}>Open report</button>
+                <button
+                  className="primary"
+                  disabled={runSummary.reportId === null}
+                  title={runSummary.reportId === null ? 'This run produced no report.' : undefined}
+                  onClick={() => { window.location.hash = `#/reports/${runSummary.reportId}` }}
+                >
+                  Open report
+                </button>
                 <button className="secondary" onClick={() => setView('run')}>Run again</button>
               </div>
             </div>
@@ -367,6 +388,7 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
             Experiment name
             <input ref={nameRef} value={name} onChange={(event) => setName(event.target.value)} onBlur={saveName} />
           </label>
+          {nameError && <p className="field-error" role="alert">{nameError}</p>}
           {experiment.cloned_from_name && <p className="clone-origin">Cloned from: {experiment.cloned_from_name}</p>}
         </div>
         <CloneExperimentButton source={experiment} onCloned={navigateToClone} onFailure={setCloneRetry} />

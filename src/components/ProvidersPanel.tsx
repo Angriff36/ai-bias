@@ -18,24 +18,33 @@ import {
 export function ProvidersPanel({ onTargetsChange }: { onTargetsChange?: (targets: TargetConfig[]) => void }) {
   const [targets, setTargets] = useState<TargetConfig[]>(loadTargets)
 
-  const commit = (next: TargetConfig[]) => {
-    saveTargets(next)
+  const commit = (next: TargetConfig[]): boolean => {
+    const persisted = saveTargets(next)
     setTargets(next)
     onTargetsChange?.(next)
+    if (!persisted) {
+      setNotice(null)
+      setSaveWarning(
+        'This browser refused to store the target, so it will disappear when you reload. ' +
+        'Private browsing or a full storage quota is the usual cause.',
+      )
+      return false
+    }
+    setSaveWarning(null)
+    return true
   }
   const [notice, setNotice] = useState<string | null>(null)
+  const [saveWarning, setSaveWarning] = useState<string | null>(null)
 
   const handleSave = (target: TargetConfig, apiKey: string) => {
     const next = upsertTarget(targets, target)
     setKey(target.id, apiKey)
-    commit(next)
-    setNotice(`${target.name} saved and ready for experiment runs.`)
+    if (commit(next)) setNotice(`${target.name} saved and ready for experiment runs.`)
   }
 
   const handleUseSubscription = (target: TargetConfig) => {
     const next = upsertTarget(targets, target)
-    commit(next)
-    setNotice(`${target.name} is ready for experiment runs.`)
+    if (commit(next)) setNotice(`${target.name} is ready for experiment runs.`)
   }
 
   const handleDelete = (id: string) => {
@@ -57,6 +66,7 @@ export function ProvidersPanel({ onTargetsChange }: { onTargetsChange?: (targets
         </div>
       </header>
       {notice && <div className="banner success" role="status">{notice}</div>}
+      {saveWarning && <div className="banner error" role="alert">{saveWarning}</div>}
       <div className="local-security-note" role="note">
         <strong>API keys only:</strong> a bias test needs a raw model endpoint. Keys are held in this
         browser and are shown redacted after saving. Every request is billed by the provider.

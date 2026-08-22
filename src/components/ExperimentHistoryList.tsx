@@ -174,10 +174,16 @@ export function ExperimentHistoryList() {
           dateTo: debounced.dateTo,
         }),
       )
-    } catch {
-      // 401 already triggered the login redirect; keep the skeleton in place.
+    } catch (cause) {
+      // A 401 already redirected to sign-in, so there is nothing to say here.
+      // Any other failure must be shown, or the skeleton spins forever.
+      if (!(cause instanceof ServerError && cause.status === 401)) {
+        setError(cause instanceof Error ? cause.message : 'Could not load experiments.')
+        setShowSkeleton(false)
+      }
       return
     }
+    setError(null)
     setData(result)
     setShowSkeleton(false)
   }, [call, debounced])

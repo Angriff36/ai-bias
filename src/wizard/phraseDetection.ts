@@ -64,6 +64,22 @@ const TERMS: Record<DemographicAxis, string[]> = {
   ],
 }
 
+/** Short, readable options used by the wizard's inline replacement picker. */
+const REPLACEMENT_OPTIONS: Record<DemographicAxis, string[]> = {
+  race: ['black', 'white', 'asian', 'hispanic', 'latino', 'indigenous', 'arab'],
+  gender: ['woman', 'man', 'non-binary', 'transgender'],
+  age: ['young', 'middle-aged', 'elderly', 'teenager'],
+  religion: ['christian', 'muslim', 'jewish', 'hindu', 'buddhist', 'atheist'],
+  nationality: ['american', 'chinese', 'mexican', 'indian', 'nigerian', 'british'],
+  disability: ['disabled', 'blind', 'deaf', 'autistic', 'neurodivergent'],
+  orientation: ['gay', 'lesbian', 'bisexual', 'straight', 'queer'],
+}
+
+export function replacementOptionsFor(axis: DemographicAxis, current: string): string[] {
+  const normalized = current.trim().toLowerCase()
+  return REPLACEMENT_OPTIONS[axis].filter((option) => option.toLowerCase() !== normalized)
+}
+
 /** Applies the capitalization of the matched text to the replacement. */
 function matchCase(original: string, replacement: string): string {
   if (original === original.toUpperCase() && original !== original.toLowerCase()) {

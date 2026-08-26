@@ -8,10 +8,11 @@ import { ReportDetailView } from './components/ReportDetailView'
 import { ProvidersPanel } from './components/ProvidersPanel'
 import { TemplateLibrary } from './components/TemplateLibrary'
 import { ObservationsPanel } from './components/ObservationsPanel'
+import { completeOpenRouterOAuth } from './openrouter/oauth'
 
 type ServerState =
   | { phase: 'connecting' }
-  | { phase: 'ready'; version: number; runtime: 'local' | 'cloudflare-workers' }
+  | { phase: 'ready' }
   | { phase: 'failed'; message: string }
 
 type Tab = 'experiments' | 'templates' | 'observations' | 'targets' | 'reports'
@@ -23,6 +24,7 @@ export const PENDING_PROMPT_KEY = 'ai-bias-pending-prompt'
 
 function tabFromHash(hash = window.location.hash): Tab {
   const t = hash.replace(/^#\//, '').split('/')[0]
+  if (t === 'providers') return 'targets'
   return (TABS as string[]).includes(t) ? (t as Tab) : 'experiments'
 }
 
@@ -33,13 +35,29 @@ export default function App() {
   useEffect(() => {
     let cancelled = false
     setState({ phase: 'connecting' })
-    api.health()
-      .then((health) => {
-        if (!cancelled) setState({ phase: 'ready', version: health.schemaVersion, runtime: health.runtime })
-      })
+    const openWorkspace = async () => {
+      if (new URL(window.location.href).searchParams.has('code')) {
+        try {
+          const result = await completeOpenRouterOAuth({ callbackUrl: window.location.href })
+          const cleanUrl = new URL(window.location.href)
+          cleanUrl.searchParams.delete('code')
+          cleanUrl.hash = result.returnHash || '#/providers'
+          window.history.replaceState({}, '', `${cleanUrl.pathname}${cleanUrl.search}${cleanUrl.hash}`)
+        } catch (error) {
+          const cleanUrl = new URL(window.location.href)
+          cleanUrl.searchParams.delete('code')
+          cleanUrl.hash = '#/providers'
+          window.history.replaceState({}, '', `${cleanUrl.pathname}${cleanUrl.search}${cleanUrl.hash}`)
+          throw error
+        }
+      }
+      await api.health()
+      if (!cancelled) setState({ phase: 'ready' })
+    }
+    openWorkspace()
       .catch((e: unknown) => {
         if (cancelled) return
-        setState({ phase: 'failed', message: e instanceof Error ? e.message : 'The app’s server is not answering.' })
+        setState({ phase: 'failed', message: e instanceof Error ? e.message : 'The private browser workspace could not be opened.' })
       })
     return () => { cancelled = true }
   }, [attempt])
@@ -49,7 +67,7 @@ export default function App() {
       <div className="app">
         <div className="banner info" role="status">
           <div className="spinner" aria-hidden="true" />
-          <span>Connecting to AI Bias Lab…</span>
+          <span>Opening your private workspace…</span>
         </div>
       </div>
     )
@@ -60,7 +78,7 @@ export default function App() {
       <div className="app">
         <div className="banner error" role="alert">
           <span>
-            {state.message} If you are running it locally, start the app with <code>npm start</code>, then try again.
+            {state.message} Check this browser&apos;s storage settings, then try again.
           </span>
           <button className="secondary" onClick={() => setAttempt((n) => n + 1)}>Try again</button>
         </div>
@@ -68,10 +86,10 @@ export default function App() {
     )
   }
 
-  return <MainApp version={state.version} runtime={state.runtime} />
+  return <MainApp />
 }
 
-function MainApp({ version, runtime }: { version: number; runtime: 'local' | 'cloudflare-workers' }) {
+function MainApp() {
   const [route, setRoute] = useState(window.location.hash)
   const tab = tabFromHash(route)
   const [toast, setToast] = useState<string | null>(null)
@@ -115,7 +133,7 @@ function MainApp({ version, runtime }: { version: number; runtime: 'local' | 'cl
         <div className="app-brand"><h1>AI Bias Lab</h1></div>
         <div className="app-header-right">
           <p className="db-status" role="status">
-            {runtime === 'cloudflare-workers' ? 'Cloudflare database' : 'Local database'} · schema v{version}
+            Stored only in this browser
           </p>
         </div>
       </header>

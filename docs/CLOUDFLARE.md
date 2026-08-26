@@ -1,11 +1,12 @@
 # Cloudflare Workers deployment
 
-AI Bias Lab deploys as one Cloudflare Worker:
+AI Bias Lab deploys as a privacy-first Cloudflare Worker site:
 
 - Workers Static Assets serves the Vite build from `dist/`.
-- `/api/*` is handled by `worker/index.ts`.
-- One SQLite-backed Durable Object stores experiments, runs, reports, and evidence.
-- Provider API keys remain in the browser and are never stored in the Durable Object.
+- The Worker has no Durable Object, application database, secrets, or user-data binding.
+- `/api/*` returns `404`; model requests go directly from the browser to OpenRouter.
+- Each visitor's experiments, reports, and evidence are stored in IndexedDB in that browser.
+- OpenRouter OAuth uses PKCE. The generated credential stays in session storage for the current tab.
 
 ## Run the Worker locally
 
@@ -14,13 +15,7 @@ npm install
 npm start
 ```
 
-Wrangler serves the Worker and its local Durable Object at the URL printed in the terminal, normally `http://localhost:8787`.
-
-The previous Bun server remains available for local-only development:
-
-```powershell
-npm run start:local
-```
+Wrangler serves the same static Worker at the URL printed in the terminal, normally `http://localhost:8787`.
 
 ## Deploy
 
@@ -32,10 +27,10 @@ npm run deploy:dry
 npm run deploy
 ```
 
-The first deployment provisions the `AiBiasDatabase` Durable Object with Cloudflare's SQLite storage backend. Later deployments reuse its data.
+The deployment uploads only the Worker and the built static assets. Local SQLite files, Wrangler state, browser data, and environment files are not deployment inputs.
 
 ## Public access
 
-The deployed Worker mirrors the existing single-researcher app and uses one shared Durable Object. Protect the deployment with Cloudflare Access before putting its hostname on the public internet. Without Access, anyone who can reach the Worker can view, create, change, export, or reset its stored research data.
+The site is intentionally public and contains no shared research database. Visitors can use the application without seeing another visitor's data. OpenRouter receives prompts when a visitor deliberately runs an analysis; Cloudflare only serves the application files.
 
-Coding-agent subscription CLIs cannot run inside Cloudflare Workers. The cloud UI reports Claude, Codex, and Gemini subscription bridges as unavailable; API-key providers continue to work from the browser.
+The Worker sets a restrictive content security policy, disables referrer sharing, and does not enable Worker observability. Before deployment, inspect the dry-run bundle and run the public-build secret scan.

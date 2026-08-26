@@ -1,11 +1,14 @@
 /**
- * Local-browser credential storage.
+ * Local-browser credential resolution.
  *
  * This Vite build has no server secret vault. Keys are kept under a separate
  * localStorage prefix and are only displayed as a redacted placeholder after
  * saving. Provider calls therefore originate in the browser; the UI states
  * this limitation explicitly instead of presenting local storage as a server.
  */
+
+import { getOpenRouterSession } from '../openrouter/oauth'
+import { loadTargets, targetAuthMode } from './targetStore'
 
 const STORAGE_PREFIX = '__plab_key__'
 const memoryStore = new Map<string, string>()
@@ -20,6 +23,10 @@ export function setKey(targetId: string, apiKey: string): void {
 }
 
 export function getKey(targetId: string): string {
+  const target = loadTargets().find((candidate) => candidate.id === targetId)
+  if (target?.provider === 'openrouter' && targetAuthMode(target) === 'openrouter-oauth') {
+    return getOpenRouterSession()?.key ?? ''
+  }
   if (memoryStore.has(targetId)) return memoryStore.get(targetId)!
   try {
     const v = localStorage.getItem(storageKey(targetId))

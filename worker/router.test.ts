@@ -1,32 +1,29 @@
 import { describe, expect, it, vi } from 'vitest'
 import { routeWorkerRequest, type WorkerEnv } from './router'
 
-function envWith(apiResponse: Response, assetResponse: Response): WorkerEnv {
-  const stub = { fetch: vi.fn(async () => apiResponse) }
+function envWith(assetResponse: Response): WorkerEnv {
   return {
-    APP_STATE: {
-      idFromName: vi.fn(() => ({ toString: () => 'primary-id' })),
-      get: vi.fn(() => stub),
-    },
     ASSETS: { fetch: vi.fn(async () => assetResponse) },
   }
 }
 
 describe('routeWorkerRequest', () => {
-  it('sends API requests to the persistent application object', async () => {
-    const env = envWith(new Response('api'), new Response('asset'))
-    const response = await routeWorkerRequest(new Request('https://example.test/api/health'), env)
+  it('rejects every API request because the public site has no backend', async () => {
+    const env = envWith(new Response('asset'))
+    const response = await routeWorkerRequest(new Request('https://example.test/api/rpc/getExperiment'), env)
 
-    expect(await response.text()).toBe('api')
-    expect(env.APP_STATE.idFromName).toHaveBeenCalledWith('primary')
+    expect(response.status).toBe(404)
     expect(env.ASSETS.fetch).not.toHaveBeenCalled()
   })
 
-  it('serves non-API requests from the built static assets', async () => {
-    const env = envWith(new Response('api'), new Response('<main>AI Bias Lab</main>'))
+  it('serves hardened static assets without allowing the browser key to leak by referrer', async () => {
+    const env = envWith(new Response('<main>AI Bias Lab</main>'))
     const response = await routeWorkerRequest(new Request('https://example.test/experiments/8'), env)
 
     expect(await response.text()).toBe('<main>AI Bias Lab</main>')
+    expect(response.headers.get('Referrer-Policy')).toBe('no-referrer')
+    expect(response.headers.get('Content-Security-Policy')).toContain("script-src 'self' 'wasm-unsafe-eval'")
+    expect(response.headers.get('Content-Security-Policy')).toContain("connect-src 'self' https://openrouter.ai")
     expect(env.ASSETS.fetch).toHaveBeenCalledOnce()
   })
 })

@@ -4,7 +4,7 @@
  */
 import type { ProviderId } from '../adapters/types'
 
-export type TargetAuthMode = 'subscription' | 'api-key'
+export type TargetAuthMode = 'subscription' | 'api-key' | 'openrouter-oauth'
 
 export interface TargetConfig {
   id: string

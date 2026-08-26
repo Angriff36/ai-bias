@@ -28,6 +28,13 @@ export interface ExperimentRow {
   is_synthetic: boolean
 }
 
+export interface ExperimentIndexRow extends ExperimentRow {
+  pair_count: number
+  run_count: number
+  evidence_count: number
+  model_ids: string[]
+}
+
 export interface VariantDetail { id: number; value: string; label: string | null }
 export interface VariableDetail { id: number; name: string; kind: string; variants: VariantDetail[] }
 export interface TemplateDetail { id: number; name: string; body: string; variables: VariableDetail[] }
@@ -51,8 +58,14 @@ export interface ExperimentDetail extends ExperimentRow {
 }
 
 export interface ExperimentPage {
-  rows: ExperimentRow[]
+  rows: ExperimentIndexRow[]
   total: number
+  summary: {
+    experimentCount: number
+    evidenceCount: number
+    modelCount: number
+    runCount: number
+  }
 }
 
 export type ExperimentSortField = 'created_at' | 'last_run_at'
@@ -330,7 +343,26 @@ export function listExperiments(token: string | null, opts: ListExperimentsOptio
   // "col IS NULL" keeps experiments never run at the bottom in both directions.
   const orderSql = `${col} IS NULL ASC, ${col} ${opts.dir === 'asc' ? 'ASC' : 'DESC'}, id DESC`
 
-  const total = Number(db.exec(`SELECT COUNT(*) FROM experiments WHERE ${whereSql}`, params)[0]?.values[0]?.[0] ?? 0)
+  const summaryRow = db.exec(
+    `SELECT COUNT(*),
+      COALESCE(SUM(CASE WHEN e.is_synthetic = 0 THEN
+        (SELECT COUNT(*) FROM run_batches b WHERE b.experiment_id = e.id) ELSE 0 END), 0),
+      COALESCE(SUM(CASE WHEN e.is_synthetic = 0 THEN
+        (SELECT COUNT(*) FROM raw_responses rr
+        JOIN runs r ON r.id = rr.run_id
+        JOIN run_batches b ON b.id = r.batch_id
+        WHERE b.experiment_id = e.id) ELSE 0 END), 0)
+     FROM experiments e WHERE ${whereSql}`,
+    params,
+  )[0]?.values[0]
+  const modelCount = Number(db.exec(
+    `SELECT COUNT(DISTINCT r.model_id)
+     FROM runs r
+     JOIN run_batches b ON b.id = r.batch_id
+     WHERE b.experiment_id IN (SELECT id FROM experiments WHERE is_synthetic = 0 AND ${whereSql})`,
+    params,
+  )[0]?.values[0]?.[0] ?? 0)
+  const total = Number(summaryRow?.[0] ?? 0)
   const offset = (opts.page - 1) * opts.pageSize
   const res = db.exec(
     `SELECT e.id, e.name, e.status, e.asymmetry_level, e.created_at, e.last_run_at,
@@ -338,7 +370,20 @@ export function listExperiments(token: string | null, opts: ListExperimentsOptio
       (SELECT COUNT(*) FROM variants v
        JOIN variables vr ON vr.id = v.variable_id
        JOIN templates t ON t.id = vr.template_id
-       WHERE t.experiment_id = e.id) AS variant_count
+       WHERE t.experiment_id = e.id) AS variant_count,
+      (SELECT COUNT(*) FROM experiment_pairs p WHERE p.experiment_id = e.id) AS pair_count,
+      (SELECT COUNT(*) FROM run_batches b WHERE b.experiment_id = e.id) AS run_count,
+      (SELECT COUNT(*) FROM raw_responses rr
+       JOIN runs r ON r.id = rr.run_id
+       JOIN run_batches b ON b.id = r.batch_id
+       WHERE b.experiment_id = e.id) AS evidence_count,
+      (SELECT GROUP_CONCAT(model_id) FROM (
+        SELECT DISTINCT r.model_id
+        FROM runs r
+        JOIN run_batches b ON b.id = r.batch_id
+        WHERE b.experiment_id = e.id
+        ORDER BY r.model_id
+      )) AS model_ids
      FROM experiments e WHERE ${whereSql}
      ORDER BY ${orderSql}
      LIMIT ? OFFSET ?`,
@@ -353,8 +398,21 @@ export function listExperiments(token: string | null, opts: ListExperimentsOptio
     last_run_at: r[5] == null ? null : String(r[5]),
     is_synthetic: Number(r[6]) === 1,
     variant_count: Number(r[7]),
+    pair_count: Number(r[8]),
+    run_count: Number(r[9]),
+    evidence_count: Number(r[10]),
+    model_ids: r[11] == null ? [] : String(r[11]).split(',').filter(Boolean),
   }))
-  return { rows, total }
+  return {
+    rows,
+    total,
+    summary: {
+      experimentCount: total,
+      runCount: Number(summaryRow?.[1] ?? 0),
+      evidenceCount: Number(summaryRow?.[2] ?? 0),
+      modelCount,
+    },
+  }
 }
 
 /** Returns the full editable configuration, never any run or evidence records. */

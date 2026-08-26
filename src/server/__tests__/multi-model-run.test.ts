@@ -9,7 +9,7 @@ vi.mock('../../db/database', () => ({
   persist: vi.fn(),
 }))
 
-import { completeOfflineRun, importExperiment, signIn } from '../functions'
+import { completeOfflineRun, importExperiment, listExperiments, signIn } from '../functions'
 
 beforeAll(async () => {
   const initSqlJs = (await import('sql.js')).default
@@ -70,5 +70,26 @@ describe('a run across several models', () => {
       { provider: 'openai', modelId: 'claude-sonnet-5', succeeded: 1, failed: 1 },
       { provider: 'openai', modelId: 'gpt-4o', succeeded: 2, failed: 0 },
     ])
+
+    const index = listExperiments(session.token, {
+      page: 1,
+      pageSize: 20,
+      sort: 'last_run_at',
+      dir: 'desc',
+      statuses: [],
+      asymmetryLevels: [],
+    })
+    expect(index.summary).toEqual({
+      experimentCount: 2,
+      evidenceCount: 4,
+      modelCount: 2,
+      runCount: 1,
+    })
+    expect(index.rows.find((row) => row.id === experiment.id)).toMatchObject({
+      pair_count: 1,
+      evidence_count: 4,
+      run_count: 1,
+      model_ids: ['claude-sonnet-5', 'gpt-4o'],
+    })
   })
 })

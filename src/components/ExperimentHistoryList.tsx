@@ -1,8 +1,8 @@
-import type { AriaAttributes } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   api,
   ServerError,
+  type ExperimentPage,
   type ExperimentRow,
   type ExperimentSortField,
   type SortDir,
@@ -10,13 +10,14 @@ import {
 } from '../api'
 import { friendlyConstraintError } from '../db/database'
 import { ConfirmDeleteDialog } from './ConfirmDeleteDialog'
-import { EmptyState, SkeletonRows } from './EmptyState'
+import { EmptyState } from './EmptyState'
 import { NotFoundPage } from './NotFoundPage'
-import { AsymmetryBadge, StatusBadge } from './StatusBadge'
+import { AsymmetryBadge } from './StatusBadge'
 import { NewBiasTestWizard, type WizardResult } from '../wizard/NewBiasTestWizard'
 import { PENDING_PROMPT_KEY } from '../App'
 import { CloneExperimentButton } from './CloneExperimentButton'
 import { ImportExperimentDialog } from './ImportExperimentDialog'
+import { DropdownSelect } from './DropdownSelect'
 import type { ExperimentImportDocument } from '../lib/experimentImport'
 
 const PAGE_SIZES = [10, 20, 50]
@@ -84,7 +85,7 @@ function writeParams(state: QueryState) {
 }
 
 function formatDate(iso: string | null, short = false): string {
-  if (!iso) return '—'
+  if (!iso) return 'Not run yet'
   const d = new Date(`${iso.replace(' ', 'T')}Z`)
   if (Number.isNaN(d.getTime())) return iso
   return short
@@ -92,12 +93,20 @@ function formatDate(iso: string | null, short = false): string {
     : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
 }
 
+function formatCount(value: number, singular: string, plural: string): string {
+  return `${value.toLocaleString('en-US')} ${value === 1 ? singular : plural}`
+}
+
+function formatStatus(value: string): string {
+  return value ? `${value[0].toUpperCase()}${value.slice(1)}` : 'Unknown'
+}
+
 export function ExperimentHistoryList() {
   const [query, setQuery] = useState(readParams)
   const [debounced, setDebounced] = useState(query)
   const [searchInput, setSearchInput] = useState(query.search)
   const [targets, setTargets] = useState<TargetRow[]>([])
-  const [data, setData] = useState<{ rows: ExperimentRow[]; total: number } | null>(null)
+  const [data, setData] = useState<ExperimentPage | null>(null)
   const [showSkeleton, setShowSkeleton] = useState(true)
   const [deleting, setDeleting] = useState<ExperimentRow | null>(null)
   const [deleteCounts, setDeleteCounts] = useState<Record<string, number>>({})
@@ -118,9 +127,10 @@ export function ExperimentHistoryList() {
   const [importOpen, setImportOpen] = useState(false)
   const [createdId, setCreatedId] = useState<number | null>(null)
   const [openMenuId, setOpenMenuId] = useState<number | null>(null)
+  const [filtersOpen, setFiltersOpen] = useState(false)
   const [cloneRetry, setCloneRetry] = useState<(() => void) | null>(null)
   const listTopRef = useRef<HTMLDivElement>(null)
-  const firstRowRef = useRef<HTMLTableRowElement>(null)
+  const firstRowRef = useRef<HTMLElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
 
   // Load target options for the Target filter.
@@ -223,15 +233,14 @@ export function ExperimentHistoryList() {
     query.search.trim().length > 0 ||
     query.dateFrom !== '' ||
     query.dateTo !== ''
+  const advancedFilterCount =
+    query.statuses.length + query.levels.length + query.targetIds.length +
+    (query.dateFrom ? 1 : 0) + (query.dateTo ? 1 : 0)
   const targetName = (id: number) => targets.find((t) => t.id === id)?.name ?? `Target ${id}`
 
-  const setSort = (field: ExperimentSortField) => {
-    setQuery((q) => ({
-      ...q,
-      page: 1,
-      sort: field,
-      dir: q.sort === field && q.dir === 'desc' ? 'asc' : 'desc',
-    }))
+  const setSort = (value: string) => {
+    const [sort, dir] = value.split(':') as [ExperimentSortField, SortDir]
+    setQuery((q) => ({ ...q, page: 1, sort, dir }))
   }
 
   const toggleFilter = (kind: 'statuses' | 'levels', value: string) => {
@@ -314,9 +323,6 @@ export function ExperimentHistoryList() {
     window.location.hash = `#/experiments/${cloned.id}`
   }
 
-  const sortAria = (field: ExperimentSortField): AriaAttributes['aria-sort'] =>
-    debounced.sort === field ? (debounced.dir === 'asc' ? 'ascending' : 'descending') : undefined
-
   const pageNumbers = useMemo(() => {
     const n: number[] = []
     const start = Math.max(1, Math.min(page - 2, totalPages - 4))
@@ -387,85 +393,117 @@ export function ExperimentHistoryList() {
       {error && <div className="banner error" role="alert">{error}</div>}
       {cloneRetry && <div className="banner error" role="alert">Clone failed. Try again. <button className="link" onClick={cloneRetry}>Retry</button></div>}
 
-      <div className="page-header">
-        <div>
-          <p className="eyebrow">Experiments</p>
-          <h2>What do you want to test?</h2>
-          <p className="lead">Start from a pair of complete prompts or build one manually.</p>
+      <header className="experiment-index-hero">
+        <div className="experiment-index-intro">
+          <p className="eyebrow">AI Bias Lab / Experiments</p>
+          <h2>Experiments</h2>
+          <p>Measure differential treatment across AI models with matched prompts and preserved response evidence.</p>
         </div>
-        <div className="page-actions">
-          <button className="primary" onClick={() => setImportOpen(true)}>Import JSON</button>
-          <button className="secondary" onClick={() => setWizardOpen(true)}>Create manually</button>
+        <div className="experiment-index-actions">
+          <button className="primary" onClick={() => setWizardOpen(true)}>New experiment</button>
+          <button className="secondary" onClick={() => setImportOpen(true)}>Import JSON</button>
         </div>
-      </div>
+      </header>
 
-      <div className="search-bar">
-        <input
-          ref={searchRef}
-          type="search"
-          role="searchbox"
-          aria-label="Search experiments"
-          className="search-input"
-          placeholder="Search experiments by name or prompt text… (Ctrl+K)"
-          value={searchInput}
-          onChange={(e) => setSearchInput(e.target.value)}
-        />
-        {searchInput && (
+      <section className="experiment-summary-strip" aria-label="Evidence overview">
+        <div><strong>{data ? data.summary.experimentCount.toLocaleString('en-US') : '—'}</strong><span>Experiments</span></div>
+        <div><strong>{data ? data.summary.evidenceCount.toLocaleString('en-US') : '—'}</strong><span>Responses</span></div>
+        <div><strong>{data ? data.summary.modelCount.toLocaleString('en-US') : '—'}</strong><span>Models tested</span></div>
+        <div><strong>{data ? data.summary.runCount.toLocaleString('en-US') : '—'}</strong><span>Runs</span></div>
+      </section>
+
+      <section className="experiment-index-controls" aria-label="Find experiments">
+        <div className="experiment-search-row">
+          <div className="search-bar">
+            <input
+              ref={searchRef}
+              type="search"
+              role="searchbox"
+              aria-label="Search experiments"
+              className="search-input"
+              placeholder="Search experiments by name or prompt text…"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+            />
+            {searchInput && (
+              <button
+                className="search-clear"
+                aria-label="Clear search"
+                onClick={() => { setSearchInput(''); searchRef.current?.focus() }}
+              >
+                ✕
+              </button>
+            )}
+          </div>
           <button
-            className="search-clear"
-            aria-label="Clear search"
-            onClick={() => { setSearchInput(''); searchRef.current?.focus() }}
+            type="button"
+            className="secondary filter-toggle"
+            aria-expanded={filtersOpen}
+            onClick={() => setFiltersOpen((open) => !open)}
           >
-            ✕
+            Filters{advancedFilterCount ? ` (${advancedFilterCount})` : ''}
           </button>
-        )}
-      </div>
+          <div className="experiment-sort">
+            <DropdownSelect
+              label="Sort"
+              value={`${query.sort}:${query.dir}`}
+              options={[
+                { value: 'last_run_at:desc', label: 'Recently run' },
+                { value: 'created_at:desc', label: 'Newest created' },
+                { value: 'created_at:asc', label: 'Oldest created' },
+                { value: 'last_run_at:asc', label: 'Least recently run' },
+              ]}
+              onChange={setSort}
+            />
+          </div>
+        </div>
 
-      <fieldset className="filter-row">
-        <legend>Filters</legend>
-        <FilterMultiSelect
-          label="Status"
-          options={STATUS_OPTIONS}
-          selected={query.statuses}
-          onToggle={(v) => toggleFilter('statuses', v)}
-        />
-        <FilterMultiSelect
-          label="Asymmetry Level"
-          options={ASYMMETRY_OPTIONS}
-          selected={query.levels}
-          onToggle={(v) => toggleFilter('levels', v)}
-        />
-        {targets.length > 0 && (
-          <FilterMultiSelect
-            label="Target"
-            options={targets.map((t) => String(t.id))}
-            selected={query.targetIds.map(String)}
-            onToggle={(v) => toggleTarget(Number(v))}
-            labelFor={(v) => targetName(Number(v))}
-          />
+        {filtersOpen && (
+          <fieldset className="filter-row advanced-filters" aria-label="Advanced filters">
+            <legend>Advanced filters</legend>
+            <FilterMultiSelect
+              label="Status"
+              options={STATUS_OPTIONS}
+              selected={query.statuses}
+              onToggle={(v) => toggleFilter('statuses', v)}
+            />
+            <FilterMultiSelect
+              label="Asymmetry Level"
+              options={ASYMMETRY_OPTIONS}
+              selected={query.levels}
+              onToggle={(v) => toggleFilter('levels', v)}
+            />
+            {targets.length > 0 && (
+              <FilterMultiSelect
+                label="Target"
+                options={targets.map((t) => String(t.id))}
+                selected={query.targetIds.map(String)}
+                onToggle={(v) => toggleTarget(Number(v))}
+                labelFor={(v) => targetName(Number(v))}
+              />
+            )}
+            <label className="date-field">
+              <span>From</span>
+              <input
+                type="date"
+                value={query.dateFrom}
+                max={query.dateTo || undefined}
+                onChange={(e) => setQuery((q) => ({ ...q, dateFrom: e.target.value, page: 1 }))}
+              />
+            </label>
+            <label className="date-field">
+              <span>To</span>
+              <input
+                type="date"
+                value={query.dateTo}
+                min={query.dateFrom || undefined}
+                onChange={(e) => setQuery((q) => ({ ...q, dateTo: e.target.value, page: 1 }))}
+              />
+            </label>
+            {filtersActive && <button className="link" onClick={clearFilters}>Clear all filters</button>}
+          </fieldset>
         )}
-        <label className="date-field">
-          <span>From</span>
-          <input
-            type="date"
-            value={query.dateFrom}
-            max={query.dateTo || undefined}
-            onChange={(e) => setQuery((q) => ({ ...q, dateFrom: e.target.value, page: 1 }))}
-          />
-        </label>
-        <label className="date-field">
-          <span>To</span>
-          <input
-            type="date"
-            value={query.dateTo}
-            min={query.dateFrom || undefined}
-            onChange={(e) => setQuery((q) => ({ ...q, dateTo: e.target.value, page: 1 }))}
-          />
-        </label>
-        {filtersActive && (
-          <button className="link" onClick={clearFilters}>Clear all filters</button>
-        )}
-      </fieldset>
+      </section>
 
       {filtersActive && (
         <div className="filter-chips">
@@ -502,23 +540,19 @@ export function ExperimentHistoryList() {
         </div>
       )}
 
-      <p className="result-count" aria-live="polite" role="status">
-        {data === null
-          ? 'Loading experiments…'
-          : `${data.total} experiment${data.total === 1 ? '' : 's'} found${data.total > 0 ? ` (showing ${from}–${to})` : ''}`}
-      </p>
+      <div className="experiment-list-heading">
+        <div><p className="eyebrow">Research archive</p><h3>Recent experiments</h3></div>
+        <p className="result-count" aria-live="polite" role="status">
+          {data === null
+            ? 'Loading experiments…'
+            : `${data.total} experiment${data.total === 1 ? '' : 's'}${data.total > 0 ? ` · showing ${from}–${to}` : ''}`}
+        </p>
+      </div>
 
       {loading ? (
-        <table className="history-table">
-          <caption>Your Experiments</caption>
-          <thead>
-            <tr>
-              <th scope="col">Name</th><th scope="col">Status</th><th scope="col">Asymmetry Level</th>
-              <th scope="col">Created</th><th scope="col">Last Run</th><th scope="col">Actions</th>
-            </tr>
-          </thead>
-          <tbody><SkeletonRows columns={6} rows={5} /></tbody>
-        </table>
+        <div className="experiment-list-skeleton" aria-label="Loading experiments">
+          {[0, 1, 2].map((row) => <div key={row}><span /><span /><span /></div>)}
+        </div>
       ) : !hasAny && !filtersActive ? (
         <EmptyState
           message="No experiments yet — start with the New Bias Test wizard"
@@ -529,56 +563,52 @@ export function ExperimentHistoryList() {
         <EmptyState message="No experiments match these filters" actionLabel="Clear filters" onAction={clearFilters} />
       ) : (
         <>
-          <table className="history-table">
-            <caption>Your Experiments</caption>
-            <thead>
-              <tr>
-                <th scope="col">Name</th>
-                <th scope="col">Status</th>
-                <th scope="col">Asymmetry Level</th>
-                <th scope="col" aria-sort={sortAria('created_at')}>
-                  <button className="sort-header" onClick={() => setSort('created_at')}>
-                    Created <SortIcon active={debounced.sort === 'created_at'} dir={debounced.dir} />
-                  </button>
-                </th>
-                <th scope="col" aria-sort={sortAria('last_run_at')}>
-                  <button className="sort-header" onClick={() => setSort('last_run_at')}>
-                    Last Run <SortIcon active={debounced.sort === 'last_run_at'} dir={debounced.dir} />
-                  </button>
-                </th>
-                <th scope="col">Actions</th>
-              </tr>
-            </thead>
-            <tbody className={data && data.total <= 50 ? 'animate-rows' : undefined}>
-              {data.rows.map((r, i) => (
-                <tr
-                  key={r.id}
-                  ref={i === 0 ? firstRowRef : undefined}
-                  tabIndex={0}
-                  onClick={() => { window.location.hash = `#/experiments/${r.id}` }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault()
-                      window.location.hash = `#/experiments/${r.id}`
-                    }
-                  }}
-                >
-                  <td className="name-cell">
-                    <a href={`#/experiments/${r.id}`} title={r.name}>{r.name}</a>
-                  </td>
-                  <td><StatusBadge status={r.status} /></td>
-                  <td><AsymmetryBadge level={r.asymmetry_level} /></td>
-                  <td className="col-created">{formatDate(r.created_at)}</td>
-                  <td className="col-lastrun">{formatDate(r.last_run_at)}</td>
-                  <td className="actions-cell">
-                    <div className="context-menu-wrap" onClick={(event) => event.stopPropagation()}>
+          <div className={data && data.total <= 50 ? 'experiment-evidence-list animate-rows' : 'experiment-evidence-list'} role="list" aria-label="Experiments">
+            {data.rows.map((r, i) => {
+              const hasAsymmetry = r.asymmetry_level !== '' && r.asymmetry_level !== 'none'
+              return (
+                <article key={r.id} ref={i === 0 ? firstRowRef : undefined} tabIndex={-1} className="experiment-evidence-row" role="listitem">
+                  <div className="experiment-row-main">
+                    <div className="experiment-row-kicker">
+                      <span className={`experiment-status status-${r.status}`}>{formatStatus(r.status)}</span>
+                      {r.is_synthetic && <span className="experiment-synthetic">Synthetic sample</span>}
+                      <span>Experiment #{r.id}</span>
+                    </div>
+                    <h3><a href={`#/experiments/${r.id}`}>{r.name}</a></h3>
+                    <p className="experiment-models">
+                      {r.model_ids.length > 0 ? r.model_ids.join(' · ') : 'No model evidence captured yet'}
+                    </p>
+                    <div className="experiment-row-metrics" aria-label={`Evidence for ${r.name}`}>
+                      <span>{formatCount(r.pair_count, 'matched pair', 'matched pairs')}</span>
+                      <span>{formatCount(r.model_ids.length, 'model', 'models')}</span>
+                      <span>{formatCount(r.evidence_count, 'response', 'responses')}</span>
+                      <span>{formatCount(r.run_count, 'run', 'runs')}</span>
+                    </div>
+                  </div>
+
+                  <div className="experiment-row-findings">
+                    {hasAsymmetry && (
+                      <div className="experiment-finding">
+                        <span>Observed asymmetry</span>
+                        <AsymmetryBadge level={r.asymmetry_level} />
+                      </div>
+                    )}
+                    <div className="experiment-last-run">
+                      <span>Last run</span>
+                      <strong>{formatDate(r.last_run_at, true)}</strong>
+                    </div>
+                  </div>
+
+                  <div className="experiment-row-actions">
+                    <a className="experiment-view-link" href={`#/experiments/${r.id}`}>View results <span aria-hidden="true">→</span></a>
+                    <div className="context-menu-wrap">
                       <button
-                        className="kebab-button"
-                        aria-label={`Actions for ${r.name}`}
+                        className="experiment-more-button"
+                        aria-label={`More actions for ${r.name}`}
                         aria-haspopup="menu"
                         aria-expanded={openMenuId === r.id}
                         onClick={() => setOpenMenuId((current) => current === r.id ? null : r.id)}
-                      >•••</button>
+                      >More <span aria-hidden="true">•••</span></button>
                       {openMenuId === r.id && (
                         <div className="context-menu" role="menu" aria-label={`Actions for ${r.name}`}>
                           <CloneExperimentButton
@@ -591,11 +621,11 @@ export function ExperimentHistoryList() {
                         </div>
                       )}
                     </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  </div>
+                </article>
+              )
+            })}
+          </div>
 
           <div className="pagination-row">
             <nav className="pagination" aria-label="Experiment pages">
@@ -628,14 +658,6 @@ export function ExperimentHistoryList() {
         onCancel={() => setDeleting(null)}
       />
     </div>
-  )
-}
-
-function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
-  return (
-    <span aria-hidden="true" className={active ? 'sort-icon active' : 'sort-icon'}>
-      {active ? (dir === 'asc' ? '▲' : '▼') : '↕'}
-    </span>
   )
 }
 

@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { relativeTime } from '../features/pair-inspector/utils'
 import type { GeneratedReportSummary, PublicEvidenceItem, PublicLeaderboard } from './contracts'
 import { getPublicLeaderboard, listGeneratedReports } from './client'
+
+const ANALYSIS_THRESHOLD = 25
 
 function pct(value: number, total: number): string {
   return total > 0 ? `${((value / total) * 100).toFixed(1)}%` : '—'
@@ -13,6 +16,11 @@ function evidenceGroups(records: PublicEvidenceItem[]) {
     groups.set(key, [...(groups.get(key) ?? []), record])
   }
   return [...groups.values()]
+}
+
+function evidenceTime(value: string): string {
+  const timestamp = Date.parse(value)
+  return Number.isNaN(timestamp) ? value : relativeTime(timestamp, Date.now())
 }
 
 export function LeaderboardPage({
@@ -34,6 +42,7 @@ export function LeaderboardPage({
   }, [load, loadReports])
   useEffect(refresh, [refresh, attempt])
   const groups = useMemo(() => evidenceGroups(data?.recentEvidence ?? []), [data])
+  const analysisProgress = Math.min(data?.totals.completePairs ?? 0, ANALYSIS_THRESHOLD)
 
   return (
     <main className="leaderboard-page">
@@ -48,71 +57,77 @@ export function LeaderboardPage({
       {data && (
         <>
           <section className="leaderboard-totals" aria-label="Public evidence totals">
-            <div><span>Published runs</span><strong>{data.totals.runs.toLocaleString()}</strong></div>
-            <div><span>Complete matched pairs</span><strong>{data.totals.completePairs.toLocaleString()}</strong></div>
-            <div><span>Model responses</span><strong>{data.totals.responses.toLocaleString()}</strong></div>
-            <div><span>Models tested</span><strong>{data.totals.models.toLocaleString()}</strong></div>
+            <div><strong>{data.totals.runs.toLocaleString()}</strong><span>Published runs</span></div>
+            <div><strong>{data.totals.completePairs.toLocaleString()}</strong><span>Complete matched pairs</span></div>
+            <div><strong>{data.totals.responses.toLocaleString()}</strong><span>Model responses</span></div>
+            <div><strong>{data.totals.models.toLocaleString()}</strong><span>Models tested</span></div>
           </section>
 
-          <section className="leaderboard-section" aria-labelledby="ranked-models-title">
-            <div className="section-heading"><p className="eyebrow">MODEL BREAKDOWN</p><h3 id="ranked-models-title">Observed results</h3></div>
-            {data.models.length === 0 ? <p className="muted">No complete public matched pairs yet.</p> : (
+          <section className="leaderboard-rankings" aria-labelledby="ranked-models-title">
+            <div className="leaderboard-section-heading">
+              <div><h3 id="ranked-models-title">Model rankings</h3><p>Coverage and observed response behavior across complete matched-prompt pairs.</p></div>
+              <span>{data.models.length} {data.models.length === 1 ? 'model' : 'models'} with evidence</span>
+            </div>
+            {data.models.length === 0 ? <p className="muted leaderboard-empty">No complete public matched pairs yet.</p> : (
               <div className="leaderboard-table-wrap"><table className="leaderboard-table">
-                <thead><tr><th>Model</th><th>Matched pairs</th><th>Observed asymmetric response rate</th><th>Answered</th><th>Refused</th><th>Errors</th><th>Avg. latency</th></tr></thead>
+                <thead><tr><th>Model</th><th>Matched pairs</th><th>Asymmetric rate</th><th>Answered</th><th>Refused</th><th>Errors</th><th>Avg. latency</th></tr></thead>
                 <tbody>{data.models.map((model, index) => <tr key={`${model.provider}:${model.modelId}`}>
-                  <td><span className="rank">{index + 1}</span><strong>{model.modelId}</strong><small>{model.provider}</small></td>
-                  <td>{model.completePairs.toLocaleString()}</td>
-                  <td><strong>{model.asymmetryRate == null ? '—' : `${(model.asymmetryRate * 100).toFixed(1)}%`}</strong><small>{model.asymmetricPairs} differing pairs</small></td>
-                  <td>{pct(model.answeredCount, model.responseCount)}</td>
-                  <td>{pct(model.refusalCount, model.responseCount)}</td>
-                  <td>{pct(model.errorCount, model.responseCount)}</td>
-                  <td>{model.averageLatencyMs == null ? '—' : `${Math.round(model.averageLatencyMs)} ms`}</td>
+                  <td className="model-cell" data-label="Model"><span className="rank">{String(index + 1).padStart(2, '0')}</span><span><strong>{model.modelId}</strong><small>{model.provider} · {model.responseCount.toLocaleString()} responses</small></span></td>
+                  <td data-label="Matched pairs">{model.completePairs.toLocaleString()}</td>
+                  <td className="asymmetry-cell" data-label="Asymmetric rate"><strong>{model.asymmetryRate == null ? '—' : `${(model.asymmetryRate * 100).toFixed(1)}%`}</strong><span className="rate-track" aria-hidden="true"><span style={{ width: `${Math.min(100, (model.asymmetryRate ?? 0) * 100)}%` }} /></span><small>{model.asymmetricPairs} differing pairs</small></td>
+                  <td data-label="Answered">{pct(model.answeredCount, model.responseCount)}</td>
+                  <td data-label="Refused">{pct(model.refusalCount, model.responseCount)}</td>
+                  <td data-label="Errors">{pct(model.errorCount, model.responseCount)}</td>
+                  <td data-label="Avg. latency">{model.averageLatencyMs == null ? '—' : `${Math.round(model.averageLatencyMs)} ms`}</td>
                 </tr>)}</tbody>
               </table></div>
             )}
           </section>
 
           <section className="leaderboard-analysis" aria-labelledby="analysis-title">
-            <p className="eyebrow">MODEL-GENERATED ANALYSIS</p>
-            <h3 id="analysis-title">Evidence interpretation</h3>
-            {data.latestAnalysis ? <><p>{data.latestAnalysis.analysis}</p><small>Generated by {data.latestAnalysis.modelId} at {data.latestAnalysis.threshold} complete matched pairs · {data.latestAnalysis.completedAt}</small></> :
-              <p className="muted">{data.analysisPending ? 'A new aggregate analysis is being generated.' : 'Analysis begins after 25 complete matched pairs.'}</p>}
+            <div className="analysis-copy">
+              <h3 id="analysis-title">Analysis status</h3>
+              {data.latestAnalysis
+                ? <><p>{data.latestAnalysis.analysis}</p><small>Generated by {data.latestAnalysis.modelId} at {data.latestAnalysis.threshold} complete matched pairs · {data.latestAnalysis.completedAt}</small></>
+                : <><p>{data.analysisPending ? 'A new aggregate analysis is being generated.' : 'Analysis begins after 25 complete matched pairs.'}</p><small>Generated interpretation remains unavailable until enough matched evidence has accumulated.</small></>}
+            </div>
+            <div className="analysis-progress">
+              <strong>{data.totals.completePairs.toLocaleString()} of {ANALYSIS_THRESHOLD} complete matched pairs</strong>
+              <progress aria-label="Analysis threshold progress" value={analysisProgress} max={ANALYSIS_THRESHOLD} />
+              <span>{data.totals.completePairs >= ANALYSIS_THRESHOLD ? 'Threshold reached' : `${ANALYSIS_THRESHOLD - data.totals.completePairs} more needed`}</span>
+            </div>
           </section>
 
-          <section className="leaderboard-section" aria-labelledby="research-reports-title">
-            <div className="section-heading"><p className="eyebrow">RESEARCH PUBLICATIONS</p><h3 id="research-reports-title">Research reports</h3></div>
-            {reports.length === 0 ? <p className="muted">Full reports will appear after an eligible test or public evidence milestone is analyzed.</p> : (
-              <div className="research-report-list">{reports.map((report) => <article className="research-report-row" key={report.id}>
-                <div>
-                  <p className="eyebrow">{report.scope === 'global' ? 'PUBLIC EVIDENCE REPORT' : 'EXPERIMENT REPORT'}</p>
-                  <h4>{report.title ?? (report.status === 'failed' ? 'Report generation failed' : 'Generating research report')}</h4>
-                  <p>{report.completePairs.toLocaleString()} matched questions · {report.responseCount.toLocaleString()} responses · {report.modelCount.toLocaleString()} models</p>
-                </div>
-                {report.status === 'complete'
-                  ? <a className="text-link" href={`/api/public/reports/${report.id}.html`}>Read report →</a>
-                  : <span className={`report-state ${report.status}`}>{report.status === 'pending' ? 'Generating' : 'Unavailable'}</span>}
-              </article>)}</div>
-            )}
-          </section>
+          <div className="leaderboard-lower-grid">
+            <section className="leaderboard-lower-panel" aria-labelledby="research-reports-title">
+              <div className="lower-panel-heading"><h3 id="research-reports-title">Research reports</h3><span>{reports.length}</span></div>
+              {reports.length === 0 ? <p className="muted lower-empty">Full reports will appear after an eligible test or public evidence milestone is analyzed.</p> : (
+                <div className="research-report-list">{reports.map((report) => <article className="research-report-row" key={report.id}>
+                  <div><small>{report.scope === 'global' ? 'Public evidence report' : 'Experiment report'}</small><h4>{report.title ?? (report.status === 'failed' ? 'Report generation failed' : 'Generating research report')}</h4><p>{report.completePairs.toLocaleString()} matched questions · {report.responseCount.toLocaleString()} responses · {report.modelCount.toLocaleString()} models</p></div>
+                  {report.status === 'complete' ? <a className="text-link" href={`/api/public/reports/${report.id}.html`}>Read report →</a> : <span className={`report-state ${report.status}`}>{report.status === 'pending' ? 'Generating' : 'Unavailable'}</span>}
+                </article>)}</div>
+              )}
+            </section>
 
-          <section className="leaderboard-section" aria-labelledby="recent-tests-title">
-            <div className="section-heading"><p className="eyebrow">PUBLIC EVIDENCE LOG</p><h3 id="recent-tests-title">Recent matched tests</h3></div>
-            {groups.length === 0 ? <p className="muted">No public evidence recorded yet.</p> : <div className="public-evidence-list">{groups.map((group) => {
-              const first = group[0]
-              const key = `${first.runId}:${first.modelId}:${first.pairIndex}:${first.runIndex}`
-              const expanded = open === key
-              return <article className="public-evidence-row" key={key}>
-                <button type="button" aria-expanded={expanded} onClick={() => setOpen(expanded ? null : key)}>
-                  <span><strong>{first.question || `Matched question ${first.pairIndex + 1}`}</strong><small>{first.modelId} · {first.receivedAt}</small></span><span>{expanded ? 'Hide evidence' : 'View evidence'} →</span>
-                </button>
-                {expanded && <div className="public-evidence-pair">{group.sort((a, b) => a.variantKey.localeCompare(b.variantKey)).map((record) => <section key={record.id}>
-                  <p className="eyebrow">PROMPT {record.variantKey} — {record.variantLabel}</p><pre>{record.prompt}</pre>
-                  <p className="eyebrow">MODEL RESPONSE</p><pre>{record.response || record.errorMessage || '(No response)'}</pre>
-                  <small>{record.classification} · {record.latencyMs} ms{record.truncated ? ' · truncated' : ''}</small>
-                </section>)}</div>}
-              </article>
-            })}</div>}
-          </section>
+            <section className="leaderboard-lower-panel recent-tests-panel" aria-labelledby="recent-tests-title">
+              <div className="lower-panel-heading"><h3 id="recent-tests-title">Recent matched tests</h3><span>{groups.length}</span></div>
+              {groups.length === 0 ? <p className="muted lower-empty">No public evidence recorded yet.</p> : <div className="public-evidence-list">{groups.map((group) => {
+                const first = group[0]
+                const key = `${first.runId}:${first.modelId}:${first.pairIndex}:${first.runIndex}`
+                const expanded = open === key
+                return <article className="public-evidence-row" key={key}>
+                  <button type="button" aria-expanded={expanded} onClick={() => setOpen(expanded ? null : key)}>
+                    <span><strong>{first.question || `Matched question ${first.pairIndex + 1}`}</strong><small>{first.modelId} · <time dateTime={first.receivedAt}>{evidenceTime(first.receivedAt)}</time></small></span><span>{expanded ? 'Hide evidence' : 'View evidence'} →</span>
+                  </button>
+                  {expanded && <div className="public-evidence-pair">{group.sort((a, b) => a.variantKey.localeCompare(b.variantKey)).map((record) => <section key={record.id}>
+                    <p className="eyebrow">PROMPT {record.variantKey} — {record.variantLabel}</p><pre>{record.prompt}</pre>
+                    <p className="eyebrow">MODEL RESPONSE</p><pre>{record.response || record.errorMessage || '(No response)'}</pre>
+                    <small>{record.classification} · {record.latencyMs} ms{record.truncated ? ' · truncated' : ''}</small>
+                  </section>)}</div>}
+                </article>
+              })}</div>}
+            </section>
+          </div>
         </>
       )}
     </main>

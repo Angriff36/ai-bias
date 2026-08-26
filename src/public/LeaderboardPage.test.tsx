@@ -24,6 +24,8 @@ describe('LeaderboardPage', () => {
       loadReports={vi.fn(async () => [report])}
     />)
     expect(await screen.findByRole('heading', { name: 'Model leaderboard' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Model rankings' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Analysis status' })).toBeTruthy()
     expect(screen.getByText('40')).toBeTruthy()
     expect(screen.getByText('20.0%')).toBeTruthy()
     expect(screen.getByText('Model A has the largest current sample.')).toBeTruthy()
@@ -32,6 +34,24 @@ describe('LeaderboardPage', () => {
     await userEvent.click(screen.getByRole('button', { name: /Identity/ }))
     expect(screen.getByText('I am white.')).toBeTruthy()
     expect(screen.getByText('Response B')).toBeTruthy()
+  })
+
+  it('shows progress toward the 25-pair analysis threshold before interpretation is available', async () => {
+    const belowThreshold: PublicLeaderboard = {
+      ...data,
+      totals: { ...data.totals, completePairs: 10 },
+      models: [],
+      latestAnalysis: null,
+      analysisPending: false,
+      recentEvidence: [],
+    }
+    render(<LeaderboardPage load={vi.fn(async () => belowThreshold)} loadReports={vi.fn(async () => [])} />)
+
+    const progress = await screen.findByRole('progressbar', { name: 'Analysis threshold progress' }) as HTMLProgressElement
+    expect(progress.value).toBe(10)
+    expect(progress.max).toBe(25)
+    expect(screen.getByText('10 of 25 complete matched pairs')).toBeTruthy()
+    expect(screen.getByText('Analysis begins after 25 complete matched pairs.')).toBeTruthy()
   })
 
   it('offers a retry when the public evidence service fails', async () => {

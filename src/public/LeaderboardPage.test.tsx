@@ -24,8 +24,12 @@ describe('LeaderboardPage', () => {
       loadReports={vi.fn(async () => [report])}
     />)
     expect(await screen.findByRole('heading', { name: 'Model leaderboard' })).toBeTruthy()
-    expect(screen.getByRole('heading', { name: 'Model rankings' })).toBeTruthy()
-    expect(screen.getByRole('heading', { name: 'Analysis status' })).toBeTruthy()
+    expect(screen.getByText('Model breakdown')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Observed results' })).toBeTruthy()
+    expect(screen.getByText('Model-generated analysis')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Evidence interpretation' })).toBeTruthy()
+    expect(screen.getByText('Research publications')).toBeTruthy()
+    expect(screen.getByText('Public evidence log')).toBeTruthy()
     expect(screen.getByText('40')).toBeTruthy()
     expect(screen.getByText('20.0%')).toBeTruthy()
     expect(screen.getByText('Model A has the largest current sample.')).toBeTruthy()
@@ -36,7 +40,7 @@ describe('LeaderboardPage', () => {
     expect(screen.getByText('Response B')).toBeTruthy()
   })
 
-  it('shows progress toward the 25-pair analysis threshold before interpretation is available', async () => {
+  it('explains the 25-pair threshold before interpretation is available', async () => {
     const belowThreshold: PublicLeaderboard = {
       ...data,
       totals: { ...data.totals, completePairs: 10 },
@@ -47,10 +51,7 @@ describe('LeaderboardPage', () => {
     }
     render(<LeaderboardPage load={vi.fn(async () => belowThreshold)} loadReports={vi.fn(async () => [])} />)
 
-    const progress = await screen.findByRole('progressbar', { name: 'Analysis threshold progress' }) as HTMLProgressElement
-    expect(progress.value).toBe(10)
-    expect(progress.max).toBe(25)
-    expect(screen.getByText('10 of 25 complete matched pairs')).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Evidence interpretation' })).toBeTruthy()
     expect(screen.getByText('Analysis begins after 25 complete matched pairs.')).toBeTruthy()
   })
 

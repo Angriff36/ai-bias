@@ -38,4 +38,22 @@ describe('routeWorkerRequest', () => {
     expect(response.headers.get('Content-Security-Policy')).toContain("connect-src 'self' https://openrouter.ai")
     expect(env.ASSETS.fetch).toHaveBeenCalledOnce()
   })
+
+  it('serves a curated historical report at its public report permalink with publication-only security policy', async () => {
+    const env = envWith(new Response('<h1>What changes when you change the race?</h1>', {
+      headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    }))
+    const response = await routeWorkerRequest(
+      new Request('https://ai-tests.com/api/public/reports/race-swap-audit-2026-08-26.html'),
+      env,
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.text()).toContain('What changes when you change the race?')
+    expect(response.headers.get('Content-Security-Policy')).toContain("default-src 'none'")
+    expect(response.headers.get('Referrer-Policy')).toBe('no-referrer')
+    expect(env.ASSETS.fetch).toHaveBeenCalledWith(expect.objectContaining({
+      url: 'https://ai-tests.com/reports/race-swap-audit-2026-08-26.html',
+    }))
+  })
 })

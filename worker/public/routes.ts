@@ -6,6 +6,7 @@ import { PublicRepository } from './repository'
 import { scheduleReportGeneration } from './reportGeneration'
 import { renderReportHtml } from './reportHtml'
 import { GeneratedReportRepository } from './reportRepository'
+import { CURATED_REPORTS } from './curatedReports'
 
 export interface PublicWorkerEnv {
   PUBLIC_DB: D1DatabaseLike
@@ -56,7 +57,7 @@ export async function handlePublicApi(
       return response
     }
     if (url.pathname === '/api/public/reports' && request.method === 'GET') {
-      const response = json({ reports: await reportRepository.listReports() })
+      const response = json({ reports: [...CURATED_REPORTS, ...await reportRepository.listReports()] })
       response.headers.set('Cache-Control', 'public, max-age=30, stale-while-revalidate=60')
       return response
     }

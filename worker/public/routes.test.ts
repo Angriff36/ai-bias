@@ -51,7 +51,15 @@ describe('public API routes', () => {
     expect(deps.scheduleReport).toHaveBeenCalledWith('report-1')
 
     const list = await handlePublicApi(new Request('https://ai-tests.com/api/public/reports'), {} as never, { waitUntil: vi.fn() }, deps as never)
-    expect((await list?.json()).reports[0].title).toBe('Published audit')
+    const listedReports = (await list?.json()).reports
+    expect(listedReports).toContainEqual(expect.objectContaining({
+      id: 'race-swap-audit-2026-08-26',
+      title: 'The race-swap audit — Google AI Overview and three frontier LLMs',
+      responseCount: 1450,
+      completePairs: 125,
+      modelCount: 4,
+    }))
+    expect(listedReports).toContainEqual(expect.objectContaining({ title: 'Published audit' }))
 
     const html = await handlePublicApi(new Request('https://ai-tests.com/api/public/reports/report-1.html'), {} as never, { waitUntil: vi.fn() }, deps as never)
     expect(html?.headers.get('content-type')).toContain('text/html')

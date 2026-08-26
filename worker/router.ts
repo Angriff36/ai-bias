@@ -1,5 +1,6 @@
 import { handlePublicApi, type PublicWorkerEnv } from './public/routes'
 import type { ExecutionContextLike } from './public/analysis'
+import { curatedReportAssetPath } from './public/curatedReports'
 
 export interface WorkerEnv extends Partial<PublicWorkerEnv> {
   ASSETS: { fetch(request: Request): Promise<Response> }
@@ -17,12 +18,39 @@ const CONTENT_SECURITY_POLICY = [
   "form-action 'self' https://openrouter.ai",
 ].join('; ')
 
+const PUBLICATION_SECURITY_POLICY = [
+  "default-src 'none'",
+  "style-src 'unsafe-inline'",
+  "img-src data:",
+  "frame-ancestors 'none'",
+  "base-uri 'none'",
+  "form-action 'none'",
+].join('; ')
+
+function securedAsset(asset: Response, contentSecurityPolicy: string): Response {
+  const headers = new Headers(asset.headers)
+  headers.set('Content-Security-Policy', contentSecurityPolicy)
+  headers.set('Referrer-Policy', 'no-referrer')
+  headers.set('X-Content-Type-Options', 'nosniff')
+  headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
+  return new Response(asset.body, { status: asset.status, statusText: asset.statusText, headers })
+}
+
 export async function routeWorkerRequest(
   request: Request,
   env: WorkerEnv,
   context: ExecutionContextLike = { waitUntil: () => undefined },
 ): Promise<Response> {
   const url = new URL(request.url)
+  const curatedAssetPath = curatedReportAssetPath(url.pathname)
+  if (curatedAssetPath) {
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      return new Response('Method not allowed', { status: 405, headers: { Allow: 'GET, HEAD' } })
+    }
+    const assetUrl = new URL(curatedAssetPath, url)
+    const asset = await env.ASSETS.fetch(new Request(assetUrl, { method: request.method }))
+    return securedAsset(asset, PUBLICATION_SECURITY_POLICY)
+  }
   if (url.pathname.startsWith('/api/public/')) {
     if (!env.PUBLIC_DB || !env.AI || !env.QUOTA_HMAC_SECRET) {
       return new Response(JSON.stringify({ error: 'The public evidence service is temporarily unavailable.' }), {
@@ -40,10 +68,5 @@ export async function routeWorkerRequest(
     })
   }
   const asset = await env.ASSETS.fetch(request)
-  const headers = new Headers(asset.headers)
-  headers.set('Content-Security-Policy', CONTENT_SECURITY_POLICY)
-  headers.set('Referrer-Policy', 'no-referrer')
-  headers.set('X-Content-Type-Options', 'nosniff')
-  headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
-  return new Response(asset.body, { status: asset.status, statusText: asset.statusText, headers })
+  return securedAsset(asset, CONTENT_SECURITY_POLICY)
 }

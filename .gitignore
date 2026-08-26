@@ -4,6 +4,7 @@ dist/
 test-results/
 playwright-report/
 .playwright-cli/
+.wrangler/
 .aboardai/
 .worktrees/
 data/

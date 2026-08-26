@@ -1,10 +1,10 @@
-import type { Database } from 'sql.js'
+import type { SqlDatabase } from './database'
 
 /** A typed schema migration. `id` is a stable monospace-friendly identifier. */
 export interface Migration {
   id: string
   name: string
-  up: (db: Database) => void
+  up: (db: SqlDatabase) => void
 }
 
 export const migrations: Migration[] = [

@@ -30,7 +30,7 @@ export async function openFileDatabase(path = DEFAULT_DATABASE_PATH): Promise<Da
  * Provider targets and API keys live in the browser, so they are unaffected.
  */
 export async function resetFileDatabase(): Promise<Database> {
-  try { getDb().close() } catch { /* nothing open yet */ }
+  try { getDb().close?.() } catch { /* nothing open yet */ }
   if (existsSync(currentPath)) unlinkSync(currentPath)
   return openFileDatabase(currentPath)
 }

@@ -70,7 +70,7 @@ export function createApiMiddleware(options: ApiOptions) {
 
     try {
       if (req.method === 'GET' && url.pathname === '/api/health') {
-        sendJson(res, 200, { ok: true, schemaVersion: getSchemaVersion() })
+        sendJson(res, 200, { ok: true, schemaVersion: getSchemaVersion(), runtime: 'local' })
         return
       }
       if (req.method === 'POST' && url.pathname === '/api/admin/reset') {

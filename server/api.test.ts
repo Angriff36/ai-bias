@@ -50,7 +50,9 @@ describe('the local API', () => {
   it('reports health with the schema version', async () => {
     const res = await fetch(`${base}/api/health`)
     expect(res.status).toBe(200)
-    expect((await res.json() as { schemaVersion: number }).schemaVersion).toBeGreaterThan(0)
+    const health = await res.json() as { schemaVersion: number; runtime: string }
+    expect(health.schemaVersion).toBeGreaterThan(0)
+    expect(health.runtime).toBe('local')
   })
 
   it('creates, lists, reads and deletes an experiment with no sign-in', async () => {

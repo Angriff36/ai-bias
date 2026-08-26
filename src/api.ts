@@ -34,9 +34,9 @@ export type {
 export type { MigrationRecord } from './db/database'
 
 /**
- * The page's only way to the local server. Every call is one HTTP request to
+ * The page's only way to the app backend. Every call is one HTTP request to
  * `/api/rpc/<name>`; the server runs the matching function against the
- * SQLite file and answers with JSON. A failed request becomes a ServerError
+ * SQLite database and answers with JSON. A failed request becomes a ServerError
  * whose message is ready for the screen.
  */
 async function rpc<T>(name: string, ...args: unknown[]): Promise<T> {
@@ -48,21 +48,21 @@ async function rpc<T>(name: string, ...args: unknown[]): Promise<T> {
       body: JSON.stringify({ args }),
     })
   } catch {
-    throw new ServerError(500, 'The app’s local server is not reachable. Start the app again, then reload this page.')
+    throw new ServerError(500, 'The app’s server is not reachable. Start the app again, then reload this page.')
   }
   const body = await response.json().catch(() => null) as { result?: T; error?: string } | null
   if (!response.ok) {
     const status = response.status === 404 ? 404 : response.status === 401 ? 401 : 500
-    throw new ServerError(status, body?.error ?? 'The local server could not complete that request. Try again.')
+    throw new ServerError(status, body?.error ?? 'The server could not complete that request. Try again.')
   }
   return body?.result as T
 }
 
 export const api = {
-  health: async (): Promise<{ ok: boolean; schemaVersion: number }> => {
+  health: async (): Promise<{ ok: boolean; schemaVersion: number; runtime: 'local' | 'cloudflare-workers' }> => {
     const response = await fetch('/api/health')
-    if (!response.ok) throw new ServerError(500, 'The app’s local server is not answering.')
-    return response.json() as Promise<{ ok: boolean; schemaVersion: number }>
+    if (!response.ok) throw new ServerError(500, 'The app’s server is not answering.')
+    return response.json() as Promise<{ ok: boolean; schemaVersion: number; runtime: 'local' | 'cloudflare-workers' }>
   },
   listExperiments: (opts: ListExperimentsOptions) => rpc<ExperimentPage>('listExperiments', opts),
   getExperiment: (id: number) => rpc<ExperimentDetail>('getExperiment', id),
@@ -82,7 +82,7 @@ export const api = {
   getMigrationRecords: () => rpc<MigrationRecord[]>('getMigrationRecords'),
   resetDatabase: async (): Promise<void> => {
     const response = await fetch('/api/admin/reset', { method: 'POST' })
-    if (!response.ok) throw new ServerError(500, 'The local server could not reset the database.')
+    if (!response.ok) throw new ServerError(500, 'The server could not reset the database.')
   },
 }
 

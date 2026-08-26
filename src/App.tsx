@@ -11,7 +11,7 @@ import { ObservationsPanel } from './components/ObservationsPanel'
 
 type ServerState =
   | { phase: 'connecting' }
-  | { phase: 'ready'; version: number }
+  | { phase: 'ready'; version: number; runtime: 'local' | 'cloudflare-workers' }
   | { phase: 'failed'; message: string }
 
 type Tab = 'experiments' | 'templates' | 'observations' | 'targets' | 'reports' | 'admin'
@@ -34,10 +34,12 @@ export default function App() {
     let cancelled = false
     setState({ phase: 'connecting' })
     api.health()
-      .then((health) => { if (!cancelled) setState({ phase: 'ready', version: health.schemaVersion }) })
+      .then((health) => {
+        if (!cancelled) setState({ phase: 'ready', version: health.schemaVersion, runtime: health.runtime })
+      })
       .catch((e: unknown) => {
         if (cancelled) return
-        setState({ phase: 'failed', message: e instanceof Error ? e.message : 'The app’s local server is not answering.' })
+        setState({ phase: 'failed', message: e instanceof Error ? e.message : 'The app’s server is not answering.' })
       })
     return () => { cancelled = true }
   }, [attempt])
@@ -47,7 +49,7 @@ export default function App() {
       <div className="app">
         <div className="banner info" role="status">
           <div className="spinner" aria-hidden="true" />
-          <span>Connecting to the local server…</span>
+          <span>Connecting to AI Bias Lab…</span>
         </div>
       </div>
     )
@@ -58,8 +60,7 @@ export default function App() {
       <div className="app">
         <div className="banner error" role="alert">
           <span>
-            {state.message} The app runs as one local program: open a terminal in the app folder and run{' '}
-            <code>npm start</code>, then try again.
+            {state.message} If you are running it locally, start the app with <code>npm start</code>, then try again.
           </span>
           <button className="secondary" onClick={() => setAttempt((n) => n + 1)}>Try again</button>
         </div>
@@ -67,10 +68,10 @@ export default function App() {
     )
   }
 
-  return <MainApp version={state.version} />
+  return <MainApp version={state.version} runtime={state.runtime} />
 }
 
-function MainApp({ version }: { version: number }) {
+function MainApp({ version, runtime }: { version: number; runtime: 'local' | 'cloudflare-workers' }) {
   const [route, setRoute] = useState(window.location.hash)
   const tab = tabFromHash(route)
   const [toast, setToast] = useState<string | null>(null)
@@ -114,7 +115,9 @@ function MainApp({ version }: { version: number }) {
       <header className="app-header">
         <div className="app-brand"><h1>AI Bias Lab</h1></div>
         <div className="app-header-right">
-          <p className="db-status" role="status">Local database · schema v{version}</p>
+          <p className="db-status" role="status">
+            {runtime === 'cloudflare-workers' ? 'Cloudflare database' : 'Local database'} · schema v{version}
+          </p>
         </div>
       </header>
       <nav className="tabs" role="tablist" aria-label="Main sections">
@@ -137,7 +140,7 @@ function MainApp({ version }: { version: number }) {
       {tab === 'observations' && <ObservationsPanel />}
       {tab === 'targets' && <ProvidersPanel />}
       {tab === 'reports' && <ReportsRoute />}
-      {tab === 'admin' && <AdminPanel version={version} />}
+      {tab === 'admin' && <AdminPanel version={version} runtime={runtime} />}
     </div>
   )
 }
@@ -224,7 +227,7 @@ function ReportsList() {
   )
 }
 
-function AdminPanel({ version }: { version: number }) {
+function AdminPanel({ version, runtime }: { version: number; runtime: 'local' | 'cloudflare-workers' }) {
   const [records, setRecords] = useState<MigrationRecord[]>([])
   const [resetError, setResetError] = useState<string | null>(null)
   const [resetting, setResetting] = useState(false)
@@ -258,9 +261,13 @@ function AdminPanel({ version }: { version: number }) {
     <div>
       <div className="page-header">
         <div>
-          <p className="eyebrow">Local storage</p>
+          <p className="eyebrow">Database</p>
           <h2>Admin</h2>
-          <p className="lead">The database is one file in the app’s data folder. Check its schema or start it fresh.</p>
+          <p className="lead">
+            {runtime === 'cloudflare-workers'
+              ? 'Data is stored in Cloudflare Durable Objects. Check its schema or start it fresh.'
+              : 'The database is one file in the app’s data folder. Check its schema or start it fresh.'}
+          </p>
         </div>
       </div>
       <div className="panel">
@@ -271,14 +278,14 @@ function AdminPanel({ version }: { version: number }) {
         </p>
       </div>
       <div className="panel">
-        <h2>Reset local database</h2>
+        <h2>Reset database</h2>
         <p className="muted">
           Resetting starts the database fresh. Experiments, runs, and reports are deleted.
           Provider targets and API keys are kept.
         </p>
         {resetError && <div className="banner error" role="alert"><span>{resetError}</span></div>}
         <button className="secondary" onClick={() => void resetDatabase()} disabled={resetting}>
-          {resetting ? 'Resetting…' : 'Reset local database'}
+          {resetting ? 'Resetting…' : 'Reset database'}
         </button>
       </div>
       <div className="panel">

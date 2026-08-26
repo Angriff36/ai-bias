@@ -1,5 +1,12 @@
-import type { Database } from 'sql.js'
+import type { BindParams, QueryExecResult } from 'sql.js'
 import { migrations, type Migration } from './migrations'
+
+export interface SqlDatabase {
+  run(sql: string, params?: BindParams): SqlDatabase
+  exec(sql: string, params?: BindParams): QueryExecResult[]
+  close?(): void
+  transaction?<T>(work: () => T): T
+}
 
 /**
  * The open database handle and its persistence hook.
@@ -32,16 +39,16 @@ export class MigrationError extends Error {
   }
 }
 
-let db: Database | null = null
+let db: SqlDatabase | null = null
 let persistFn: (() => void) | null = null
 
-export function getDb(): Database {
+export function getDb(): SqlDatabase {
   if (!db) throw new Error('Database not initialized')
   return db
 }
 
 /** Makes `database` the active handle; `save` is called after every write. */
-export function attachDatabase(database: Database, save: () => void): void {
+export function attachDatabase(database: SqlDatabase, save: () => void): void {
   db = database
   persistFn = save
 }
@@ -52,7 +59,7 @@ export function persist(): void {
 }
 
 /** Applies pending migrations in order, each in its own transaction. */
-export function runMigrations(database: Database, onProgress?: (p: MigrationProgress) => void): void {
+export function runMigrations(database: SqlDatabase, onProgress?: (p: MigrationProgress) => void): void {
   database.run(`CREATE TABLE IF NOT EXISTS schema_migrations (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -68,17 +75,30 @@ export function runMigrations(database: Database, onProgress?: (p: MigrationProg
     const m = pending[i]
     onProgress?.({ current: i + 1, total: pending.length, migration: m })
     try {
-      database.run('BEGIN;')
+      withTransaction(database, () => {
       m.up(database)
       database.run('INSERT INTO schema_migrations (id, name) VALUES (?, ?)', [m.id, m.name])
-      database.run('COMMIT;')
+      })
     } catch (e) {
-      database.run('ROLLBACK;')
       throw new MigrationError({
         migration: m,
         message: e instanceof Error ? e.message : String(e),
       })
     }
+  }
+}
+
+/** Uses the runtime's native transaction primitive, with sql.js as fallback. */
+export function withTransaction<T>(database: SqlDatabase, work: () => T): T {
+  if (database.transaction) return database.transaction(work)
+  database.run('BEGIN')
+  try {
+    const result = work()
+    database.run('COMMIT')
+    return result
+  } catch (error) {
+    database.run('ROLLBACK')
+    throw error
   }
 }
 

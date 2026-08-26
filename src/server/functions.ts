@@ -17,6 +17,19 @@ export interface SessionUser {
   displayName: string
 }
 
+function withTransaction<T>(db: ReturnType<typeof getDb>, work: () => T): T {
+  if (db.transaction) return db.transaction(work)
+  db.run('BEGIN')
+  try {
+    const result = work()
+    db.run('COMMIT')
+    return result
+  } catch (error) {
+    db.run('ROLLBACK')
+    throw error
+  }
+}
+
 export interface ExperimentRow {
   id: number
   name: string
@@ -262,15 +275,10 @@ export function signIn(email: string, _password: string): { token: string; user:
   const normalized = email.trim().toLowerCase()
   let res = db.exec('SELECT id, email, display_name FROM users WHERE email = ?', [normalized])
   if (!res[0]) {
-    db.run('BEGIN')
-    try {
+    withTransaction(db, () => {
       db.run('INSERT INTO users (email, display_name) VALUES (?, ?)', [normalized, normalized.split('@')[0]])
       seedSyntheticSample(db, lastInsertId(db))
-      db.run('COMMIT')
-    } catch (error) {
-      db.run('ROLLBACK')
-      throw error
-    }
+    })
     res = db.exec('SELECT id, email, display_name FROM users WHERE email = ?', [normalized])
   }
   const [id, userEmail, displayName] = res[0].values[0]
@@ -510,38 +518,38 @@ export function importExperiment(token: string | null, input: ExperimentImportDo
   }
 
   try {
-    db.run('BEGIN')
-    db.run(
-      `INSERT INTO experiments (name, hypothesis, status, target_id, created_by, default_repeats)
-       VALUES (?, ?, 'draft', ?, ?, ?)`,
-      [parsed.value.name, parsed.value.description ?? null, Number(targetId), userId, parsed.value.repeats],
-    )
-    const experimentId = lastInsertId(db)
-    clearLeftoverPairs(db, experimentId)
-    db.run(
-      'INSERT INTO templates (experiment_id, name, body) VALUES (?, ?, ?)',
-      [experimentId, 'Imported complete prompts', 'Imported complete prompts; see matched questions.'],
-    )
-    for (const [ordinal, pair] of parsed.value.pairs.entries()) {
+    const experimentId = withTransaction(db, () => {
       db.run(
-        'INSERT INTO experiment_pairs (experiment_id, external_id, ordinal, question) VALUES (?, ?, ?, ?)',
-        [experimentId, pair.id, ordinal, pair.question],
+        `INSERT INTO experiments (name, hypothesis, status, target_id, created_by, default_repeats)
+         VALUES (?, ?, 'draft', ?, ?, ?)`,
+        [parsed.value.name, parsed.value.description ?? null, Number(targetId), userId, parsed.value.repeats],
       )
-      const pairId = lastInsertId(db)
+      const createdExperimentId = lastInsertId(db)
+      clearLeftoverPairs(db, createdExperimentId)
       db.run(
-        'INSERT INTO experiment_pair_variants (pair_id, variant_key, label, prompt) VALUES (?, ?, ?, ?)',
-        [pairId, 'A', pair.variantA.label, pair.variantA.prompt],
+        'INSERT INTO templates (experiment_id, name, body) VALUES (?, ?, ?)',
+        [createdExperimentId, 'Imported complete prompts', 'Imported complete prompts; see matched questions.'],
       )
-      db.run(
-        'INSERT INTO experiment_pair_variants (pair_id, variant_key, label, prompt) VALUES (?, ?, ?, ?)',
-        [pairId, 'B', pair.variantB.label, pair.variantB.prompt],
-      )
-    }
-    db.run('COMMIT')
+      for (const [ordinal, pair] of parsed.value.pairs.entries()) {
+        db.run(
+          'INSERT INTO experiment_pairs (experiment_id, external_id, ordinal, question) VALUES (?, ?, ?, ?)',
+          [createdExperimentId, pair.id, ordinal, pair.question],
+        )
+        const pairId = lastInsertId(db)
+        db.run(
+          'INSERT INTO experiment_pair_variants (pair_id, variant_key, label, prompt) VALUES (?, ?, ?, ?)',
+          [pairId, 'A', pair.variantA.label, pair.variantA.prompt],
+        )
+        db.run(
+          'INSERT INTO experiment_pair_variants (pair_id, variant_key, label, prompt) VALUES (?, ?, ?, ?)',
+          [pairId, 'B', pair.variantB.label, pair.variantB.prompt],
+        )
+      }
+      return createdExperimentId
+    })
     persist()
     return getExperiment(token, experimentId)
   } catch (error) {
-    try { db.run('ROLLBACK') } catch { /* transaction was not opened */ }
     throw importFailure(error)
   }
 }
@@ -560,54 +568,54 @@ export function cloneExperiment(token: string | null, id: number): ExperimentDet
   if (!source) throw new ServerError(404, 'Not found')
 
   try {
-    db.run('BEGIN')
-    db.run(
-      `INSERT INTO experiments (name, hypothesis, status, target_id, created_by, asymmetry_level, cloned_from_experiment_id, default_repeats)
-       VALUES (?, ?, 'draft', ?, ?, ?, ?, ?)`,
-      [`Copy of ${String(source[1])}`, source[2] == null ? null : String(source[2]), Number(source[3]), userId, String(source[4]), Number(source[0]), Number(source[5] ?? 1)],
-    )
-    const cloneId = Number(db.exec('SELECT last_insert_rowid()')[0].values[0][0])
-    const templates = db.exec('SELECT id, name, body FROM templates WHERE experiment_id = ? ORDER BY id', [Number(source[0])])[0]?.values ?? []
-    for (const template of templates) {
-      db.run('INSERT INTO templates (experiment_id, name, body) VALUES (?, ?, ?)', [cloneId, String(template[1]), String(template[2])])
-      const clonedTemplateId = Number(db.exec('SELECT last_insert_rowid()')[0].values[0][0])
-      const variables = db.exec('SELECT id, name, kind FROM variables WHERE template_id = ? ORDER BY id', [Number(template[0])])[0]?.values ?? []
-      for (const variable of variables) {
-        db.run('INSERT INTO variables (template_id, name, kind) VALUES (?, ?, ?)', [clonedTemplateId, String(variable[1]), String(variable[2])])
-        const clonedVariableId = Number(db.exec('SELECT last_insert_rowid()')[0].values[0][0])
-        const variants = db.exec('SELECT value, label FROM variants WHERE variable_id = ? ORDER BY id', [Number(variable[0])])[0]?.values ?? []
-        for (const variant of variants) {
-          db.run('INSERT INTO variants (variable_id, value, label) VALUES (?, ?, ?)', [clonedVariableId, String(variant[0]), variant[1] == null ? null : String(variant[1])])
+    const cloneId = withTransaction(db, () => {
+      db.run(
+        `INSERT INTO experiments (name, hypothesis, status, target_id, created_by, asymmetry_level, cloned_from_experiment_id, default_repeats)
+         VALUES (?, ?, 'draft', ?, ?, ?, ?, ?)`,
+        [`Copy of ${String(source[1])}`, source[2] == null ? null : String(source[2]), Number(source[3]), userId, String(source[4]), Number(source[0]), Number(source[5] ?? 1)],
+      )
+      const createdCloneId = Number(db.exec('SELECT last_insert_rowid()')[0].values[0][0])
+      const templates = db.exec('SELECT id, name, body FROM templates WHERE experiment_id = ? ORDER BY id', [Number(source[0])])[0]?.values ?? []
+      for (const template of templates) {
+        db.run('INSERT INTO templates (experiment_id, name, body) VALUES (?, ?, ?)', [createdCloneId, String(template[1]), String(template[2])])
+        const clonedTemplateId = Number(db.exec('SELECT last_insert_rowid()')[0].values[0][0])
+        const variables = db.exec('SELECT id, name, kind FROM variables WHERE template_id = ? ORDER BY id', [Number(template[0])])[0]?.values ?? []
+        for (const variable of variables) {
+          db.run('INSERT INTO variables (template_id, name, kind) VALUES (?, ?, ?)', [clonedTemplateId, String(variable[1]), String(variable[2])])
+          const clonedVariableId = Number(db.exec('SELECT last_insert_rowid()')[0].values[0][0])
+          const variants = db.exec('SELECT value, label FROM variants WHERE variable_id = ? ORDER BY id', [Number(variable[0])])[0]?.values ?? []
+          for (const variant of variants) {
+            db.run('INSERT INTO variants (variable_id, value, label) VALUES (?, ?, ?)', [clonedVariableId, String(variant[0]), variant[1] == null ? null : String(variant[1])])
+          }
         }
       }
-    }
-    clearLeftoverPairs(db, cloneId)
-    const pairRows = db.exec(
-      'SELECT id, external_id, ordinal, question FROM experiment_pairs WHERE experiment_id = ? ORDER BY ordinal, id',
-      [Number(source[0])],
-    )[0]?.values ?? []
-    for (const pair of pairRows) {
-      db.run(
-        'INSERT INTO experiment_pairs (experiment_id, external_id, ordinal, question) VALUES (?, ?, ?, ?)',
-        [cloneId, String(pair[1]), Number(pair[2]), String(pair[3])],
-      )
-      const clonedPairId = lastInsertId(db)
-      const variants = db.exec(
-        'SELECT variant_key, label, prompt FROM experiment_pair_variants WHERE pair_id = ? ORDER BY variant_key',
-        [Number(pair[0])],
+      clearLeftoverPairs(db, createdCloneId)
+      const pairRows = db.exec(
+        'SELECT id, external_id, ordinal, question FROM experiment_pairs WHERE experiment_id = ? ORDER BY ordinal, id',
+        [Number(source[0])],
       )[0]?.values ?? []
-      for (const variant of variants) {
+      for (const pair of pairRows) {
         db.run(
-          'INSERT INTO experiment_pair_variants (pair_id, variant_key, label, prompt) VALUES (?, ?, ?, ?)',
-          [clonedPairId, String(variant[0]), String(variant[1]), String(variant[2])],
+          'INSERT INTO experiment_pairs (experiment_id, external_id, ordinal, question) VALUES (?, ?, ?, ?)',
+          [createdCloneId, String(pair[1]), Number(pair[2]), String(pair[3])],
         )
+        const clonedPairId = lastInsertId(db)
+        const variants = db.exec(
+          'SELECT variant_key, label, prompt FROM experiment_pair_variants WHERE pair_id = ? ORDER BY variant_key',
+          [Number(pair[0])],
+        )[0]?.values ?? []
+        for (const variant of variants) {
+          db.run(
+            'INSERT INTO experiment_pair_variants (pair_id, variant_key, label, prompt) VALUES (?, ?, ?, ?)',
+            [clonedPairId, String(variant[0]), String(variant[1]), String(variant[2])],
+          )
+        }
       }
-    }
-    db.run('COMMIT')
+      return createdCloneId
+    })
     persist()
     return getExperiment(token, cloneId)
   } catch (error) {
-    try { db.run('ROLLBACK') } catch { /* transaction was not opened */ }
     throw error
   }
 }
@@ -653,82 +661,81 @@ export function completeOfflineRun(
   const failed = records.length - succeeded
   const synthetic = Number(experiment[1]) === 1 ? 1 : 0
   try {
-    db.run('BEGIN')
-    db.run(
-      `INSERT INTO run_batches (experiment_id, status, started_at, finished_at, is_synthetic)
-       VALUES (?, 'complete', datetime('now'), datetime('now'), ?)`,
-      [experimentId, synthetic],
-    )
-    const batchId = lastInsertId(db)
-    for (const record of records) {
+    withTransaction(db, () => {
       db.run(
-        `INSERT INTO runs (batch_id, template_id, status, is_synthetic, provider, model_id)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [
-          batchId,
-          Number(templateId),
-          record.status === 'ok' ? 'complete' : 'failed',
-          synthetic,
-          record.provider ?? 'simulated',
-          record.modelId ?? 'sim-model-1',
-        ],
+        `INSERT INTO run_batches (experiment_id, status, started_at, finished_at, is_synthetic)
+         VALUES (?, 'complete', datetime('now'), datetime('now'), ?)`,
+        [experimentId, synthetic],
       )
-      const runId = lastInsertId(db)
+      const batchId = lastInsertId(db)
+      for (const record of records) {
+        db.run(
+          `INSERT INTO runs (batch_id, template_id, status, is_synthetic, provider, model_id)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          [
+            batchId,
+            Number(templateId),
+            record.status === 'ok' ? 'complete' : 'failed',
+            synthetic,
+            record.provider ?? 'simulated',
+            record.modelId ?? 'sim-model-1',
+          ],
+        )
+        const runId = lastInsertId(db)
+        db.run(
+          'INSERT INTO raw_responses (run_id, body, content_hash, received_at, is_synthetic) VALUES (?, ?, ?, ?, ?)',
+          [runId, record.response || record.errorMessage || '', record.sha256, record.persistedAt, synthetic],
+        )
+      }
+      const reportBody = JSON.stringify({
+        schemaVersion: 1,
+        experimentId,
+        batchId,
+        evidenceCount: records.length,
+        succeeded,
+        failed,
+        generatedAt: new Date().toISOString(),
+        pairs: buildReportQuestions(records).map((question) => ({
+          id: question.id,
+          question: question.question,
+          variantA: { label: question.variantA.label, prompt: question.variantA.prompt },
+          variantB: { label: question.variantB.label, prompt: question.variantB.prompt },
+        })),
+        questions: buildReportQuestions(records),
+        records: records.map((record) => ({
+          requestId: record.requestId,
+          pairId: record.pairId,
+          question: record.question,
+          variantKey: record.variantKey,
+          variantLabel: record.variantLabel,
+          provider: record.provider,
+          modelId: record.modelId,
+          prompt: record.prompt,
+          response: record.response || record.errorMessage || '',
+          status: record.status,
+          statusCode: record.statusCode,
+          latencyMs: record.latencyMs,
+          recordedAt: record.persistedAt,
+          recordHash: record.sha256,
+          truncated: record.truncated === true,
+        })),
+      })
+      const reportHash = records.map((record) => record.sha256).join('')
       db.run(
-        'INSERT INTO raw_responses (run_id, body, content_hash, received_at, is_synthetic) VALUES (?, ?, ?, ?, ?)',
-        [runId, record.response || record.errorMessage || '', record.sha256, record.persistedAt, synthetic],
+        `INSERT INTO reports (experiment_id, title, body, content_hash, hash_verified, is_synthetic)
+         VALUES (?, ?, ?, ?, 1, ?)`,
+        [experimentId, `${String(experiment[0])} — Run report`, reportBody, reportHash, synthetic],
       )
-    }
-    const reportBody = JSON.stringify({
-      schemaVersion: 1,
-      experimentId,
-      batchId,
-      evidenceCount: records.length,
-      succeeded,
-      failed,
-      generatedAt: new Date().toISOString(),
-      pairs: buildReportQuestions(records).map((question) => ({
-        id: question.id,
-        question: question.question,
-        variantA: { label: question.variantA.label, prompt: question.variantA.prompt },
-        variantB: { label: question.variantB.label, prompt: question.variantB.prompt },
-      })),
-      questions: buildReportQuestions(records),
-      records: records.map((record) => ({
-        requestId: record.requestId,
-        pairId: record.pairId,
-        question: record.question,
-        variantKey: record.variantKey,
-        variantLabel: record.variantLabel,
-        provider: record.provider,
-        modelId: record.modelId,
-        prompt: record.prompt,
-        response: record.response || record.errorMessage || '',
-        status: record.status,
-        statusCode: record.statusCode,
-        latencyMs: record.latencyMs,
-        recordedAt: record.persistedAt,
-        recordHash: record.sha256,
-        truncated: record.truncated === true,
-      })),
+      db.run(
+        `UPDATE experiments
+         SET status = 'complete', last_run_at = datetime('now'), asymmetry_level = 'none'
+         WHERE id = ? AND created_by = ?`,
+        [experimentId, userId],
+      )
     })
-    const reportHash = records.map((record) => record.sha256).join('')
-    db.run(
-      `INSERT INTO reports (experiment_id, title, body, content_hash, hash_verified, is_synthetic)
-       VALUES (?, ?, ?, ?, 1, ?)`,
-      [experimentId, `${String(experiment[0])} — Run report`, reportBody, reportHash, synthetic],
-    )
-    db.run(
-      `UPDATE experiments
-       SET status = 'complete', last_run_at = datetime('now'), asymmetry_level = 'none'
-       WHERE id = ? AND created_by = ?`,
-      [experimentId, userId],
-    )
-    db.run('COMMIT')
     persist()
     return getExperimentRunSummary(token, experimentId)!
   } catch (error) {
-    try { db.run('ROLLBACK') } catch { /* transaction was not opened */ }
     throw error
   }
 }

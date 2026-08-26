@@ -183,37 +183,54 @@ export function NewBiasTestWizard({
 
       <div className="wizard-body">
         {step === 0 && (
-          <section aria-labelledby="wz-h">
-            <h2 id="wz-h" ref={headingRef} tabIndex={-1}>Paste your prompt <span className="wz-eta">~2 min</span></h2>
-            <label htmlFor="wz-prompt" className="wz-label">Prompt</label>
-            <textarea
-              id="wz-prompt"
-              className="wz-textarea"
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              placeholder="Paste your prompt here. ParityLab will find demographic phrases automatically."
-              aria-describedby="wz-prompt-help wz-count"
-            />
-            <div className="wz-row-between">
-              <span id="wz-count" className="wz-muted">{prompt.length} characters</span>
-              <button
-                type="button"
-                className="secondary"
-                onClick={async () => {
-                  try { setPrompt(await navigator.clipboard.readText()) } catch { /* clipboard blocked */ }
-                }}
-              >
-                Paste from clipboard
-              </button>
+          <section className="wz-stage wz-stage-prompt" aria-labelledby="wz-h">
+            <header className="wz-stage-header">
+              <p className="wz-stage-eyebrow">NEW EXPERIMENT / STEP 1 OF 4</p>
+              <h2 id="wz-h" ref={headingRef} tabIndex={-1}>Paste your prompt</h2>
+              <p>Start with the exact source material you want to test. Demographic phrases are detected locally for review.</p>
+            </header>
+
+            <div className="wz-source-workspace" role="group" aria-label="Source prompt">
+              <div className="wz-workspace-heading">
+                <label htmlFor="wz-prompt">Source prompt</label>
+                <span id="wz-count">{prompt.length} characters</span>
+              </div>
+              <textarea
+                id="wz-prompt"
+                className="wz-textarea wz-source-textarea"
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                placeholder="Paste your prompt here. AI Bias Lab will find demographic phrases automatically."
+                aria-describedby="wz-prompt-help wz-count"
+              />
+              <div className="wz-source-tools">
+                <p id="wz-prompt-help">No API key needed to complete setup.</p>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={async () => {
+                    try { setPrompt(await navigator.clipboard.readText()) } catch { /* clipboard blocked */ }
+                  }}
+                >
+                  Paste from clipboard
+                </button>
+              </div>
             </div>
-            <p id="wz-prompt-help" className="wz-note">No API key needed to complete setup.</p>
           </section>
         )}
 
         {step === 1 && (
-          <section aria-labelledby="wz-h">
-            <h2 id="wz-h" ref={headingRef} tabIndex={-1}>Review detected phrases</h2>
-            <HighlightedPrompt prompt={prompt} phrases={phrases ?? []} />
+          <section className="wz-stage wz-stage-review" aria-labelledby="wz-h">
+            <header className="wz-stage-header">
+              <p className="wz-stage-eyebrow">NEW EXPERIMENT / STEP 2 OF 4</p>
+              <h2 id="wz-h" ref={headingRef} tabIndex={-1}>Review detected phrases</h2>
+              <p>Inspect the variable candidates found in your source prompt and choose which ones belong in the experiment.</p>
+            </header>
+
+            <div className="wz-prompt-inspection">
+              <p className="wz-section-label">Original prompt</p>
+              <HighlightedPrompt prompt={prompt} phrases={phrases ?? []} />
+            </div>
 
             {detecting && (
               <div className="wz-skeletons" aria-hidden="true">
@@ -240,8 +257,11 @@ export function NewBiasTestWizard({
 
             {!detecting && phrases && phrases.length > 0 && (
               <>
-                <div className="wz-row-between">
-                  <span className="wz-muted">{selectedPhrases.length} of {phrases.length} selected</span>
+                <div className="wz-variable-heading">
+                  <div>
+                    <p className="wz-section-label">Detected variables</p>
+                    <p>{selectedPhrases.length} of {phrases.length} selected</p>
+                  </div>
                   <button
                     type="button" className="secondary"
                     onClick={() =>
@@ -253,16 +273,28 @@ export function NewBiasTestWizard({
                 </div>
                 <ul className="wz-phrase-list">
                   {phrases.map((p) => (
-                    <li key={p.id} className="wz-phrase-row">
-                      <input
-                        type="checkbox" id={`ph-${p.id}`} className="wz-check"
-                        checked={selected.has(p.id)} onChange={() => toggle(p.id)}
-                      />
-                      <label htmlFor={`ph-${p.id}`} className="wz-phrase-label">
-                        <span className="wz-phrase-text">{p.text}</span>
-                        <span className="wz-phrase-context">{p.context}</span>
+                    <li
+                      key={p.id}
+                      className={selected.has(p.id) ? 'wz-phrase-row selected' : 'wz-phrase-row'}
+                      role="article"
+                      aria-label={`Detected variable: ${p.text}`}
+                    >
+                      <label htmlFor={`ph-${p.id}`} className="wz-variable-select">
+                        <input
+                          type="checkbox" id={`ph-${p.id}`} className="wz-check"
+                          checked={selected.has(p.id)} onChange={() => toggle(p.id)}
+                        />
+                        <span aria-hidden="true" />
                       </label>
-                      <AxisBadge axis={p.axis} />
+                      <div className="wz-variable-copy">
+                        <span className="wz-section-label">Detected variable</span>
+                        <strong>{p.text}</strong>
+                        <span className="wz-phrase-context">{p.context}</span>
+                      </div>
+                      <div className="wz-variable-meta">
+                        <AxisBadge axis={p.axis} />
+                        <span className="wz-selection-state">{selected.has(p.id) ? 'Selected' : 'Not selected'}</span>
+                      </div>
                     </li>
                   ))}
                 </ul>
@@ -276,125 +308,143 @@ export function NewBiasTestWizard({
         )}
 
         {step === 2 && (
-          <section aria-labelledby="wz-h">
-            <h2 id="wz-h" ref={headingRef} tabIndex={-1}>Compare against</h2>
-            <p className="wz-note">
-              For each phrase, type the value to compare it against. The app sends the original
-              prompt and a swapped copy, then compares the two answers. Separate several values
-              with commas.
-            </p>
+          <section className="wz-stage wz-stage-compare" aria-labelledby="wz-h">
+            <header className="wz-stage-header">
+              <p className="wz-stage-eyebrow">NEW EXPERIMENT / STEP 3 OF 4</p>
+              <h2 id="wz-h" ref={headingRef} tabIndex={-1}>Compare against</h2>
+              <p>Hold the source prompt constant and change only the selected demographic variable. Separate multiple values with commas.</p>
+            </header>
 
             <ul className="wz-compare-list">
               {entries.map((entry) => {
                 const key = entry.text.toLowerCase()
                 return (
                   <li key={key} className="wz-compare-row">
-                    <label htmlFor={`cmp-${key}`} className="wz-compare-label">
-                      <span className="wz-phrase-text">{entry.text}</span>
+                    <div className="wz-comparison-source">
+                      <span className="wz-section-label">SOURCE</span>
+                      <strong>{entry.text}</strong>
                       <AxisBadge axis={entry.axis} />
-                    </label>
+                    </div>
                     <span className="wz-compare-arrow" aria-hidden="true">→</span>
-                    <input
-                      id={`cmp-${key}`}
-                      className="wz-input"
-                      value={values[key] ?? ''}
-                      placeholder="e.g. white, asian"
-                      aria-label={`Compare ${entry.text} against`}
-                      onChange={(e) => setValues((prev) => ({ ...prev, [key]: e.target.value }))}
-                    />
+                    <label htmlFor={`cmp-${key}`} className="wz-comparison-target">
+                      <span className="wz-section-label">COMPARE AGAINST</span>
+                      <input
+                        id={`cmp-${key}`}
+                        className="wz-input"
+                        value={values[key] ?? ''}
+                        placeholder="e.g. white, asian"
+                        aria-label={`Compare ${entry.text} against`}
+                        onChange={(e) => setValues((prev) => ({ ...prev, [key]: e.target.value }))}
+                      />
+                    </label>
                   </li>
                 )
               })}
             </ul>
 
-            <p className="wz-note" role="status">
+            <p className="wz-comparison-status" role="status">
               {pairs.length === 0
                 ? 'Type at least one value that changes the prompt.'
                 : `${pairs.length} matched ${pairs.length === 1 ? 'comparison' : 'comparisons'} ready.`}
             </p>
 
             {pairs.length > 0 && (
-              <details className="panel wz-compare-preview">
-                <summary>Preview the swapped prompt</summary>
-                <p className="wz-phrase-context">{pairs[0].variantB.prompt}</p>
-              </details>
+              <MatchedPromptPreview pairs={pairs} label="Matched prompts" />
             )}
 
-            <label htmlFor="wz-name" className="wz-label">Experiment name</label>
-            <input
-              id="wz-name" className="wz-input" maxLength={80} value={name}
-              aria-describedby={nameError ? 'wz-name-err wz-name-count' : 'wz-name-count'}
-              onChange={(e) => setName(e.target.value)}
-              onBlur={() => {
-                if (name.trim() === '') { setName(suggestedName()); setNameError(null); return }
-                setNameError(isDuplicateName(name.trim()) ? 'An experiment with this name already exists.' : null)
-              }}
-            />
-            <div className="wz-row-between">
-              {nameError
-                ? <span id="wz-name-err" className="wz-warn" role="status">{nameError}</span>
-                : <span />}
-              <span id="wz-name-count" className="wz-muted">{name.length}/80</span>
+            <div className="wz-experiment-details">
+              <div className="wz-details-heading">
+                <p className="wz-section-label">Experiment details</p>
+                <span>Used to identify this study in your research archive.</span>
+              </div>
+              <label htmlFor="wz-name" className="wz-label">Experiment name</label>
+              <input
+                id="wz-name" className="wz-input" maxLength={80} value={name}
+                aria-describedby={nameError ? 'wz-name-err wz-name-count' : 'wz-name-count'}
+                onChange={(e) => setName(e.target.value)}
+                onBlur={() => {
+                  if (name.trim() === '') { setName(suggestedName()); setNameError(null); return }
+                  setNameError(isDuplicateName(name.trim()) ? 'An experiment with this name already exists.' : null)
+                }}
+              />
+              <div className="wz-row-between">
+                {nameError
+                  ? <span id="wz-name-err" className="wz-warn" role="status">{nameError}</span>
+                  : <span />}
+                <span id="wz-name-count" className="wz-muted">{name.length}/80</span>
+              </div>
+
+              {!showDescription ? (
+                <button type="button" className="link" onClick={() => setShowDescription(true)}>
+                  Add description (optional)
+                </button>
+              ) : (
+                <>
+                  <label htmlFor="wz-desc" className="wz-label">Description</label>
+                  <textarea id="wz-desc" className="wz-textarea small" value={description}
+                    onChange={(e) => setDescription(e.target.value)} />
+                </>
+              )}
             </div>
-
-            {!showDescription ? (
-              <button type="button" className="link" onClick={() => setShowDescription(true)}>
-                Add description (optional)
-              </button>
-            ) : (
-              <>
-                <label htmlFor="wz-desc" className="wz-label">Description</label>
-                <textarea id="wz-desc" className="wz-textarea small" value={description}
-                  onChange={(e) => setDescription(e.target.value)} />
-              </>
-            )}
 
           </section>
         )}
 
         {step === 3 && (
-          <section aria-labelledby="wz-h">
-            <h2 id="wz-h" ref={headingRef} tabIndex={-1}>Confirm</h2>
+          <section className="wz-stage wz-stage-confirm" aria-labelledby="wz-h">
+            <header className="wz-stage-header">
+              <p className="wz-stage-eyebrow">NEW EXPERIMENT / STEP 4 OF 4</p>
+              <h2 id="wz-h" ref={headingRef} tabIndex={-1}>Confirm your experiment</h2>
+              <p>Review the controlled comparison exactly as it will be saved. The matched prompts are the experiment.</p>
+            </header>
             {createError && (
               <div className="banner error" role="alert">
                 {createError}
                 <button type="button" className="secondary" onClick={create}>Retry</button>
               </div>
             )}
-            <div className="panel">
+
+            <section className="wz-confirm-details" aria-labelledby="wz-details-title">
+              <div className="wz-details-heading">
+                <p id="wz-details-title" className="wz-section-label">Experiment details</p>
+              </div>
               <dl className="wz-confirm">
-                <dt>Name</dt><dd>{name.trim() || suggestedName()}</dd>
-                <dt>Prompt</dt>
-                <dd>
-                  {expanded || prompt.length <= 200 ? prompt : `${prompt.slice(0, 200)}… `}
-                  {prompt.length > 200 && (
-                    <button type="button" className="link" onClick={() => setExpanded((v) => !v)}>
-                      {expanded ? 'Show less' : 'Expand'}
-                    </button>
-                  )}
-                </dd>
-                <dt>Comparisons</dt>
-                <dd>
-                  <ul className="wz-summary-list">
-                    {pairs.map((p) => (
-                      <li key={p.id}>
-                        <span className="wz-phrase-text">{p.variantA.label}</span>
-                        {' → '}
-                        <span className="wz-phrase-text">{p.variantB.label}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </dd>
-                <dt>Axes</dt>
-                <dd className="wz-axis-row">
-                  {usedAxes.length ? usedAxes.map((a) => <AxisBadge key={a} axis={a} />) : '—'}
-                </dd>
+                <div><dt>Name</dt><dd>{name.trim() || suggestedName()}</dd></div>
+                {description.trim() && <div><dt>Description</dt><dd>{description.trim()}</dd></div>}
+                <div>
+                  <dt>Detected variable</dt>
+                  <dd>{entries.map((entry) => entry.text).join(', ') || '—'}</dd>
+                </div>
+                <div>
+                  <dt>Comparison</dt>
+                  <dd>{pairs.map((p) => `${p.variantA.label} → ${p.variantB.label}`).join(', ')}</dd>
+                </div>
+                <div>
+                  <dt>Axes</dt>
+                  <dd className="wz-axis-row">
+                    {usedAxes.length ? usedAxes.map((a) => <AxisBadge key={a} axis={a} />) : '—'}
+                  </dd>
+                </div>
               </dl>
+              {prompt.length > 200 && (
+                <div className="wz-original-source">
+                  <span className="wz-section-label">Original source</span>
+                  <p>{expanded ? prompt : `${prompt.slice(0, 200)}…`}</p>
+                  <button type="button" className="link" onClick={() => setExpanded((v) => !v)}>
+                    {expanded ? 'Show less' : 'Expand'}
+                  </button>
+                </div>
+              )}
+            </section>
+
+            <MatchedPromptPreview pairs={pairs} label="Final matched prompts" />
+
+            <div className="wz-create-actions">
+              <button type="button" className="primary wz-create" onClick={create} disabled={creating || pairs.length === 0}>
+                {creating ? 'Creating…' : 'Create Experiment'}
+              </button>
+              <button type="button" className="link" onClick={goBack}>Go back and edit</button>
             </div>
-            <button type="button" className="primary wz-create" onClick={create} disabled={creating || pairs.length === 0}>
-              {creating ? 'Creating…' : 'Create Experiment'}
-            </button>
-            <button type="button" className="link block" onClick={goBack}>Go back and edit</button>
           </section>
         )}
       </div>
@@ -412,20 +462,49 @@ export function NewBiasTestWizard({
 }
 
 function StepIndicator({ step }: { step: number }) {
-  const pct = ((step + 1) / STEPS.length) * 100
   return (
-    <div className="wz-steps">
-      <ol className="wz-step-labels" aria-hidden="true">
+    <nav className="wz-steps" aria-label="Experiment setup progress">
+      <ol className="wz-step-labels">
         {STEPS.map((label, i) => (
-          <li key={label} className={i === step ? 'active' : i < step ? 'done' : ''}>
-            <span className="wz-step-num">{i + 1}</span>{label}
+          <li
+            key={label}
+            className={i === step ? 'active' : i < step ? 'done' : ''}
+            aria-current={i === step ? 'step' : undefined}
+          >
+            <span className="wz-step-num">{String(i + 1).padStart(2, '0')}</span>
+            <span>{label}</span>
           </li>
         ))}
       </ol>
-      <div className="wz-step-mobile" aria-hidden="true">Step {step + 1} of {STEPS.length}</div>
-      <div className="wz-progress"><div className="wz-progress-fill" style={{ width: `${pct}%` }} /></div>
       <div className="wz-sr-only" aria-live="polite">Step {step + 1} of {STEPS.length}: {STEPS[step]}</div>
-    </div>
+    </nav>
+  )
+}
+
+function MatchedPromptPreview({ pairs, label }: { pairs: ComparisonPair[]; label: string }) {
+  return (
+    <section className="wz-matched-preview" role="group" aria-label={label}>
+      <div className="wz-preview-heading">
+        <p className="wz-section-label">{label}</p>
+        <span>Only the selected variable changes.</span>
+      </div>
+      <div className="wz-matched-list">
+        {pairs.map((pair, index) => (
+          <article key={pair.id} className="wz-matched-pair">
+            {pairs.length > 1 && <p className="wz-pair-number">Comparison {index + 1}</p>}
+            <div className="wz-prompt-card source">
+              <span>Original · {pair.variantA.label}</span>
+              <p>{pair.variantA.prompt}</p>
+            </div>
+            <div className="wz-prompt-connector" aria-hidden="true">→</div>
+            <div className="wz-prompt-card comparison">
+              <span>Comparison · {pair.variantB.label}</span>
+              <p>{pair.variantB.prompt}</p>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
   )
 }
 
@@ -446,7 +525,7 @@ function HighlightedPrompt({ prompt, phrases }: { prompt: string; phrases: Detec
     cursor = p.end
   })
   if (cursor < prompt.length) parts.push(prompt.slice(cursor))
-  return <div className="wz-readonly-prompt" role="group" aria-label="Prompt with detected phrases">{parts}</div>
+  return <div className="wz-readonly-prompt" role="group" aria-label="Original prompt">{parts}</div>
 }
 
 function AxisBadge({ axis }: { axis: DemographicAxis }) {

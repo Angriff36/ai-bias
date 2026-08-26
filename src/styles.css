@@ -738,7 +738,7 @@ dialog.confirm .actions { display: flex; gap: 8px; justify-content: flex-end; ma
 }
 .wz-section-label { margin-bottom: 6px; color: var(--muted); letter-spacing: 0.1em; }
 .wz-steps { padding: 18px 0; border-top: 1px solid var(--border-strong); border-bottom: 1px solid var(--border); }
-.wz-step-labels { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0; padding: 0; list-style: none; }
+.wz-step-labels { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; padding: 0; list-style: none; }
 .wz-step-labels li {
   position: relative; display: flex; align-items: baseline; gap: 10px; min-width: 0; padding-right: 36px;
   color: #707987; font-size: 12px; font-weight: 600; letter-spacing: 0.025em;

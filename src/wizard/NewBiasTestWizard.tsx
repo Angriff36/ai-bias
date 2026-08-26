@@ -9,7 +9,7 @@ import {
   type DetectedPhrase,
 } from './phraseDetection'
 
-const STEPS = ['Paste Prompt', 'Edit Prompt B', 'Confirm'] as const
+const STEPS = ['Paste Prompt', 'Edit Prompt B'] as const
 
 export interface WizardResult {
   name: string
@@ -104,7 +104,6 @@ export function NewBiasTestWizard({
 
   function goNext() {
     if (step === 0) runDetection()
-    if (step === 1 && name.trim() === '') setName(suggestedName())
     setStep((current) => Math.min(STEPS.length - 1, current + 1))
   }
 
@@ -139,9 +138,7 @@ export function NewBiasTestWizard({
     }
   }
 
-  const canNext =
-    (step === 0 && prompt.trim().length >= 10) ||
-    (step === 1 && pairs.length === 1)
+  const canNext = step === 0 && prompt.trim().length >= 10
 
   return (
     <div className="wizard" role="dialog" aria-modal="true" aria-label="New bias test wizard">
@@ -151,7 +148,7 @@ export function NewBiasTestWizard({
         {step === 0 && (
           <section className="wz-stage wz-stage-prompt" aria-labelledby="wz-h">
             <header className="wz-stage-header">
-              <p className="wz-stage-eyebrow">NEW EXPERIMENT / STEP 1 OF 3</p>
+              <p className="wz-stage-eyebrow">NEW EXPERIMENT / STEP 1 OF 2</p>
               <h2 id="wz-h" ref={headingRef} tabIndex={-1}>Paste your prompt</h2>
               <p>Start with the exact source material you want to test. AI Bias Lab will detect useful replacement shortcuts.</p>
             </header>
@@ -188,7 +185,7 @@ export function NewBiasTestWizard({
         {step === 1 && (
           <section className="wz-stage wz-stage-match" aria-labelledby="wz-h">
             <header className="wz-stage-header">
-              <p className="wz-stage-eyebrow">NEW EXPERIMENT / STEP 2 OF 3</p>
+              <p className="wz-stage-eyebrow">NEW EXPERIMENT / STEP 2 OF 2</p>
               <h2 id="wz-h" ref={headingRef} tabIndex={-1}>Create Prompt B</h2>
               <p>Click highlighted text for quick replacements, or edit Prompt B directly. That is the entire matched comparison.</p>
             </header>
@@ -197,6 +194,13 @@ export function NewBiasTestWizard({
               <div className="banner error" role="alert">
                 Phrase detection failed. You can still edit Prompt B directly.
                 <button type="button" className="secondary" onClick={runDetection}>Try again</button>
+              </div>
+            )}
+
+            {createError && (
+              <div className="banner error" role="alert">
+                {createError}
+                <button type="button" className="secondary" onClick={create}>Retry</button>
               </div>
             )}
 
@@ -260,25 +264,6 @@ export function NewBiasTestWizard({
                 />
               </section>
             </div>
-          </section>
-        )}
-
-        {step === 2 && (
-          <section className="wz-stage wz-stage-confirm" aria-labelledby="wz-h">
-            <header className="wz-stage-header">
-              <p className="wz-stage-eyebrow">NEW EXPERIMENT / STEP 3 OF 3</p>
-              <h2 id="wz-h" ref={headingRef} tabIndex={-1}>Confirm your experiment</h2>
-              <p>Review the two prompts exactly as they will be saved.</p>
-            </header>
-
-            {createError && (
-              <div className="banner error" role="alert">
-                {createError}
-                <button type="button" className="secondary" onClick={create}>Retry</button>
-              </div>
-            )}
-
-            <MatchedPromptPreview pair={pairs[0]} change={shortcutChange} />
 
             <section className="wz-experiment-details" aria-labelledby="wz-details-title">
               <div className="wz-details-heading">
@@ -323,16 +308,16 @@ export function NewBiasTestWizard({
             </section>
 
             <div className="wz-create-actions">
+              <button type="button" className="secondary" onClick={goBack}>Back</button>
               <button type="button" className="primary wz-create" onClick={create} disabled={creating || pairs.length === 0}>
                 {creating ? 'Creating…' : 'Create Experiment'}
               </button>
-              <button type="button" className="link" onClick={goBack}>Go back and edit</button>
             </div>
           </section>
         )}
       </div>
 
-      {step < 2 && (
+      {step < 1 && (
         <div className="wizard-nav">
           <button type="button" className="secondary wz-back" onClick={step === 0 ? onClose : goBack}>
             {step === 0 ? 'Cancel' : 'Back'}
@@ -399,30 +384,6 @@ function InteractivePrompt({
   if (cursor < prompt.length) parts.push(prompt.slice(cursor))
 
   return <div className="wz-interactive-prompt" role="group" aria-label="Prompt A — Original">{parts}</div>
-}
-
-function MatchedPromptPreview({ pair, change }: { pair: ComparisonPair; change: AppliedChange | null }) {
-  return (
-    <section className="wz-matched-preview" role="group" aria-label="Final matched prompts">
-      <div className="wz-preview-heading">
-        <p className="wz-section-label">Final matched prompts</p>
-        <span>{change ? `Only changed: ${change.from} → ${change.to}` : 'Prompt B was edited directly.'}</span>
-      </div>
-      <div className="wz-matched-list">
-        <article className="wz-matched-pair">
-          <div className="wz-prompt-card source">
-            <span>PROMPT A — ORIGINAL</span>
-            <p>{pair.variantA.prompt}</p>
-          </div>
-          <div className="wz-prompt-connector" aria-hidden="true">→</div>
-          <div className="wz-prompt-card comparison">
-            <span>PROMPT B — MATCHED</span>
-            <p>{pair.variantB.prompt}</p>
-          </div>
-        </article>
-      </div>
-    </section>
-  )
 }
 
 function AxisBadge({ axis }: { axis: DemographicAxis }) {

@@ -24,9 +24,10 @@ describe('NewBiasTestWizard research flow', () => {
 
     await user.type(screen.getByRole('textbox', { name: 'Source prompt' }), PROMPT)
     await user.click(screen.getByRole('button', { name: 'Next' }))
-    expect(await screen.findByText('NEW EXPERIMENT / STEP 2 OF 3')).toBeTruthy()
+    expect(await screen.findByText('NEW EXPERIMENT / STEP 2 OF 2')).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Create Prompt B' })).toBeTruthy()
     expect(screen.queryByText('Choose Replacement')).toBeNull()
+    expect(screen.queryByText('Confirm')).toBeNull()
 
     const promptB = screen.getByRole('textbox', { name: 'Prompt B — Matched' }) as HTMLTextAreaElement
     expect(promptB.value).toBe(PROMPT)
@@ -40,15 +41,6 @@ describe('NewBiasTestWizard research flow', () => {
     await user.clear(promptB)
     await user.type(promptB, "I'm proud to be Asian!")
     expect(promptB.value).toBe("I'm proud to be Asian!")
-
-    await user.click(screen.getByRole('button', { name: 'Next' }))
-    expect(screen.getByText('NEW EXPERIMENT / STEP 3 OF 3')).toBeTruthy()
-    expect(screen.getByRole('heading', { name: 'Confirm your experiment' })).toBeTruthy()
-    const finalPrompts = screen.getByRole('group', { name: 'Final matched prompts' })
-    expect(finalPrompts.textContent).toContain('PROMPT A — ORIGINAL')
-    expect(finalPrompts.textContent).toContain(PROMPT)
-    expect(finalPrompts.textContent).toContain('PROMPT B — MATCHED')
-    expect(finalPrompts.textContent).toContain("I'm proud to be Asian!")
 
     await user.click(screen.getByRole('button', { name: 'Create Experiment' }))
     expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({

@@ -3,13 +3,14 @@ import {
   AXES,
   buildComparisonPairs,
   detectPhrases,
+  substitutePhrase,
   type ComparisonEntry,
   type ComparisonPair,
   type DetectedPhrase,
   type DemographicAxis,
 } from './phraseDetection'
 
-const STEPS = ['Paste Prompt', 'Review Phrases', 'Compare Against', 'Confirm'] as const
+const STEPS = ['Paste Prompt', 'Choose Variable', 'Choose Replacement', 'Confirm'] as const
 
 export interface WizardResult {
   name: string
@@ -223,8 +224,8 @@ export function NewBiasTestWizard({
           <section className="wz-stage wz-stage-review" aria-labelledby="wz-h">
             <header className="wz-stage-header">
               <p className="wz-stage-eyebrow">NEW EXPERIMENT / STEP 2 OF 4</p>
-              <h2 id="wz-h" ref={headingRef} tabIndex={-1}>Review detected phrases</h2>
-              <p>Inspect the variable candidates found in your source prompt and choose which ones belong in the experiment.</p>
+              <h2 id="wz-h" ref={headingRef} tabIndex={-1}>Choose what to change</h2>
+              <p>Select the word or phrase AI Bias Lab should replace when it creates the matched prompt.</p>
             </header>
 
             <div className="wz-prompt-inspection">
@@ -259,7 +260,7 @@ export function NewBiasTestWizard({
               <>
                 <div className="wz-variable-heading">
                   <div>
-                    <p className="wz-section-label">Detected variables</p>
+                    <p className="wz-section-label">Choose the word or phrase</p>
                     <p>{selectedPhrases.length} of {phrases.length} selected</p>
                   </div>
                   <button
@@ -277,24 +278,31 @@ export function NewBiasTestWizard({
                       key={p.id}
                       className={selected.has(p.id) ? 'wz-phrase-row selected' : 'wz-phrase-row'}
                       role="article"
-                      aria-label={`Detected variable: ${p.text}`}
+                      aria-label={`Word or phrase to replace: ${p.text}`}
                     >
                       <label htmlFor={`ph-${p.id}`} className="wz-variable-select">
                         <input
                           type="checkbox" id={`ph-${p.id}`} className="wz-check"
+                          aria-label={`Use "${p.text}" as the variable`}
                           checked={selected.has(p.id)} onChange={() => toggle(p.id)}
                         />
                         <span aria-hidden="true" />
                       </label>
                       <div className="wz-variable-copy">
-                        <span className="wz-section-label">Detected variable</span>
+                        <span className="wz-section-label">Word or phrase to replace</span>
                         <strong>{p.text}</strong>
                         <span className="wz-phrase-context">{p.context}</span>
+                        <label htmlFor={`ph-${p.id}`} className="wz-variable-action">
+                          <span aria-hidden="true">{selected.has(p.id) ? '✓' : '○'}</span>
+                          Use “{p.text}” as the variable
+                        </label>
                       </div>
                       <div className="wz-variable-meta">
                         <AxisBadge axis={p.axis} />
-                        <span className="wz-selection-state">{selected.has(p.id) ? 'Selected' : 'Not selected'}</span>
                       </div>
+                      {selected.has(p.id) && (
+                        <VariableNextStep prompt={prompt} phrase={p.text} />
+                      )}
                     </li>
                   ))}
                 </ul>
@@ -311,8 +319,12 @@ export function NewBiasTestWizard({
           <section className="wz-stage wz-stage-compare" aria-labelledby="wz-h">
             <header className="wz-stage-header">
               <p className="wz-stage-eyebrow">NEW EXPERIMENT / STEP 3 OF 4</p>
-              <h2 id="wz-h" ref={headingRef} tabIndex={-1}>Compare against</h2>
-              <p>Hold the source prompt constant and change only the selected demographic variable. Separate multiple values with commas.</p>
+              <h2 id="wz-h" ref={headingRef} tabIndex={-1}>Choose the replacement</h2>
+              <p>
+                {entries.length === 1
+                  ? `Enter what should replace "${entries[0].text}" in the second prompt.`
+                  : 'Enter what should replace each selected word or phrase in the second prompt.'}
+              </p>
             </header>
 
             <ul className="wz-compare-list">
@@ -321,21 +333,22 @@ export function NewBiasTestWizard({
                 return (
                   <li key={key} className="wz-compare-row">
                     <div className="wz-comparison-source">
-                      <span className="wz-section-label">SOURCE</span>
+                      <span className="wz-section-label">ORIGINAL VALUE</span>
                       <strong>{entry.text}</strong>
                       <AxisBadge axis={entry.axis} />
                     </div>
                     <span className="wz-compare-arrow" aria-hidden="true">→</span>
                     <label htmlFor={`cmp-${key}`} className="wz-comparison-target">
-                      <span className="wz-section-label">COMPARE AGAINST</span>
+                      <span className="wz-section-label">REPLACE WITH</span>
                       <input
                         id={`cmp-${key}`}
                         className="wz-input"
                         value={values[key] ?? ''}
-                        placeholder="e.g. white, asian"
-                        aria-label={`Compare ${entry.text} against`}
+                        placeholder="e.g. black"
+                        aria-label={`Replace ${entry.text} with`}
                         onChange={(e) => setValues((prev) => ({ ...prev, [key]: e.target.value }))}
                       />
+                      <span className="wz-field-help">Separate replacements with commas to create more than one matched prompt.</span>
                     </label>
                   </li>
                 )
@@ -412,11 +425,11 @@ export function NewBiasTestWizard({
                 <div><dt>Name</dt><dd>{name.trim() || suggestedName()}</dd></div>
                 {description.trim() && <div><dt>Description</dt><dd>{description.trim()}</dd></div>}
                 <div>
-                  <dt>Detected variable</dt>
+                  <dt>Word or phrase</dt>
                   <dd>{entries.map((entry) => entry.text).join(', ') || '—'}</dd>
                 </div>
                 <div>
-                  <dt>Comparison</dt>
+                  <dt>Replacement</dt>
                   <dd>{pairs.map((p) => `${p.variantA.label} → ${p.variantB.label}`).join(', ')}</dd>
                 </div>
                 <div>
@@ -482,29 +495,68 @@ function StepIndicator({ step }: { step: number }) {
 }
 
 function MatchedPromptPreview({ pairs, label }: { pairs: ComparisonPair[]; label: string }) {
+  const final = label === 'Final matched prompts'
+  const onlyChange = pairs.length === 1
+    ? `${pairs[0].variantA.label} → ${pairs[0].variantB.label}`
+    : null
+
   return (
     <section className="wz-matched-preview" role="group" aria-label={label}>
       <div className="wz-preview-heading">
         <p className="wz-section-label">{label}</p>
-        <span>Only the selected variable changes.</span>
+        <span>{final && onlyChange ? `Only changed: ${onlyChange}` : 'Everything else stays identical.'}</span>
       </div>
       <div className="wz-matched-list">
         {pairs.map((pair, index) => (
           <article key={pair.id} className="wz-matched-pair">
             {pairs.length > 1 && <p className="wz-pair-number">Comparison {index + 1}</p>}
+            {!final && (
+              <div className="wz-change-summary">
+                <span className="wz-section-label">ONLY THIS CHANGES</span>
+                <strong>{pair.variantA.label} → {pair.variantB.label}</strong>
+              </div>
+            )}
             <div className="wz-prompt-card source">
-              <span>Original · {pair.variantA.label}</span>
+              <span>PROMPT A — ORIGINAL</span>
               <p>{pair.variantA.prompt}</p>
             </div>
             <div className="wz-prompt-connector" aria-hidden="true">→</div>
             <div className="wz-prompt-card comparison">
-              <span>Comparison · {pair.variantB.label}</span>
+              <span>PROMPT B — MATCHED</span>
               <p>{pair.variantB.prompt}</p>
             </div>
           </article>
         ))}
       </div>
     </section>
+  )
+}
+
+function VariableNextStep({ prompt, phrase }: { prompt: string; phrase: string }) {
+  const blank = '_'.repeat(Math.max(6, phrase.length))
+  const incompletePrompt = substitutePhrase(prompt, phrase, blank)
+
+  return (
+    <div className="wz-variable-next">
+      <div className="wz-variable-explanation">
+        <p className="wz-section-label">WHAT HAPPENS NEXT</p>
+        <p>
+          You'll choose a replacement for "{phrase}". AI Bias Lab will create a second prompt while keeping
+          everything else exactly the same.
+        </p>
+      </div>
+      <div className="wz-incomplete-preview" role="group" aria-label="Incomplete matched prompts">
+        <div className="wz-prompt-card source">
+          <span>PROMPT A</span>
+          <p>{prompt}</p>
+        </div>
+        <div className="wz-prompt-connector" aria-hidden="true">→</div>
+        <div className="wz-prompt-card comparison incomplete">
+          <span>PROMPT B</span>
+          <p>{incompletePrompt}</p>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -544,15 +596,21 @@ function ManualAdd(props: {
 }) {
   return (
     <div className="wz-manual">
-      <label htmlFor="wz-manual" className="wz-label">Add a phrase manually</label>
+      <h3>Didn't detect the right word?</h3>
       <div className="wz-manual-row">
-        <input id="wz-manual" className="wz-input" value={props.value}
-          onChange={(e) => props.onValue(e.target.value)} placeholder="e.g. elderly woman" />
-        <select aria-label="Demographic axis" className="wz-input" value={props.axis}
-          onChange={(e) => props.onAxis(e.target.value as DemographicAxis)}>
-          {Object.values(AXES).map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
-        </select>
-        <button type="button" className="secondary" onClick={props.onAdd}>Add</button>
+        <label htmlFor="wz-manual" className="wz-manual-field">
+          <span className="wz-label">Word or phrase to replace</span>
+          <input id="wz-manual" className="wz-input" value={props.value}
+            onChange={(e) => props.onValue(e.target.value)} placeholder="e.g. elderly woman" />
+        </label>
+        <label className="wz-manual-field">
+          <span className="wz-label">Type</span>
+          <select aria-label="Type" className="wz-input" value={props.axis}
+            onChange={(e) => props.onAxis(e.target.value as DemographicAxis)}>
+            {Object.values(AXES).map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
+          </select>
+        </label>
+        <button type="button" className="secondary" onClick={props.onAdd}>Add variable</button>
       </div>
     </div>
   )

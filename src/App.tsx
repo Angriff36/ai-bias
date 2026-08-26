@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api, type MigrationRecord, type ReportRow } from './api'
+import { api, type ReportRow } from './api'
 import { EmptyState, SkeletonRows } from './components/EmptyState'
 import { ReadOnlyBadge, RecordedHashBadge } from './components/StatusBadge'
 import { ExperimentHistoryList } from './components/ExperimentHistoryList'
@@ -14,9 +14,9 @@ type ServerState =
   | { phase: 'ready'; version: number; runtime: 'local' | 'cloudflare-workers' }
   | { phase: 'failed'; message: string }
 
-type Tab = 'experiments' | 'templates' | 'observations' | 'targets' | 'reports' | 'admin'
+type Tab = 'experiments' | 'templates' | 'observations' | 'targets' | 'reports'
 
-const TABS: Tab[] = ['experiments', 'templates', 'observations', 'targets', 'reports', 'admin']
+const TABS: Tab[] = ['experiments', 'templates', 'observations', 'targets', 'reports']
 
 /** A prompt handed from the template library to the new-experiment wizard. */
 export const PENDING_PROMPT_KEY = 'ai-bias-pending-prompt'
@@ -108,7 +108,6 @@ function MainApp({ version, runtime }: { version: number; runtime: 'local' | 'cl
     { id: 'observations', label: 'Observations' },
     { id: 'targets', label: 'Providers' },
     { id: 'reports', label: 'Reports' },
-    { id: 'admin', label: 'Admin' },
   ]
   return (
     <div className="app">
@@ -140,7 +139,6 @@ function MainApp({ version, runtime }: { version: number; runtime: 'local' | 'cl
       {tab === 'observations' && <ObservationsPanel />}
       {tab === 'targets' && <ProvidersPanel />}
       {tab === 'reports' && <ReportsRoute />}
-      {tab === 'admin' && <AdminPanel version={version} runtime={runtime} />}
     </div>
   )
 }
@@ -224,88 +222,5 @@ function ReportsList() {
         </tbody>
       </table>
     </section>
-  )
-}
-
-function AdminPanel({ version, runtime }: { version: number; runtime: 'local' | 'cloudflare-workers' }) {
-  const [records, setRecords] = useState<MigrationRecord[]>([])
-  const [resetError, setResetError] = useState<string | null>(null)
-  const [resetting, setResetting] = useState(false)
-  const last = records[records.length - 1]
-
-  useEffect(() => {
-    let cancelled = false
-    api.getMigrationRecords()
-      .then((list) => { if (!cancelled) setRecords(list) })
-      .catch(() => { /* the schema table is informational; the version is already shown */ })
-    return () => { cancelled = true }
-  }, [])
-
-  const resetDatabase = async () => {
-    const confirmed = window.confirm(
-      'Delete every experiment, run, and report stored by this app? ' +
-      'Provider targets and API keys are kept. This cannot be undone.',
-    )
-    if (!confirmed) return
-    setResetting(true)
-    try {
-      await api.resetDatabase()
-      window.location.reload()
-    } catch (e) {
-      setResetError(e instanceof Error ? e.message : 'The database could not be reset.')
-      setResetting(false)
-    }
-  }
-
-  return (
-    <div>
-      <div className="page-header">
-        <div>
-          <p className="eyebrow">Database</p>
-          <h2>Admin</h2>
-          <p className="lead">
-            {runtime === 'cloudflare-workers'
-              ? 'Data is stored in Cloudflare Durable Objects. Check its schema or start it fresh.'
-              : 'The database is one file in the app’s data folder. Check its schema or start it fresh.'}
-          </p>
-        </div>
-      </div>
-      <div className="panel">
-        <h2>Schema</h2>
-        <p>
-          Version: <code>v{version}</code>
-          {last && <> · Last migration: <code>{last.id}_{last.name}</code> at <code>{last.applied_at}</code></>}
-        </p>
-      </div>
-      <div className="panel">
-        <h2>Reset database</h2>
-        <p className="muted">
-          Resetting starts the database fresh. Experiments, runs, and reports are deleted.
-          Provider targets and API keys are kept.
-        </p>
-        {resetError && <div className="banner error" role="alert"><span>{resetError}</span></div>}
-        <button className="secondary" onClick={() => void resetDatabase()} disabled={resetting}>
-          {resetting ? 'Resetting…' : 'Reset database'}
-        </button>
-      </div>
-      <div className="panel">
-        <h2>Applied migrations</h2>
-        <table>
-          <caption>Migration history</caption>
-          <thead>
-            <tr><th scope="col">ID</th><th scope="col">Name</th><th scope="col">Applied at (UTC)</th></tr>
-          </thead>
-          <tbody>
-            {records.map((m) => (
-              <tr key={m.id}>
-                <td><code>{m.id}</code></td>
-                <td><code>{m.name}</code></td>
-                <td><code>{m.applied_at}</code></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
   )
 }

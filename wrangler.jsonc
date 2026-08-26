@@ -15,6 +15,17 @@
       "custom_domain": true
     }
   ],
+  "d1_databases": [
+    {
+      "binding": "PUBLIC_DB",
+      "database_name": "ai-bias-public",
+      "database_id": "29560e87-1b08-408e-8625-576ba286f741",
+      "migrations_dir": "worker/migrations"
+    }
+  ],
+  "ai": {
+    "binding": "AI"
+  },
   "observability": {
     "enabled": false
   }

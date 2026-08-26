@@ -32,6 +32,12 @@ vi.mock('../api', async () => {
   }
 })
 
+vi.mock('../public/client', () => ({
+  getFreeAllowance: vi.fn().mockResolvedValue({ remaining: 2, dailyRemaining: 250 }),
+  publishRun: vi.fn().mockResolvedValue({ skipped: true }),
+  runFreePair: vi.fn(),
+}))
+
 import { importExperiment, signIn } from '../server/functions'
 import { ExperimentEditor } from './ExperimentEditor'
 
@@ -108,5 +114,17 @@ describe('the experiment editor', () => {
     expect(screen.getByText('Write a hiring recommendation.')).toBeTruthy()
     expect(screen.getByText('Recommend the Muslim candidate.')).toBeTruthy()
     expect(screen.getByText('Recommend the Christian candidate.')).toBeTruthy()
+  })
+
+  it('offers two-question free model use with the long-response ceiling explained', async () => {
+    const id = createExperiment('Free starter check')
+    render(<ExperimentEditor experimentId={id} />)
+    await userEvent.click(await screen.findByRole('button', { name: /configure run/i }))
+
+    const option = await screen.findByRole('checkbox', { name: /free starter model/i }) as HTMLInputElement
+    expect(option.disabled).toBe(false)
+    expect(screen.getByText(/768 tokens each/i)).toBeTruthy()
+    await userEvent.click(option)
+    expect(screen.getByRole('button', { name: /run free matched questions/i })).toBeTruthy()
   })
 })

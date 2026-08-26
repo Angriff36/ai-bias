@@ -7,7 +7,7 @@
  * BEFORE any classification and before the UI marks the cell complete.
  */
 
-export type ProviderId = 'openai' | 'anthropic' | 'google' | 'openrouter' | 'custom' | 'simulated'
+export type ProviderId = 'openai' | 'anthropic' | 'google' | 'openrouter' | 'custom' | 'simulated' | 'workers-ai'
 
 export interface RunPair {
   id: string

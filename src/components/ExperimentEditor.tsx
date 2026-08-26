@@ -15,6 +15,9 @@ import { createSimulatedAdapter, type RunTarget } from '../engine/adapter'
 import type { RunPair } from '../engine/types'
 import { CapturePage } from '../capture/CapturePage'
 import type { MatchedPrompt } from '../capture/types'
+import { getFreeAllowance, publishRun } from '../public/client'
+import { createFreeTrialAdapter } from '../public/freeTrialAdapter'
+import { saveThenPublish } from '../public/publishCompletion'
 
 type WorkspaceView = 'overview' | 'run' | 'results' | 'capture'
 
@@ -33,6 +36,9 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
   /** Every selected model runs the whole experiment, so results can be compared. */
   const [selectedTargetIds, setSelectedTargetIds] = useState<string[]>([])
   const [providerSetupOpen, setProviderSetupOpen] = useState(false)
+  const [freeAllowance, setFreeAllowance] = useState<{ remaining: number; dailyRemaining: number } | null>(null)
+  const [publishState, setPublishState] = useState<'idle' | 'publishing' | 'published' | 'failed'>('idle')
+  const [publishRetryRecords, setPublishRetryRecords] = useState<RunCompletion['records'] | null>(null)
   const nameRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -56,6 +62,15 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
     return () => { cancelled = true }
   }, [experimentId])
 
+  useEffect(() => {
+    if (view !== 'run') return
+    let cancelled = false
+    getFreeAllowance()
+      .then((allowance) => { if (!cancelled) setFreeAllowance(allowance) })
+      .catch(() => { if (!cancelled) setFreeAllowance(null) })
+    return () => { cancelled = true }
+  }, [view])
+
   const saveName = () => {
     if (!experiment || name === experiment.name) return
     setNameError(null)
@@ -75,13 +90,39 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
     window.location.hash = `#/experiments/${cloned.id}`
   }
 
+  const retryPublicPublish = async () => {
+    if (!publishRetryRecords) return
+    setPublishState('publishing')
+    try {
+      const result = await publishRun(publishRetryRecords)
+      setPublishState('skipped' in result ? 'idle' : 'published')
+      setPublishRetryRecords(null)
+    } catch {
+      setPublishState('failed')
+    }
+  }
+
   const saveCompletedRun = (completion: RunCompletion) => {
     if (!experiment) return
-    api.completeOfflineRun(experiment.id, completion.records)
-      .then(async (summary) => {
+    const shouldPublish = completion.records.some((record) => record.provider !== 'simulated' && record.provider !== 'workers-ai')
+    if (shouldPublish) setPublishState('publishing')
+    saveThenPublish(
+      () => api.completeOfflineRun(experiment.id, completion.records),
+      () => publishRun(completion.records),
+    )
+      .then(async ({ local: summary, publication }) => {
         setRunSummary(summary)
         setExperiment(await api.getExperiment(experiment.id))
         setRunSaveError(null)
+        if ('error' in publication) {
+          setPublishState('failed')
+          setPublishRetryRecords(completion.records)
+        } else if ('skipped' in publication) {
+          setPublishState('idle')
+        } else {
+          setPublishState('published')
+          setPublishRetryRecords(null)
+        }
       })
       .catch((runError: unknown) => {
         setRunSaveError(runError instanceof Error ? runError.message : 'Run completed, but its evidence could not be saved.')
@@ -102,12 +143,30 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
   const visiblePairs = importedPairs.filter((pair) =>
     `${pair.question} ${pair.variantA.label} ${pair.variantB.label}`.toLowerCase().includes(questionSearch.trim().toLowerCase()),
   )
-  const toggleTarget = (id: string) =>
-    setSelectedTargetIds((prev) =>
-      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id],
-    )
+  const toggleTarget = (id: string) => setSelectedTargetIds((prev) => {
+    if (prev.includes(id)) return prev.filter((item) => item !== id)
+    if (id === 'free') return ['free']
+    return [...prev.filter((item) => item !== 'free'), id]
+  })
+
+  const freeEligible = importedPairs.length > 0
+    && importedPairs.length <= 2
+    && repeats === 1
+    && freeAllowance !== null
+    && freeAllowance.remaining >= importedPairs.length
+    && freeAllowance.dailyRemaining >= importedPairs.length
 
   const runTargets: RunTarget[] = selectedTargetIds.flatMap<RunTarget>((id) => {
+    if (id === 'free') {
+      if (!freeEligible) return []
+      return [{
+        id: 'free',
+        label: 'Free starter model',
+        provider: 'workers-ai',
+        modelId: '@cf/meta/llama-3.2-3b-instruct',
+        adapter: createFreeTrialAdapter(importedPairs),
+      }]
+    }
     if (id === 'offline') {
       return [{
         id: 'offline',
@@ -150,6 +209,24 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
           <fieldset className="target-picker">
             <legend>Models to compare</legend>
             <p className="muted">Every selected model runs the whole experiment.</p>
+            <label className={freeEligible ? 'target-option free-target' : 'target-option disabled'}>
+              <input
+                type="checkbox"
+                checked={selectedTargetIds.includes('free')}
+                disabled={!freeEligible}
+                onChange={() => toggleTarget('free')}
+              />
+              <span>
+                <strong>Free starter model</strong>
+                <small>
+                  {freeAllowance === null
+                    ? 'Free capacity could not be checked.'
+                    : freeEligible
+                      ? `${freeAllowance.remaining} free matched questions remaining · responses may use up to 768 tokens each.`
+                      : 'Available for one or two matched questions, one repeat, while shared capacity remains.'}
+                </small>
+              </span>
+            </label>
             <label className="target-option">
               <input
                 type="checkbox"
@@ -216,7 +293,11 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
             options={Array.from(new Set([1, 3, 5, 10, repeats]))
               .sort((a, b) => a - b)
               .map((option) => ({ value: String(option), label: String(option) }))}
-            onChange={(option) => setRepeats(Number(option))}
+            onChange={(option) => {
+              const next = Number(option)
+              setRepeats(next)
+              if (next !== 1) setSelectedTargetIds((current) => current.filter((id) => id !== 'free'))
+            }}
           />
           <div className="workload-readout" aria-label="Run workload">
             <span>
@@ -272,6 +353,9 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
         )}
 
         {runSaveError && <div className="banner error" role="alert">{runSaveError}</div>}
+        {publishState === 'publishing' && <div className="banner info" role="status">Publishing this completed run anonymously…</div>}
+        {publishState === 'published' && <div className="banner success" role="status">Published anonymously to the public leaderboard.</div>}
+        {publishState === 'failed' && <div className="banner warning" role="alert"><span>Your local report is safe, but public publishing failed.</span> <button className="secondary" onClick={retryPublicPublish}>Retry publishing</button></div>}
         {runTargets.length === 0 ? (
           <p className="banner error" role="alert">
             Select at least one model to run against. Nothing is selected, so there is no run to start.
@@ -289,7 +373,7 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
           startButtonLabel={
             runTargets.length > 1
               ? `Start run on ${runTargets.length} models`
-              : runTargets[0]?.id === 'offline' ? 'Start offline run' : 'Start provider run'
+              : runTargets[0]?.id === 'offline' ? 'Start offline run' : runTargets[0]?.id === 'free' ? 'Run free matched questions' : 'Start provider run'
           }
           concurrency={subscriptionOnly ? 1 : undefined}
           onComplete={saveCompletedRun}

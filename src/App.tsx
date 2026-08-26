@@ -9,15 +9,16 @@ import { ProvidersPanel } from './components/ProvidersPanel'
 import { TemplateLibrary } from './components/TemplateLibrary'
 import { ObservationsPanel } from './components/ObservationsPanel'
 import { completeOpenRouterOAuth } from './openrouter/oauth'
+import { LeaderboardPage } from './public/LeaderboardPage'
 
 type ServerState =
   | { phase: 'connecting' }
   | { phase: 'ready' }
   | { phase: 'failed'; message: string }
 
-type Tab = 'experiments' | 'templates' | 'observations' | 'targets' | 'reports'
+type Tab = 'experiments' | 'leaderboard' | 'templates' | 'observations' | 'targets' | 'reports'
 
-const TABS: Tab[] = ['experiments', 'templates', 'observations', 'targets', 'reports']
+const TABS: Tab[] = ['experiments', 'leaderboard', 'templates', 'observations', 'targets', 'reports']
 
 /** A prompt handed from the template library to the new-experiment wizard. */
 export const PENDING_PROMPT_KEY = 'ai-bias-pending-prompt'
@@ -122,6 +123,7 @@ function MainApp() {
 
   const tabs: { id: Tab; label: string }[] = [
     { id: 'experiments', label: 'Experiments' },
+    { id: 'leaderboard', label: 'Leaderboard' },
     { id: 'templates', label: 'Templates' },
     { id: 'observations', label: 'Observations' },
     { id: 'targets', label: 'Providers' },
@@ -146,6 +148,7 @@ function MainApp() {
       </nav>
       {toast && <div className="toast" role="status" aria-live="polite"><span>{toast}</span><button aria-label="Dismiss notification" onClick={() => setToast(null)}>×</button></div>}
       {tab === 'experiments' && <ExperimentRoute />}
+      {tab === 'leaderboard' && <LeaderboardPage />}
       {tab === 'templates' && (
         <TemplateLibrary
           onUsePrompt={(prompt, name) => {

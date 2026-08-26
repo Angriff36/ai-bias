@@ -16,6 +16,18 @@ describe('routeWorkerRequest', () => {
     expect(env.ASSETS.fetch).not.toHaveBeenCalled()
   })
 
+  it('routes only the allowlisted public API namespace through the Worker', async () => {
+    const env = envWith(new Response('asset'))
+    const response = await routeWorkerRequest(
+      new Request('https://example.test/api/public/leaderboard'),
+      env,
+      { waitUntil: vi.fn() },
+    )
+
+    expect(response.status).toBe(503)
+    expect(env.ASSETS.fetch).not.toHaveBeenCalled()
+  })
+
   it('serves hardened static assets without allowing the browser key to leak by referrer', async () => {
     const env = envWith(new Response('<main>AI Bias Lab</main>'))
     const response = await routeWorkerRequest(new Request('https://example.test/experiments/8'), env)

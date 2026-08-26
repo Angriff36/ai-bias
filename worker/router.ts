@@ -1,4 +1,7 @@
-export interface WorkerEnv {
+import { handlePublicApi, type PublicWorkerEnv } from './public/routes'
+import type { ExecutionContextLike } from './public/analysis'
+
+export interface WorkerEnv extends Partial<PublicWorkerEnv> {
   ASSETS: { fetch(request: Request): Promise<Response> }
 }
 
@@ -14,8 +17,22 @@ const CONTENT_SECURITY_POLICY = [
   "form-action 'self' https://openrouter.ai",
 ].join('; ')
 
-export async function routeWorkerRequest(request: Request, env: WorkerEnv): Promise<Response> {
+export async function routeWorkerRequest(
+  request: Request,
+  env: WorkerEnv,
+  context: ExecutionContextLike = { waitUntil: () => undefined },
+): Promise<Response> {
   const url = new URL(request.url)
+  if (url.pathname.startsWith('/api/public/')) {
+    if (!env.PUBLIC_DB || !env.AI || !env.QUOTA_HMAC_SECRET) {
+      return new Response(JSON.stringify({ error: 'The public evidence service is temporarily unavailable.' }), {
+        status: 503,
+        headers: { 'Cache-Control': 'no-store', 'Content-Type': 'application/json; charset=utf-8' },
+      })
+    }
+    const response = await handlePublicApi(request, env as PublicWorkerEnv, context)
+    if (response) return response
+  }
   if (url.pathname.startsWith('/api/')) {
     return new Response('Not found', {
       status: 404,

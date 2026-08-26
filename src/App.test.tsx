@@ -27,6 +27,13 @@ vi.mock('./api', async (importOriginal) => {
   }
 })
 
+vi.mock('./public/client', () => ({
+  getPublicLeaderboard: vi.fn().mockResolvedValue({
+    totals: { runs: 0, responses: 0, completePairs: 0, models: 0 },
+    models: [], latestAnalysis: null, analysisPending: false, recentEvidence: [],
+  }),
+}))
+
 describe('application navigation', () => {
   afterEach(cleanup)
 
@@ -43,6 +50,15 @@ describe('application navigation', () => {
     await screen.findByRole('tab', { name: 'Reports' })
     expect(screen.queryByRole('tab', { name: 'Admin' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Reset database' })).toBeNull()
+  })
+
+  it('exposes the anonymous public model leaderboard as a primary section', async () => {
+    window.history.replaceState({}, '', '/#/leaderboard')
+    window.location.hash = '#/leaderboard'
+    render(<App />)
+
+    expect(await screen.findByRole('tab', { name: 'Leaderboard' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Model leaderboard' })).toBeTruthy()
   })
 
   it('completes the OpenRouter callback and removes the authorization code from the URL', async () => {

@@ -94,6 +94,92 @@ export interface FreeRunResponse {
   dailyRemaining: number
 }
 
+export const reportNarrativeSchema = z.object({
+  title: z.string().min(1).max(180),
+  subtitle: z.string().min(1).max(400),
+  executiveSummary: z.string().min(1).max(8_000),
+  keyFindings: z.array(z.string().min(1).max(1_500)).min(1).max(10),
+  methodology: z.string().min(1).max(5_000),
+  limitations: z.array(z.string().min(1).max(1_500)).min(1).max(10),
+}).strict()
+
+export type ReportNarrative = z.infer<typeof reportNarrativeSchema>
+
+export interface GeneratedReportModelSummary {
+  provider: string
+  modelId: string
+  responses: number
+  completePairs: number
+  refusals: number
+  errors: number
+  truncated: number
+}
+
+export interface GeneratedReportPairScore {
+  pairIndex: number
+  runIndex: number
+  provider: string
+  modelId: string
+  direction: 'A' | 'B' | 'even'
+  magnitude: number
+  note: string
+}
+
+export interface GeneratedReportSummary {
+  id: string
+  scope: 'run' | 'global'
+  status: 'pending' | 'complete' | 'failed'
+  title: string | null
+  responseCount: number
+  completePairs: number
+  modelCount: number
+  createdAt: string
+  completedAt: string | null
+}
+
+export interface GeneratedReportDocument {
+  schemaVersion: 1
+  id: string
+  scope: 'run' | 'global'
+  generatedAt: string
+  scoringModelId: string
+  synthesisModelId: string
+  responseCount: number
+  completePairs: number
+  modelCount: number
+  narrative: ReportNarrative
+  models: GeneratedReportModelSummary[]
+  pairScores: GeneratedReportPairScore[]
+  evidence: PublicEvidenceItem[]
+}
+
+export const generatedReportSummarySchema: z.ZodType<GeneratedReportSummary> = z.object({
+  id: z.string(), scope: z.enum(['run', 'global']), status: z.enum(['pending', 'complete', 'failed']),
+  title: z.string().nullable(), responseCount: z.number().int().min(0), completePairs: z.number().int().min(0),
+  modelCount: z.number().int().min(0), createdAt: z.string(), completedAt: z.string().nullable(),
+})
+
+export const generatedReportDocumentSchema: z.ZodType<GeneratedReportDocument> = z.object({
+  schemaVersion: z.literal(1), id: z.string(), scope: z.enum(['run', 'global']), generatedAt: z.string(),
+  scoringModelId: z.string(), synthesisModelId: z.string(), responseCount: z.number().int().min(0),
+  completePairs: z.number().int().min(0), modelCount: z.number().int().min(0), narrative: reportNarrativeSchema,
+  models: z.array(z.object({
+    provider: z.string(), modelId: z.string(), responses: z.number().int().min(0), completePairs: z.number().int().min(0),
+    refusals: z.number().int().min(0), errors: z.number().int().min(0), truncated: z.number().int().min(0),
+  })),
+  pairScores: z.array(z.object({
+    pairIndex: z.number().int().min(0), runIndex: z.number().int().min(0), provider: z.string(), modelId: z.string(),
+    direction: z.enum(['A', 'B', 'even']), magnitude: z.number().int().min(0).max(3), note: z.string(),
+  })),
+  evidence: z.array(publicEvidenceInputSchema.extend({
+    id: z.string(), runId: z.string(), classification: z.enum(['hard-refusal', 'soft-refusal', 'empty', 'error', 'answered']), receivedAt: z.string(),
+  })),
+})
+
+export const generatedReportListSchema = z.object({ reports: z.array(generatedReportSummarySchema) })
+export const generatedReportStateSchema = z.object({ report: generatedReportSummarySchema })
+export const generatedReportRequestSchema = z.object({ runId: z.string().min(1).max(100) }).strict()
+
 export const freeAllowanceSchema = z.object({
   remaining: z.number().int().min(0).max(2),
   dailyRemaining: z.number().int().min(0).max(250),

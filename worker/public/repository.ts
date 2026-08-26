@@ -2,6 +2,7 @@ import type { PublicEvidenceItem, PublicLeaderboard, PublicModelAggregate, Publi
 import { classifyPublicEvidence, normalizeSubmission, pairContribution, submissionHashMaterial } from '../../src/public/normalize'
 import type { D1DatabaseLike, D1Statement } from './d1'
 import { thresholdsCrossed } from './analysis'
+import { responseReportThresholdsCrossed } from './reportThresholds'
 
 export interface ModelContribution {
   provider: string
@@ -54,17 +55,25 @@ const s = (value: unknown) => String(value ?? '')
 export class PublicRepository {
   constructor(private readonly db: D1DatabaseLike) {}
 
-  async publish(raw: PublicSubmission, receivedAt: string): Promise<{ runId: string; duplicate: boolean; crossedThresholds: number[] }> {
+  async publish(raw: PublicSubmission, receivedAt: string): Promise<{
+    runId: string
+    duplicate: boolean
+    crossedThresholds: number[]
+    crossedResponseReportThresholds: number[]
+  }> {
     const submission = normalizeSubmission(raw)
     const hash = await sha256(submissionHashMaterial(submission))
     const existing = await this.db.prepare('SELECT id FROM public_runs WHERE submission_hash = ?').bind(hash).first<{ id: string }>()
-    if (existing) return { runId: existing.id, duplicate: true, crossedThresholds: [] }
+    if (existing) return { runId: existing.id, duplicate: true, crossedThresholds: [], crossedResponseReportThresholds: [] }
 
     const runId = crypto.randomUUID()
     const contributions = aggregateSubmission(submission)
     const completePairs = contributions.reduce((sum, item) => sum + item.completePairs, 0)
-    const beforeRow = await this.db.prepare('SELECT COALESCE(SUM(complete_pair_count), 0) AS total FROM model_aggregates').first<{ total: number }>()
+    const beforeRow = await this.db.prepare(`SELECT
+      (SELECT COALESCE(SUM(complete_pair_count), 0) FROM model_aggregates) AS total,
+      (SELECT COUNT(*) FROM public_evidence) AS responses`).first<{ total: number; responses: number }>()
     const before = n(beforeRow?.total)
+    const responsesBefore = n(beforeRow?.responses)
     const statements: D1Statement[] = [
       this.db.prepare('INSERT INTO public_runs (id, submission_hash, source, created_at, record_count, complete_pair_count) VALUES (?, ?, ?, ?, ?, ?)')
         .bind(runId, hash, submission.source, receivedAt, submission.records.length, completePairs),
@@ -96,7 +105,12 @@ export class PublicRepository {
           item.answeredCount, item.refusalCount, item.errorCount, item.truncatedCount, item.latencySumMs, receivedAt, receivedAt))
     }
     await this.db.batch(statements)
-    return { runId, duplicate: false, crossedThresholds: thresholdsCrossed(before, before + completePairs) }
+    return {
+      runId,
+      duplicate: false,
+      crossedThresholds: thresholdsCrossed(before, before + completePairs),
+      crossedResponseReportThresholds: responseReportThresholdsCrossed(responsesBefore, responsesBefore + submission.records.length),
+    }
   }
 
   async getLeaderboard(modelLimit = 50, recentLimit = 40): Promise<PublicLeaderboard> {

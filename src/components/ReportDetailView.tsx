@@ -177,13 +177,18 @@ function ResponseEvidence({ record }: { record: ReportEvidenceRow }) {
             <span className="badge warning" title="The provider stopped at its length limit, so this reply is incomplete.">Cut off at the length limit</span>
           )}
         </span>
-        <span className="muted">{record.latencyMs == null ? '' : `${record.latencyMs} ms`}</span>
+        <span className="response-evidence-meta">
+          <span className="response-evidence-model">Model: {record.modelId || 'Not recorded'}{record.provider ? ` · ${record.provider}` : ''}</span>
+          {record.latencyMs != null && <span className="muted">{record.latencyMs} ms</span>}
+        </span>
       </div>
       <pre>{record.response || '(No response body)'}</pre>
       <details className="technical-evidence">
         <summary>Technical evidence</summary>
         <dl>
           <dt>Request</dt><dd>{record.requestId || '—'}</dd>
+          <dt>Provider</dt><dd>{record.provider || 'Not recorded'}</dd>
+          <dt>Model</dt><dd>{record.modelId || 'Not recorded'}</dd>
           <dt>HTTP status</dt><dd>{record.statusCode ?? '—'}</dd>
           <dt>Recorded</dt><dd>{formatDate(record.recordedAt)}</dd>
           <dt>Hash</dt><dd><code>{record.recordHash || 'not recorded'}</code></dd>
@@ -229,6 +234,8 @@ function downloadReport(report: ReportDetail): void {
       question: record.question,
       variantKey: record.variantKey,
       variantLabel: record.variantLabel,
+      provider: record.provider,
+      modelId: record.modelId,
       prompt: record.prompt,
       response: record.response,
       status: record.status,

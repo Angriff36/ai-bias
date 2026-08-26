@@ -10,11 +10,15 @@ export function DropdownSelect({
   value,
   options,
   onChange,
+  className,
+  ariaDescribedBy,
 }: {
   label: string
   value: string
   options: DropdownOption[]
   onChange: (value: string) => void
+  className?: string
+  ariaDescribedBy?: string
 }) {
   const listId = useId()
   const rootRef = useRef<HTMLDivElement>(null)
@@ -71,12 +75,13 @@ export function DropdownSelect({
   }
 
   return (
-    <div className="dropdown-field" ref={rootRef}>
+    <div className={`dropdown-field${className ? ` ${className}` : ''}`} ref={rootRef}>
       <span className="dropdown-label">{label}</span>
       <button
         type="button"
         className="dropdown-trigger"
         aria-label={`${label}: ${selected.label}`}
+        aria-describedby={ariaDescribedBy}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={listId}

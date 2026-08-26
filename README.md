@@ -27,6 +27,11 @@ OpenRouter model IDs use names such as `openai/gpt-4o-mini` or
 `anthropic/claude-3.5-sonnet`. Do not choose embedding, image, audio, or
 moderation-only models for a text bias run.
 
+The run screen estimates cost from OpenRouter's reported per-token model
+prices. It approximates input size at four characters per token and assumes
+500 output tokens per request. Providers that do not report model pricing show
+the estimate as unavailable rather than `$0`.
+
 ## Develop
 
     npm run dev          # live-editing site on http://localhost:5173

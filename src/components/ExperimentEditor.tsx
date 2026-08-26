@@ -8,18 +8,23 @@ import { RunScreen, type RunCompletion } from './RunScreen'
 import { StatusBadge } from './StatusBadge'
 import { createTargetExecutionAdapter } from '../engine/targetAdapter'
 import { createSubscriptionExecutionAdapter } from '../engine/subscriptionAdapter'
-import { loadTargets, targetAuthMode, type TargetConfig } from '../store/targetStore'
+import { loadTargets, saveTargets, targetAuthMode, type TargetConfig } from '../store/targetStore'
+import { getKey } from '../store/keyStore'
+import { discoverModels } from '../adapters/registry'
 import { ProvidersPanel } from './ProvidersPanel'
+import { estimateRunCost } from '../domain/pricing'
 import { estimateRequests, targetReadiness } from '../domain/targetReadiness'
 import { createSimulatedAdapter, type RunTarget } from '../engine/adapter'
 import type { RunPair } from '../engine/types'
 import { CapturePage } from '../capture/CapturePage'
 import type { MatchedPrompt } from '../capture/types'
-import { getFreeAllowance, publishRun } from '../public/client'
+import { getFreeAllowance, publishRun, requestGeneratedReport } from '../public/client'
+import type { GeneratedReportSummary } from '../public/contracts'
 import { createFreeTrialAdapter } from '../public/freeTrialAdapter'
 import { saveThenPublish } from '../public/publishCompletion'
+import { NewBiasTestWizard, type WizardResult } from '../wizard/NewBiasTestWizard'
 
-type WorkspaceView = 'overview' | 'run' | 'results' | 'capture'
+type WorkspaceView = 'overview' | 'run' | 'results' | 'capture' | 'edit'
 
 export function ExperimentEditor({ experimentId }: { experimentId: number }) {
   const [experiment, setExperiment] = useState<ExperimentDetail | null>(null)
@@ -36,9 +41,14 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
   /** Every selected model runs the whole experiment, so results can be compared. */
   const [selectedTargetIds, setSelectedTargetIds] = useState<string[]>([])
   const [providerSetupOpen, setProviderSetupOpen] = useState(false)
+  const [pricingLoading, setPricingLoading] = useState(false)
   const [freeAllowance, setFreeAllowance] = useState<{ remaining: number; dailyRemaining: number } | null>(null)
   const [publishState, setPublishState] = useState<'idle' | 'publishing' | 'published' | 'failed'>('idle')
   const [publishRetryRecords, setPublishRetryRecords] = useState<RunCompletion['records'] | null>(null)
+  const publicRunStorageKey = `ai-bias-public-run:${experimentId}`
+  const [publicRunId, setPublicRunId] = useState(() => sessionStorage.getItem(publicRunStorageKey))
+  const [generatedReport, setGeneratedReport] = useState<GeneratedReportSummary | null>(null)
+  const [reportRequestError, setReportRequestError] = useState<string | null>(null)
   const nameRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -61,6 +71,58 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
       .catch(() => { if (!cancelled) setError(true) })
     return () => { cancelled = true }
   }, [experimentId])
+
+  // Targets saved before pricing support have no cached catalog entry. Refresh
+  // OpenRouter prices when the run screen is opened so those targets do not
+  // stay permanently stuck at "Unavailable".
+  useEffect(() => {
+    if (view !== 'run') return
+    const missingPricing = availableTargets.filter((target) => (
+      target.provider === 'openrouter' && !target.pricing && !!getKey(target.id)
+    ))
+    if (missingPricing.length === 0) return
+
+    const controller = new AbortController()
+    let cancelled = false
+    setPricingLoading(true)
+    Promise.all(missingPricing.map(async (target) => {
+      try {
+        const result = await discoverModels(
+          { provider: target.provider, modelId: target.modelId, endpointUrl: target.endpointUrl },
+          getKey(target.id),
+          controller.signal,
+        )
+        const pricing = result.modelPricing?.[target.modelId]
+        return pricing ? { id: target.id, pricing } : null
+      } catch {
+        return null
+      }
+    })).then((updates) => {
+      if (cancelled) return
+      const pricingById = new Map(
+        updates.filter((update): update is { id: string; pricing: NonNullable<typeof update>['pricing'] } => update !== null)
+          .map((update) => [update.id, update.pricing]),
+      )
+      if (pricingById.size > 0) {
+        setAvailableTargets((current) => {
+          const next = current.map((target) => {
+            const pricing = pricingById.get(target.id)
+            return pricing ? { ...target, pricing } : target
+          })
+          saveTargets(next)
+          return next
+        })
+      }
+      setPricingLoading(false)
+    }).catch(() => {
+      if (!cancelled) setPricingLoading(false)
+    })
+
+    return () => {
+      cancelled = true
+      controller.abort()
+    }
+  }, [view, availableTargets])
 
   useEffect(() => {
     if (view !== 'run') return
@@ -96,6 +158,10 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
     try {
       const result = await publishRun(publishRetryRecords)
       setPublishState('skipped' in result ? 'idle' : 'published')
+      if (!('skipped' in result)) {
+        setPublicRunId(result.runId)
+        sessionStorage.setItem(publicRunStorageKey, result.runId)
+      }
       setPublishRetryRecords(null)
     } catch {
       setPublishState('failed')
@@ -122,11 +188,23 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
         } else {
           setPublishState('published')
           setPublishRetryRecords(null)
+          setPublicRunId(publication.runId)
+          sessionStorage.setItem(publicRunStorageKey, publication.runId)
         }
       })
       .catch((runError: unknown) => {
         setRunSaveError(runError instanceof Error ? runError.message : 'Run completed, but its evidence could not be saved.')
       })
+  }
+
+  const generateFullReport = async () => {
+    if (!publicRunId) return
+    setReportRequestError(null)
+    try {
+      setGeneratedReport(await requestGeneratedReport(publicRunId))
+    } catch (cause: unknown) {
+      setReportRequestError(cause instanceof Error ? cause.message : 'The report could not be requested.')
+    }
   }
 
   if (error) return <NotFoundPage onBack={() => { window.location.hash = '#/experiments' }} />
@@ -183,6 +261,7 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
       label: `${target.name} — ${target.modelId}`,
       provider: target.provider,
       modelId: target.modelId,
+      pricing: target.pricing,
       adapter: targetAuthMode(target) === 'subscription'
         ? createSubscriptionExecutionAdapter(target)
         : createTargetExecutionAdapter(target),
@@ -191,6 +270,50 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
   const subscriptionOnly = runTargets.length === 1
     && selectedTargetIds[0] !== 'offline'
     && availableTargets.some((t) => t.id === selectedTargetIds[0] && targetAuthMode(t) === 'subscription')
+  const pricingPromptTexts = importedPairs.length > 0
+    ? importedPairs.flatMap((pair) => [pair.variantA.prompt, pair.variantB.prompt])
+    : Array.from({ length: pairCount * 2 }, () => experiment.templates[0]?.body ?? '')
+  const costEstimate = estimateRunCost({
+    promptTexts: pricingPromptTexts,
+    repeats,
+    targetPricings: runTargets.map((target) => target.pricing),
+  })
+  const hasApiTarget = runTargets.some((target) => target.provider !== 'simulated')
+  const freeSelected = runTargets.some((target) => target.provider === 'workers-ai')
+
+  if (view === 'edit') {
+    const initialValue: WizardResult = {
+      name: experiment.name,
+      description: experiment.hypothesis ?? '',
+      pairs: experiment.pairs.map((pair) => ({
+        id: pair.external_id,
+        question: pair.question,
+        variantA: { label: pair.variantA.label, prompt: pair.variantA.prompt },
+        variantB: { label: pair.variantB.label, prompt: pair.variantB.prompt },
+      })),
+    }
+    return (
+      <NewBiasTestWizard
+        mode="edit"
+        initialValue={initialValue}
+        isDuplicateName={() => false}
+        onClose={() => setView('run')}
+        onCreate={async (result) => {
+          const updated = await api.updateDraftExperiment(experiment.id, {
+            name: result.name,
+            ...(result.description ? { description: result.description } : {}),
+            repeats,
+            pairs: result.pairs,
+          })
+          setExperiment(updated)
+          setName(updated.name)
+          setRepeats(updated.default_repeats)
+          return updated.id
+        }}
+        onCreated={() => setView('run')}
+      />
+    )
+  }
 
   if (view === 'run') {
     return (
@@ -202,7 +325,12 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
             <h2 id="run-experiment-title">Run experiment</h2>
             <p className="lead">Review the exact questions and prompts, choose a target, then run the experiment.</p>
           </div>
-          <StatusBadge status={experiment.status} />
+          <div className="page-actions">
+            {experiment.run_count === 0 && importedPairs.length > 0 && (
+              <button type="button" className="secondary" onClick={() => setView('edit')}>Edit prompts</button>
+            )}
+            <StatusBadge status={experiment.status} />
+          </div>
         </div>
 
         <div className="run-config panel">
@@ -315,8 +443,22 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
               requests
             </strong>
             <small className="muted">
-              Each request is billed by the provider. This app has no pricing data, so no cost
-              estimate is shown.
+              {freeSelected ? 'This small run is covered by AI Bias Lab.' : 'Each request is billed by the provider.'}
+            </small>
+          </div>
+          <div className="workload-readout cost-estimate" aria-label="Estimated cost">
+            <span>Estimated cost</span>
+            <strong>
+              {freeSelected ? '$0' : costEstimate.pricedTargets > 0
+                ? `~$${costEstimate.estimatedCost.toFixed(4)}`
+                : hasApiTarget ? pricingLoading ? 'Loading…' : 'Unavailable' : '$0'}
+            </strong>
+            <small className="muted">
+              {freeSelected ? 'Two matched questions maximum, with one repeat and a 768-token response ceiling.' : costEstimate.pricedTargets > 0
+                ? `Approx. ${costEstimate.promptTokens.toLocaleString('en-US')} input + ${costEstimate.completionTokens.toLocaleString('en-US')} output tokens per repeat and target${costEstimate.unpricedTargets > 0 ? `; ${costEstimate.unpricedTargets} target has no pricing data` : ''}.`
+                : hasApiTarget
+                  ? pricingLoading ? 'Fetching current OpenRouter model pricing…' : 'The selected provider did not report model pricing.'
+                  : 'The offline simulator makes no provider calls.'}
             </small>
           </div>
           </div>
@@ -356,6 +498,21 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
         {publishState === 'publishing' && <div className="banner info" role="status">Publishing this completed run anonymously…</div>}
         {publishState === 'published' && <div className="banner success" role="status">Published anonymously to the public leaderboard.</div>}
         {publishState === 'failed' && <div className="banner warning" role="alert"><span>Your local report is safe, but public publishing failed.</span> <button className="secondary" onClick={retryPublicPublish}>Retry publishing</button></div>}
+        {publicRunId && importedPairs.length >= 20 && (
+          <section className="run-report-callout" aria-labelledby="full-report-title">
+            <div>
+              <p className="eyebrow">FULL RESEARCH REPORT</p>
+              <h3 id="full-report-title">Analyze this experiment</h3>
+              <p>Generate a model-by-model research report from all {importedPairs.length} matched questions. Exact prompts and responses remain available as evidence.</p>
+            </div>
+            {generatedReport?.status === 'complete'
+              ? <a className="primary button-link" href={`/api/public/reports/${generatedReport.id}.html`}>Read full report</a>
+              : generatedReport?.status === 'pending'
+                ? <span className="report-state pending" role="status">Report generation started</span>
+                : <button type="button" className="primary" onClick={generateFullReport}>Generate full report</button>}
+          </section>
+        )}
+        {reportRequestError && <div className="banner error" role="alert"><span>{reportRequestError}</span> <button type="button" className="secondary" onClick={generateFullReport}>Try again</button></div>}
         {runTargets.length === 0 ? (
           <p className="banner error" role="alert">
             Select at least one model to run against. Nothing is selected, so there is no run to start.

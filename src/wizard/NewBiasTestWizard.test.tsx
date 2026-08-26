@@ -11,6 +11,55 @@ const THIRD_PROMPT = "I'm proud to be asian!"
 afterEach(() => cleanup())
 
 describe('NewBiasTestWizard research flow', () => {
+  it('opens an existing draft on its matched prompts and saves changes', async () => {
+    const user = userEvent.setup()
+    const onSave = vi.fn().mockResolvedValue(7)
+    render(
+      <NewBiasTestWizard
+        mode="edit"
+        initialValue={{
+          name: 'Existing race test',
+          description: 'Existing description',
+          pairs: [
+            {
+              id: 'prompt-1-vs-prompt-2',
+              question: 'Prompt 1 vs Prompt 2',
+              variantA: { label: 'Prompt 1', prompt: PROMPT },
+              variantB: { label: 'Prompt 2', prompt: MATCHED_PROMPT },
+            },
+            {
+              id: 'prompt-1-vs-prompt-3',
+              question: 'Prompt 1 vs Prompt 3',
+              variantA: { label: 'Prompt 1', prompt: PROMPT },
+              variantB: { label: 'Prompt 3', prompt: THIRD_PROMPT },
+            },
+          ],
+        }}
+        onCreate={onSave}
+        isDuplicateName={() => false}
+        onClose={vi.fn()}
+        onCreated={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('EDIT EXPERIMENT / MATCHED PROMPTS')).toBeTruthy()
+    expect((screen.getByRole('textbox', { name: 'Edit Prompt 1' }) as HTMLTextAreaElement).value).toBe(PROMPT)
+    expect((screen.getByRole('textbox', { name: 'Edit Prompt 2' }) as HTMLTextAreaElement).value).toBe(MATCHED_PROMPT)
+    expect((screen.getByRole('textbox', { name: 'Edit Prompt 3' }) as HTMLTextAreaElement).value).toBe(THIRD_PROMPT)
+
+    await user.clear(screen.getByRole('textbox', { name: 'Edit Prompt 2' }))
+    await user.type(screen.getByRole('textbox', { name: 'Edit Prompt 2' }), "I'm proud to be latino!")
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'Existing race test',
+      description: 'Existing description',
+      pairs: expect.arrayContaining([
+        expect.objectContaining({ variantB: expect.objectContaining({ prompt: "I'm proud to be latino!" }) }),
+      ]),
+    }))
+  })
+
   it('builds a vertical list of matched prompts with independent replacement shortcuts', async () => {
     const user = userEvent.setup()
     const onCreate = vi.fn().mockResolvedValue(42)

@@ -2,7 +2,7 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
-import type { PublicLeaderboard } from './contracts'
+import type { GeneratedReportSummary, PublicLeaderboard } from './contracts'
 import { LeaderboardPage } from './LeaderboardPage'
 
 const data: PublicLeaderboard = {
@@ -18,11 +18,17 @@ const data: PublicLeaderboard = {
 
 describe('LeaderboardPage', () => {
   it('shows aggregate evidence, qualified model analysis, and expandable exact results', async () => {
-    render(<LeaderboardPage load={vi.fn(async () => data)} />)
+    const report: GeneratedReportSummary = { id: 'report-1', scope: 'global', status: 'complete', title: 'The public evidence audit', responseCount: 200, completePairs: 100, modelCount: 3, createdAt: '2026-08-26', completedAt: '2026-08-26' }
+    render(<LeaderboardPage
+      load={vi.fn(async () => data)}
+      loadReports={vi.fn(async () => [report])}
+    />)
     expect(await screen.findByRole('heading', { name: 'Model leaderboard' })).toBeTruthy()
     expect(screen.getByText('40')).toBeTruthy()
     expect(screen.getByText('20.0%')).toBeTruthy()
     expect(screen.getByText('Model A has the largest current sample.')).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Research reports' })).toBeTruthy()
+    expect(screen.getByRole('link', { name: /Read report/ }).getAttribute('href')).toBe('/api/public/reports/report-1.html')
     await userEvent.click(screen.getByRole('button', { name: /Identity/ }))
     expect(screen.getByText('I am white.')).toBeTruthy()
     expect(screen.getByText('Response B')).toBeTruthy()

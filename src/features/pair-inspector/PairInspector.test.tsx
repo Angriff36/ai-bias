@@ -41,6 +41,17 @@ describe('inspecting one matched pair', () => {
     expect(screen.queryByRole('button', { name: /edit classification/i })).toBeNull()
   })
 
+  it('shows the model that produced each response', () => {
+    const base = pair()
+    render(<PairInspector data={{
+      ...base,
+      variantA: { ...base.variantA, provider: 'openrouter', modelId: 'openai/gpt-4o-mini' },
+      variantB: { ...base.variantB, provider: 'openrouter', modelId: 'openai/gpt-4o-mini' },
+    }} onNavigate={() => undefined} onBack={() => undefined} />)
+
+    expect(screen.getAllByText('Model: openai/gpt-4o-mini · openrouter')).toHaveLength(2)
+  })
+
   it('moves to the next pair with the button and the ] key, and back to the report', async () => {
     const onNavigate = vi.fn()
     const onBack = vi.fn()

@@ -637,15 +637,13 @@ export function ExperimentHistoryList() {
               ))}
               <button onClick={() => goToPage(page + 1)} disabled={page >= totalPages}>Next</button>
             </nav>
-            <label className="page-size">
-              Per page
-              <select
-                value={debounced.pageSize}
-                onChange={(e) => setQuery((q) => ({ ...q, pageSize: Number(e.target.value), page: 1 }))}
-              >
-                {PAGE_SIZES.map((n) => <option key={n} value={n}>{n}</option>)}
-              </select>
-            </label>
+            <DropdownSelect
+              label="Per page"
+              value={String(debounced.pageSize)}
+              options={PAGE_SIZES.map((n) => ({ value: String(n), label: String(n) }))}
+              onChange={(next) => setQuery((q) => ({ ...q, pageSize: Number(next), page: 1 }))}
+              className="page-size-dropdown"
+            />
           </div>
         </>
       )}

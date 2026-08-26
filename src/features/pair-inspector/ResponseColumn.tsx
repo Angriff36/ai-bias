@@ -149,6 +149,7 @@ export function ResponseColumn({
         )}
 
         <div className="pi-meta">
+          <span className="pi-model">Model: {side.modelId || "Not recorded"}{side.provider ? ` · ${side.provider}` : ""}</span>
           <CorrectableClassification
             outcome={side.outcome}
             corrected={side.corrected}

@@ -2,7 +2,7 @@
  * Persists AI Target configuration (everything except the API key).
  * Keys are stored separately in keyStore.ts and never mixed with target data.
  */
-import type { ProviderId } from '../adapters/types'
+import type { ModelPricing, ProviderId } from '../adapters/types'
 
 export type TargetAuthMode = 'subscription' | 'api-key' | 'openrouter-oauth'
 
@@ -14,6 +14,7 @@ export interface TargetConfig {
   authMode?: TargetAuthMode
   endpointUrl?: string
   headers?: Record<string, string>
+  pricing?: ModelPricing
 }
 
 export function targetAuthMode(target: TargetConfig): TargetAuthMode {

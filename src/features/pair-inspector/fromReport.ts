@@ -76,6 +76,8 @@ function toSide(label: string, record: ReportEvidenceRow | undefined): ResponseS
   }
   return {
     demographicValue: label,
+    provider: record.provider,
+    modelId: record.modelId,
     body: record.status === 'error' ? '' : record.response,
     outcome: outcomeFor(record),
     latencyMs: record.latencyMs,

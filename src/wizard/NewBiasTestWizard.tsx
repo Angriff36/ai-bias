@@ -25,11 +25,17 @@ interface Props {
   onCreated: (id: number) => void
   initialPrompt?: string
   initialName?: string
+  initialValue?: WizardResult
+  mode?: 'create' | 'edit'
 }
 
 interface PromptVariant {
   id: number
   prompt: string
+  pairId?: string
+  question?: string
+  labelA?: string
+  labelB?: string
 }
 
 interface ActivePhrase {
@@ -45,20 +51,35 @@ function suggestedName(): string {
 
 export function NewBiasTestWizard({
   onCreate, isDuplicateName, onClose, onCreated, initialPrompt, initialName,
+  initialValue, mode = 'create',
 }: Props) {
-  const [step, setStep] = useState(0)
-  const [prompt, setPrompt] = useState(initialPrompt ?? '')
-  const [variants, setVariants] = useState<PromptVariant[]>([])
+  const initialVariants = useMemo<PromptVariant[]>(() => {
+    if (!initialValue?.pairs.length) return []
+    return [
+      { id: 1, prompt: initialValue.pairs[0].variantA.prompt },
+      ...initialValue.pairs.map((pair, index) => ({
+        id: index + 2,
+        prompt: pair.variantB.prompt,
+        pairId: pair.id,
+        question: pair.question,
+        labelA: pair.variantA.label,
+        labelB: pair.variantB.label,
+      })),
+    ]
+  }, [initialValue])
+  const [step, setStep] = useState(mode === 'edit' ? 1 : 0)
+  const [prompt, setPrompt] = useState(initialVariants[0]?.prompt ?? initialPrompt ?? '')
+  const [variants, setVariants] = useState<PromptVariant[]>(initialVariants)
   const [detectFailed, setDetectFailed] = useState(false)
   const [activePhrase, setActivePhrase] = useState<ActivePhrase | null>(null)
-  const [name, setName] = useState(initialName?.trim() || suggestedName())
-  const [description, setDescription] = useState('')
-  const [showDescription, setShowDescription] = useState(false)
+  const [name, setName] = useState(initialValue?.name.trim() || initialName?.trim() || suggestedName())
+  const [description, setDescription] = useState(initialValue?.description ?? '')
+  const [showDescription, setShowDescription] = useState(Boolean(initialValue?.description))
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
   const [nameError, setNameError] = useState<string | null>(null)
   const headingRef = useRef<HTMLHeadingElement>(null)
-  const nextPromptId = useRef(3)
+  const nextPromptId = useRef(Math.max(3, initialVariants.length + 1))
 
   const dirty = prompt.length > 0 || variants.some((variant) => variant.prompt !== prompt) || description.length > 0
 
@@ -75,10 +96,10 @@ export function NewBiasTestWizard({
   const pairs = useMemo<ComparisonPair[]>(() => {
     const original = variants[0]?.prompt ?? ''
     return variants.slice(1).map((variant, index) => ({
-      id: `prompt-1-vs-prompt-${index + 2}`,
-      question: `Prompt 1 vs Prompt ${index + 2}`,
-      variantA: { label: 'Prompt 1', prompt: original },
-      variantB: { label: `Prompt ${index + 2}`, prompt: variant.prompt },
+      id: variant.pairId ?? `prompt-1-vs-prompt-${index + 2}`,
+      question: variant.question ?? `Prompt 1 vs Prompt ${index + 2}`,
+      variantA: { label: variant.labelA ?? 'Prompt 1', prompt: original },
+      variantB: { label: variant.labelB ?? `Prompt ${index + 2}`, prompt: variant.prompt },
     }))
   }, [variants])
 
@@ -160,7 +181,7 @@ export function NewBiasTestWizard({
   const canNext = step === 0 && prompt.trim().length >= 10
 
   return (
-    <div className="wizard" role="dialog" aria-modal="true" aria-label="New bias test wizard">
+    <div className="wizard" role="dialog" aria-modal="true" aria-label={mode === 'edit' ? 'Edit experiment prompts' : 'New bias test wizard'}>
       <StepIndicator step={step} />
 
       <div className="wizard-body">
@@ -204,7 +225,7 @@ export function NewBiasTestWizard({
         {step === 1 && (
           <section className="wz-stage wz-stage-match" aria-labelledby="wz-h">
             <header className="wz-stage-header">
-              <p className="wz-stage-eyebrow">NEW EXPERIMENT / STEP 2 OF 2</p>
+              <p className="wz-stage-eyebrow">{mode === 'edit' ? 'EDIT EXPERIMENT / MATCHED PROMPTS' : 'NEW EXPERIMENT / STEP 2 OF 2'}</p>
               <h2 id="wz-h" ref={headingRef} tabIndex={-1}>Create matched prompts</h2>
               <p>Prompt 2 starts as an exact copy. Click any highlighted variable to replace it, or edit any prompt directly.</p>
             </header>
@@ -354,9 +375,9 @@ export function NewBiasTestWizard({
             </section>
 
             <div className="wz-create-actions">
-              <button type="button" className="secondary" onClick={goBack}>Back</button>
+              <button type="button" className="secondary" onClick={mode === 'edit' ? onClose : goBack}>{mode === 'edit' ? 'Cancel' : 'Back'}</button>
               <button type="button" className="primary wz-create" onClick={create} disabled={creating || !promptsReady}>
-                {creating ? 'Creating…' : 'Create Experiment'}
+                {creating ? (mode === 'edit' ? 'Saving…' : 'Creating…') : (mode === 'edit' ? 'Save changes' : 'Create Experiment')}
               </button>
             </div>
           </section>

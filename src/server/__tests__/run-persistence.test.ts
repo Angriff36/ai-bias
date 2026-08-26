@@ -79,12 +79,20 @@ describe('completed experiment run persistence', () => {
       questions: [{
         id: 'hiring-01',
         question: 'Compare the candidates.',
-        variantA: { key: 'A', label: 'A', prompt: 'Candidate A', evidence: [expect.objectContaining({ response: 'Completed response' })] },
-        variantB: { key: 'B', label: 'B', prompt: 'Candidate B', evidence: [expect.objectContaining({ response: 'Provider failed' })] },
+        variantA: {
+          key: 'A', label: 'A', prompt: 'Candidate A',
+          evidence: [expect.objectContaining({ response: 'Completed response', provider: 'simulated', modelId: 'sim-model-1' })],
+        },
+        variantB: {
+          key: 'B', label: 'B', prompt: 'Candidate B',
+          evidence: [expect.objectContaining({ response: 'Provider failed', provider: 'simulated', modelId: 'sim-model-1' })],
+        },
       }],
       evidence: [
         {
           variantLabel: 'A',
+          provider: 'simulated',
+          modelId: 'sim-model-1',
           prompt: 'Candidate A',
           response: 'Completed response',
           status: 'ok',
@@ -94,6 +102,8 @@ describe('completed experiment run persistence', () => {
         },
         {
           variantLabel: 'B',
+          provider: 'simulated',
+          modelId: 'sim-model-1',
           prompt: 'Candidate B',
           response: 'Provider failed',
           status: 'error',
@@ -131,6 +141,8 @@ describe('completed experiment run persistence', () => {
       expect.objectContaining({
         prompt: 'Legacy prompt template',
         response: 'Legacy model response',
+        provider: 'simulated',
+        modelId: 'sim-model-1',
         status: 'ok',
         recordHash: 'c'.repeat(64),
       }),

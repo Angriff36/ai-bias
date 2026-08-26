@@ -72,6 +72,9 @@ export interface ResponseError {
 export interface ResponseSide {
   /** Demographic value this side represents, e.g. "Jamal". */
   demographicValue: string;
+  /** Provider and model that produced this response, when the run recorded them. */
+  provider?: string;
+  modelId?: string;
   /** Raw response body, exactly as received. Undefined while loading. */
   body?: string;
   outcome: ClassificationOutcome;

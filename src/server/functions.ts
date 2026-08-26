@@ -70,6 +70,8 @@ export interface ExperimentDetail extends ExperimentRow {
   pairs: ExperimentPairDetail[]
 }
 
+export type DraftExperimentUpdate = Omit<ExperimentImportDocument, 'schemaVersion'>
+
 export interface ExperimentPage {
   rows: ExperimentIndexRow[]
   total: number
@@ -113,6 +115,8 @@ export interface ReportEvidenceRow {
   question?: string
   variantKey?: 'A' | 'B'
   variantLabel: string
+  provider?: string
+  modelId?: string
   prompt: string
   response: string
   status: 'ok' | 'error'
@@ -632,6 +636,62 @@ export function updateExperimentName(token: string | null, id: number, name: str
   return getExperiment(token, id)
 }
 
+/** Replaces an owned experiment's editable definition before any run exists. */
+export function updateDraftExperiment(
+  token: string | null,
+  id: number,
+  input: DraftExperimentUpdate,
+): ExperimentDetail {
+  const userId = requireUser(token)
+  const parsed = parseExperimentImport(JSON.stringify({ schemaVersion: 1, ...input }))
+  if (!parsed.ok) {
+    throw new ServerError(500, `Invalid experiment update: ${parsed.issues[0].path} ${parsed.issues[0].message}`)
+  }
+  const db = getDb()
+  withTransaction(db, () => {
+    const owned = db.exec(
+      'SELECT 1 FROM experiments WHERE id = ? AND created_by = ?',
+      [id, userId],
+    )[0]?.values[0]
+    if (!owned) throw new ServerError(404, 'Not found')
+    const runCount = Number(db.exec(
+      'SELECT COUNT(*) FROM run_batches WHERE experiment_id = ?',
+      [id],
+    )[0]?.values[0]?.[0] ?? 0)
+    if (runCount > 0) {
+      throw new ServerError(409, 'This experiment cannot be edited after a run has been created.')
+    }
+
+    db.run(
+      "UPDATE experiments SET name = ?, hypothesis = ?, default_repeats = ?, status = 'draft' WHERE id = ? AND created_by = ?",
+      [parsed.value.name, parsed.value.description ?? null, parsed.value.repeats, id, userId],
+    )
+    clearLeftoverPairs(db, id)
+    db.run('DELETE FROM templates WHERE experiment_id = ?', [id])
+    db.run(
+      'INSERT INTO templates (experiment_id, name, body) VALUES (?, ?, ?)',
+      [id, 'Imported complete prompts', 'Imported complete prompts; see matched questions.'],
+    )
+    for (const [ordinal, pair] of parsed.value.pairs.entries()) {
+      db.run(
+        'INSERT INTO experiment_pairs (experiment_id, external_id, ordinal, question) VALUES (?, ?, ?, ?)',
+        [id, pair.id, ordinal, pair.question],
+      )
+      const pairId = lastInsertId(db)
+      db.run(
+        'INSERT INTO experiment_pair_variants (pair_id, variant_key, label, prompt) VALUES (?, ?, ?, ?)',
+        [pairId, 'A', pair.variantA.label, pair.variantA.prompt],
+      )
+      db.run(
+        'INSERT INTO experiment_pair_variants (pair_id, variant_key, label, prompt) VALUES (?, ?, ?, ?)',
+        [pairId, 'B', pair.variantB.label, pair.variantB.prompt],
+      )
+    }
+  })
+  persist()
+  return getExperiment(token, id)
+}
+
 /**
  * Commits a completed browser run to the relational project database.
  * Raw records already carry their immutable SHA-256 digest from the execution
@@ -894,6 +954,8 @@ export function getReportDetail(token: string | null, reportId: number): ReportD
       question: typeof record.question === 'string' ? record.question : undefined,
       variantKey: record.variantKey === 'A' || record.variantKey === 'B' ? record.variantKey : undefined,
       variantLabel: String(record.variantLabel ?? '—'),
+      provider: typeof record.provider === 'string' && record.provider ? record.provider : undefined,
+      modelId: typeof record.modelId === 'string' && record.modelId ? record.modelId : undefined,
       prompt: String(record.prompt ?? ''),
       response: String(record.response ?? ''),
       status,
@@ -909,7 +971,7 @@ export function getReportDetail(token: string | null, reportId: number): ReportD
   // response bodies and stored hashes from their linked batch.
   if (evidence.length === 0 && typeof body.batchId === 'number') {
     const legacyRows = db.exec(
-      `SELECT rr.id, ru.status, rr.body, rr.content_hash, rr.received_at
+      `SELECT rr.id, ru.status, rr.body, rr.content_hash, rr.received_at, ru.provider, ru.model_id
        FROM raw_responses rr
        JOIN runs ru ON ru.id = rr.run_id
        WHERE ru.batch_id = ?
@@ -919,6 +981,8 @@ export function getReportDetail(token: string | null, reportId: number): ReportD
     evidence = legacyRows.map((legacy, index) => ({
       requestId: `record-${String(legacy[0])}`,
       variantLabel: `Record ${index + 1}`,
+      provider: typeof legacy[5] === 'string' && legacy[5] ? String(legacy[5]) : undefined,
+      modelId: typeof legacy[6] === 'string' && legacy[6] ? String(legacy[6]) : undefined,
       prompt: String(row[6] ?? ''),
       response: String(legacy[2] ?? ''),
       status: String(legacy[1]) === 'failed' ? 'error' : 'ok',
@@ -956,6 +1020,8 @@ function buildReportQuestions(records: RawRecord[]): ReportQuestion[] {
     question: record.question,
     variantKey: record.variantKey,
     variantLabel: record.variantLabel,
+    provider: record.provider,
+    modelId: record.modelId,
     prompt: record.prompt,
     response: record.response || record.errorMessage || '',
     status: record.status,

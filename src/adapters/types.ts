@@ -24,14 +24,23 @@ export interface CallModelResult {
   truncated?: boolean
 }
 
+/** Provider-reported USD prices per input/output token. */
+export interface ModelPricing {
+  promptPerToken: number
+  completionPerToken: number
+}
+
 export interface DiscoverModelsResult {
   models: string[]
+  modelPricing?: Record<string, ModelPricing>
 }
 
 export interface AdapterError {
   kind: 'auth' | 'timeout' | 'not_found' | 'unknown'
   statusCode?: number
   message: string
+  /** Safe provider-supplied detail for diagnostics; never contains credentials. */
+  detail?: string
 }
 
 export function isAdapterError(e: unknown): e is AdapterError {
@@ -53,7 +62,7 @@ export function friendlyError(e: AdapterError): string {
       return 'Model not found on this provider. Use Discover Models to refresh.'
     default:
       return e.statusCode != null
-        ? `Error ${e.statusCode}. Check your configuration and retry.`
+        ? `Error ${e.statusCode}${e.detail ? `: ${e.detail}` : ''}. Check your configuration and retry.`
         : 'An unexpected error occurred. Check your configuration and retry.'
   }
 }

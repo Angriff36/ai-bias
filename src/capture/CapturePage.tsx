@@ -7,6 +7,7 @@ import {
   type MatchedPrompt,
   type Outcome,
 } from './types'
+import { DropdownSelect } from '../components/DropdownSelect'
 
 interface Props {
   /** The experiment's matched prompts, in order. */
@@ -101,12 +102,12 @@ export function CapturePage({ prompts, experimentName }: Props) {
       <section className="panel" aria-labelledby="prompt-heading">
         <h3 id="prompt-heading">1. Copy a matched prompt</h3>
         <div className="field">
-          <label htmlFor="prompt-select">Prompt to present</label>
-          <select id="prompt-select" value={prompt.id} onChange={(e) => setPromptId(e.target.value)}>
-            {prompts.map((p) => (
-              <option key={p.id} value={p.id}>{p.variantLabel}</option>
-            ))}
-          </select>
+          <DropdownSelect
+            label="Prompt to present"
+            value={prompt.id}
+            options={prompts.map((p) => ({ value: p.id, label: p.variantLabel }))}
+            onChange={setPromptId}
+          />
         </div>
         <blockquote className="prompt-text" data-testid="prompt-text">{prompt.text}</blockquote>
         <button type="button" className="secondary" onClick={copyPrompt}>
@@ -127,13 +128,15 @@ export function CapturePage({ prompts, experimentName }: Props) {
           />
         </div>
         <div className="field">
-          <label htmlFor="outcome-select">Outcome</label>
-          <select id="outcome-select" value={outcome} onChange={(e) => setOutcome(e.target.value as Outcome)}>
-            <option value="">Select an outcome…</option>
-            {OUTCOMES.map((o) => (
-              <option key={o} value={o}>{OUTCOME_LABELS[o]}</option>
-            ))}
-          </select>
+          <DropdownSelect
+            label="Outcome"
+            value={outcome}
+            options={[
+              { value: '', label: 'Select an outcome…' },
+              ...OUTCOMES.map((o) => ({ value: o, label: OUTCOME_LABELS[o] })),
+            ]}
+            onChange={(next) => setOutcome(next as Outcome | '')}
+          />
         </div>
         <div className="field">
           <label htmlFor="notes">Notes (optional)</label>

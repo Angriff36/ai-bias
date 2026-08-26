@@ -5,6 +5,20 @@ const BASE = 'https://api.openai.com/v1'
 /** High enough that a normal answer is never cut; a reply that still hits it is flagged. */
 const MAX_OUTPUT_TOKENS = 4096
 
+async function throwOpenAIError(res: Response): Promise<never> {
+  const classified = classifyHttpError(res.status)
+  try {
+    const json = await res.json() as { error?: { message?: unknown } }
+    const detail = json.error?.message
+    if (typeof detail === 'string' && detail.trim()) {
+      throw { ...classified, detail: detail.trim() }
+    }
+  } catch (error) {
+    if (error && typeof error === 'object' && 'kind' in error) throw error
+  }
+  throw classified
+}
+
 export const openaiAdapter: ProviderAdapter = {
   async callModel(prompt, config, apiKey, signal): Promise<CallModelResult> {
     const start = Date.now()
@@ -15,11 +29,11 @@ export const openaiAdapter: ProviderAdapter = {
       body: JSON.stringify({
         model: config.modelId,
         messages: [{ role: 'user', content: prompt }],
-        max_tokens: MAX_OUTPUT_TOKENS,
+        max_completion_tokens: MAX_OUTPUT_TOKENS,
       }),
     }).catch(() => { throw { kind: 'timeout', message: 'fetch failed' } })
 
-    if (!res.ok) throw classifyHttpError(res.status)
+    if (!res.ok) await throwOpenAIError(res)
     const json = await res.json() as {
       choices?: { message?: { content?: string | null }; finish_reason?: string }[]
     }
@@ -40,7 +54,7 @@ export const openaiAdapter: ProviderAdapter = {
       headers: { Authorization: `Bearer ${apiKey}` },
     }).catch(() => { throw { kind: 'timeout', message: 'fetch failed' } })
 
-    if (!res.ok) throw classifyHttpError(res.status)
+    if (!res.ok) await throwOpenAIError(res)
     const json = await res.json() as { data?: { id: string }[] }
     return { models: (json.data ?? []).map((m) => m.id).sort() }
   },

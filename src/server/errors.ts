@@ -4,7 +4,7 @@
  * plain language that can go straight to the screen.
  */
 export class ServerError extends Error {
-  constructor(public status: 401 | 404 | 500, message: string) {
+  constructor(public status: 401 | 404 | 409 | 500, message: string) {
     super(message)
     this.name = 'ServerError'
   }

@@ -2,10 +2,13 @@ import type { RawRecord } from '../engine/types'
 import {
   freeAllowanceSchema,
   freeRunResponseSchema,
+  generatedReportListSchema,
+  generatedReportStateSchema,
   publicLeaderboardSchema,
   publishResultSchema,
   type FreeRunRequest,
   type FreeRunResponse,
+  type GeneratedReportSummary,
   type PublicLeaderboard,
 } from './contracts'
 
@@ -51,6 +54,18 @@ export async function publishRun(records: RawRecord[], fetcher: Fetcher = fetch)
 
 export async function getPublicLeaderboard(fetcher: Fetcher = fetch): Promise<PublicLeaderboard> {
   return publicLeaderboardSchema.parse(await responseJson(await fetcher('/api/public/leaderboard', { credentials: 'same-origin' })))
+}
+
+export async function listGeneratedReports(fetcher: Fetcher = fetch): Promise<GeneratedReportSummary[]> {
+  const response = await fetcher('/api/public/reports', { credentials: 'same-origin' })
+  return generatedReportListSchema.parse(await responseJson(response)).reports
+}
+
+export async function requestGeneratedReport(runId: string, fetcher: Fetcher = fetch): Promise<GeneratedReportSummary> {
+  const response = await fetcher('/api/public/reports', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ runId }), credentials: 'same-origin',
+  })
+  return generatedReportStateSchema.parse(await responseJson(response)).report
 }
 
 export async function getFreeAllowance(fetcher: Fetcher = fetch): Promise<{ remaining: number; dailyRemaining: number }> {

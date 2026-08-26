@@ -5,6 +5,7 @@
  * offline, per the "full offline usability before any API key" capability.
  */
 import type { ProviderId, RunRequest } from './types'
+import type { ModelPricing } from '../adapters/types'
 
 export interface AdapterResult {
   content: string
@@ -85,6 +86,7 @@ export interface RunTarget {
   label: string
   provider: ProviderId
   modelId: string
+  pricing?: ModelPricing
   adapter: ProviderAdapter
 }
 

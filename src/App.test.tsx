@@ -32,6 +32,7 @@ vi.mock('./public/client', () => ({
     totals: { runs: 0, responses: 0, completePairs: 0, models: 0 },
     models: [], latestAnalysis: null, analysisPending: false, recentEvidence: [],
   }),
+  listGeneratedReports: vi.fn().mockResolvedValue([]),
 }))
 
 describe('application navigation', () => {

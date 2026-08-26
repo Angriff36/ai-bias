@@ -27,7 +27,7 @@ describe('replies cut off at the length limit', () => {
 
     expect(result.truncated).toBe(true)
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string)
-    expect(body.max_tokens).toBeGreaterThanOrEqual(4096)
+    expect(body.max_completion_tokens).toBeGreaterThanOrEqual(4096)
   })
 
   it('OpenAI: a complete reply is not flagged', async () => {

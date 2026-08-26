@@ -4,6 +4,7 @@ import { createBrowserApi } from './browser/api'
 export { ServerError }
 export type {
   ExperimentDetail,
+  DraftExperimentUpdate,
   ExperimentPage,
   ExperimentRow,
   ExperimentRunSummary,

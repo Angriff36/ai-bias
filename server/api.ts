@@ -36,6 +36,7 @@ const RPC: Record<string, (...args: any[]) => unknown> = {
   importExperiment: (doc) => withLocalUser((t) => fns.importExperiment(t, doc)),
   cloneExperiment: (id) => withLocalUser((t) => fns.cloneExperiment(t, id)),
   updateExperimentName: (id, name) => withLocalUser((t) => fns.updateExperimentName(t, id, name)),
+  updateDraftExperiment: (id, input) => withLocalUser((t) => fns.updateDraftExperiment(t, id, input)),
   completeOfflineRun: (id, records) => withLocalUser((t) => fns.completeOfflineRun(t, id, records)),
   getExperimentRunSummary: (id) => withLocalUser((t) => fns.getExperimentRunSummary(t, id)),
   deleteExperiment: (id) => withLocalUser((t) => fns.deleteExperiment(t, id)),

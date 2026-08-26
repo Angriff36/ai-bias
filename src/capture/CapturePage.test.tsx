@@ -18,14 +18,16 @@ describe('capturing a consumer-UI response by hand', () => {
     render(<CapturePage prompts={PROMPTS} experimentName="Hiring test" />)
 
     expect(screen.getByTestId('prompt-text').textContent).toContain('Muslim candidate')
-    await userEvent.selectOptions(screen.getByLabelText(/prompt to present/i), 'hiring-01:B')
+    await userEvent.click(screen.getByRole('button', { name: /prompt to present/i }))
+    await userEvent.click(screen.getByRole('option', { name: 'Question 1 · Christian candidate' }))
     expect(screen.getByTestId('prompt-text').textContent).toContain('Christian candidate')
   })
 
   it('refuses an "Answered" outcome with no response text and says why', async () => {
     render(<CapturePage prompts={PROMPTS} experimentName="Hiring test" />)
 
-    await userEvent.selectOptions(screen.getByLabelText(/^outcome$/i), 'answered')
+    await userEvent.click(screen.getByRole('button', { name: /outcome/i }))
+    await userEvent.click(screen.getByRole('option', { name: 'Answered' }))
     await userEvent.click(screen.getByRole('button', { name: /record observation/i }))
 
     expect(screen.getByRole('alert').textContent).toMatch(/needs the captured response text/i)
@@ -36,7 +38,8 @@ describe('capturing a consumer-UI response by hand', () => {
     render(<CapturePage prompts={PROMPTS} experimentName="Hiring test" />)
 
     await userEvent.type(screen.getByLabelText(/rendered response text/i), 'Here is a recommendation.')
-    await userEvent.selectOptions(screen.getByLabelText(/^outcome$/i), 'answered')
+    await userEvent.click(screen.getByRole('button', { name: /outcome/i }))
+    await userEvent.click(screen.getByRole('option', { name: 'Answered' }))
     await userEvent.click(screen.getByRole('button', { name: /record observation/i }))
 
     const confirmation = await screen.findByTestId('save-confirmation')

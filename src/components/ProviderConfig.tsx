@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
-import type { ProviderId } from '../adapters/types'
+import type { ModelPricing, ProviderId } from '../adapters/types'
 import { friendlyError, isAdapterError } from '../adapters/types'
 import { discoverModels, testConnection } from '../adapters/registry'
 import { getKey, hasKey, REDACTED } from '../store/keyStore'
 import type { TargetConfig } from '../store/targetStore'
 import { EmptyState } from './EmptyState'
+import { DropdownSelect } from './DropdownSelect'
 
 // ---------- Provider metadata ----------
 
@@ -118,6 +119,9 @@ export function ProviderConfigForm({ initial, onSave, onCancel }: Props) {
 
   // Model discovery
   const [discoveredModels, setDiscoveredModels] = useState<string[]>([])
+  const [discoveredPricing, setDiscoveredPricing] = useState<Record<string, ModelPricing>>(() => (
+    initial?.pricing && initial.modelId ? { [initial.modelId]: initial.pricing } : {}
+  ))
   const [discoverError, setDiscoverError] = useState<string | null>(null)
   const [discoverState, setDiscoverState] = useState<'idle' | 'loading' | 'error'>('idle')
 
@@ -137,6 +141,7 @@ export function ProviderConfigForm({ initial, onSave, onCancel }: Props) {
     setProvider(next)
     setModelId('')
     setDiscoveredModels([])
+    setDiscoveredPricing({})
     setDiscoverState('idle')
     setModelCleared(true)
     setConnStatus('idle')
@@ -144,8 +149,8 @@ export function ProviderConfigForm({ initial, onSave, onCancel }: Props) {
   }
 
   const resolvedKey = (): string => {
-    if (apiKey) return apiKey
-    if (initial?.id) return getKey(initial.id)
+    if (apiKey) return apiKey.trim()
+    if (initial?.id) return getKey(initial.id).trim()
     return ''
   }
 
@@ -160,13 +165,14 @@ export function ProviderConfigForm({ initial, onSave, onCancel }: Props) {
         abortRef.current.signal,
       )
       setDiscoveredModels(result.models)
+      setDiscoveredPricing(result.modelPricing ?? {})
       setDiscoverError(null)
       setDiscoverState('idle')
     } catch (error) {
       setDiscoverError(isAdapterError(error) ? friendlyError(error) : null)
       setDiscoverState('error')
     }
-  }, [provider, modelId, endpointUrl])
+  }, [provider, modelId, endpointUrl, apiKey, initial?.id])
 
   const handleTest = useCallback(async () => {
     if (resetTimerRef.current) clearTimeout(resetTimerRef.current)
@@ -190,7 +196,7 @@ export function ProviderConfigForm({ initial, onSave, onCancel }: Props) {
       }
       setConnStatus('failure')
     }
-  }, [provider, modelId, endpointUrl])
+  }, [provider, modelId, endpointUrl, apiKey, initial?.id])
 
   const validate = (): boolean => {
     const errs: Record<string, string> = {}
@@ -205,6 +211,7 @@ export function ProviderConfigForm({ initial, onSave, onCancel }: Props) {
   const handleSave = () => {
     if (!validate()) return
     const key = resolvedKey()
+    const pricing = discoveredPricing[modelId]
     const target: TargetConfig = {
       id: initial?.id ?? crypto.randomUUID(),
       name: name.trim(),
@@ -212,6 +219,7 @@ export function ProviderConfigForm({ initial, onSave, onCancel }: Props) {
       modelId: modelId.trim(),
       authMode: 'api-key',
       ...(endpointUrl ? { endpointUrl } : {}),
+      ...(pricing ? { pricing } : {}),
     }
     onSave(target, key)
   }
@@ -241,16 +249,12 @@ export function ProviderConfigForm({ initial, onSave, onCancel }: Props) {
 
       {/* Provider */}
       <div className="field">
-        <label htmlFor={id('provider')}>Provider</label>
-        <select
-          id={id('provider')}
+        <DropdownSelect
+          label="Provider"
           value={provider}
-          onChange={(e) => handleProviderChange(e.target.value as ProviderId)}
-        >
-          {PROVIDERS.map((p) => (
-            <option key={p.id} value={p.id}>{p.label}</option>
-          ))}
-        </select>
+          options={PROVIDERS.map((p) => ({ value: p.id, label: p.label }))}
+          onChange={(next) => handleProviderChange(next as ProviderId)}
+        />
       </div>
 
       {/* API Key */}
@@ -320,23 +324,23 @@ export function ProviderConfigForm({ initial, onSave, onCancel }: Props) {
 
       {/* Model selection */}
       <div className="field">
-        <label htmlFor={id('model')}>Model</label>
+        {discoveredModels.length === 0 && <label htmlFor={id('model')}>Model</label>}
         {modelCleared && !modelId && (
           <p className="field-hint model-notice">Select a model for this provider.</p>
         )}
         <div className="model-row">
           {discoveredModels.length > 0 ? (
-            <select
-              id={id('model')}
+            <DropdownSelect
+              label="Model"
               value={modelId}
-              onChange={(e) => { setModelId(e.target.value); setModelCleared(false) }}
-              aria-describedby={errors.modelId ? id('model-err') : undefined}
-            >
-              <option value="">— select a model —</option>
-              {discoveredModels.map((m) => (
-                <option key={m} value={m}>{m}</option>
-              ))}
-            </select>
+              options={[
+                { value: '', label: '— select a model —' },
+                ...discoveredModels.map((m) => ({ value: m, label: m })),
+              ]}
+              onChange={(next) => { setModelId(next); setModelCleared(false) }}
+              className="model-dropdown"
+              ariaDescribedBy={errors.modelId ? id('model-err') : undefined}
+            />
           ) : (
             <input
               id={id('model')}

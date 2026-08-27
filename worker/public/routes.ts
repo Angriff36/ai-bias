@@ -6,12 +6,14 @@ import { PublicRepository } from './repository'
 import { scheduleReportGeneration } from './reportGeneration'
 import { renderReportHtml } from './reportHtml'
 import { GeneratedReportRepository } from './reportRepository'
+import { createReportModelClient } from './reportModelClient'
 import { CURATED_REPORTS } from './curatedReports'
 
 export interface PublicWorkerEnv {
   PUBLIC_DB: D1DatabaseLike
   AI: AiBindingLike
   QUOTA_HMAC_SECRET: string
+  OPENROUTER_API_KEY: string
 }
 
 const json = (body: unknown, status = 200, extraHeaders?: HeadersInit) => new Response(JSON.stringify(body), {
@@ -48,7 +50,10 @@ export async function handlePublicApi(
   const repository = injected?.repository ?? new PublicRepository(env.PUBLIC_DB)
   const reportRepository = injected?.reportRepository ?? new GeneratedReportRepository(env.PUBLIC_DB)
   const quotaHash = injected?.quotaHash ?? quotaIdentity
-  const reportSchedule = injected?.scheduleReport ?? ((reportId: string) => scheduleReportGeneration(env.AI, context, new GeneratedReportRepository(env.PUBLIC_DB), reportId))
+  const reportSchedule = injected?.scheduleReport ?? ((reportId: string) => {
+    const models = createReportModelClient(env.OPENROUTER_API_KEY, url.origin)
+    scheduleReportGeneration(models, context, new GeneratedReportRepository(env.PUBLIC_DB), reportId)
+  })
 
   try {
     if (url.pathname === '/api/public/leaderboard' && request.method === 'GET') {
@@ -63,7 +68,10 @@ export async function handlePublicApi(
     }
     if (url.pathname === '/api/public/reports' && request.method === 'POST') {
       const parsed = generatedReportRequestSchema.parse(await readJson(request))
-      const claim = await reportRepository.claimRunReport(parsed.runId, new Date().toISOString())
+      const now = new Date().toISOString()
+      const claim = parsed.globalWatermark != null
+        ? await reportRepository.claimGlobalReport(parsed.globalWatermark, now)
+        : await reportRepository.claimRunReport(parsed.runId!, now)
       if (claim.kind === 'ineligible') {
         return json({ error: 'A full report requires at least 20 complete matched questions.', completeQuestions: claim.completeQuestions }, 422)
       }

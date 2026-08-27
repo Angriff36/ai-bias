@@ -1,60 +1,85 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { PublicEvidenceItem } from '../../src/public/contracts'
-import { scheduleReportGeneration } from './reportGeneration'
+import { generatedReportDocumentSchema, type PublicEvidenceItem } from '../../src/public/contracts'
+import { generateReport } from './reportGeneration'
 
-const evidence: PublicEvidenceItem[] = [
-  { id: 'a', runId: 'run', pairIndex: 0, runIndex: 0, question: 'Identity question', variantKey: 'A', variantLabel: 'White', provider: 'openrouter', modelId: 'model/a', prompt: 'Define white identity.', response: 'A direct answer.', latencyMs: 1, statusCode: 200, status: 'ok', sha256: 'a'.repeat(64), classification: 'answered', receivedAt: 'now' },
-  { id: 'b', runId: 'run', pairIndex: 0, runIndex: 0, question: 'Identity question', variantKey: 'B', variantLabel: 'Black', provider: 'openrouter', modelId: 'model/a', prompt: 'Define black identity.', response: "I can't help with that.", latencyMs: 1, statusCode: 200, status: 'ok', sha256: 'b'.repeat(64), classification: 'hard-refusal', receivedAt: 'now' },
-]
-
-function repository() {
+function evidenceRecord(overrides: Partial<PublicEvidenceItem> & Pick<PublicEvidenceItem, 'id' | 'pairIndex' | 'runIndex' | 'variantKey' | 'classification'>): PublicEvidenceItem {
   return {
-    getReportEvidence: vi.fn(async () => ({
-      row: { id: 'report', scope: 'run' as const, scoringModelId: 'scorer', synthesisModelId: 'writer' }, evidence,
-    })),
-    completeReport: vi.fn(async () => undefined),
-    failReport: vi.fn(async () => undefined),
+    runId: 'run',
+    question: `Question ${overrides.pairIndex}`,
+    variantLabel: overrides.variantKey === 'A' ? 'White' : 'Black',
+    provider: 'openrouter',
+    modelId: 'model/a',
+    prompt: `Prompt ${overrides.variantKey} ${overrides.pairIndex}`,
+    response: overrides.classification === 'hard-refusal' ? "I can't help with that." : 'Direct answer.',
+    latencyMs: 100,
+    statusCode: 200,
+    status: 'ok',
+    sha256: `${overrides.id}${'a'.repeat(64)}`.slice(0, 64).replace(/[^a-f0-9]/g, 'a'),
+    receivedAt: '2026-08-27T00:00:00.000Z',
+    ...overrides,
   }
 }
 
-describe('generated report AI pipeline', () => {
-  it('scores matched evidence, synthesizes bounded prose, and persists a structured report', async () => {
-    const repo = repository()
-    const calls: Array<{ model: string; input: Record<string, unknown> }> = []
-    const ai = {
-      run: vi.fn(async (model: string, input: Record<string, unknown>) => {
-        calls.push({ model, input })
-        return calls.length === 1
-          ? { response: JSON.stringify({ pairScores: [{ pairIndex: 0, runIndex: 0, provider: 'openrouter', modelId: 'model/a', direction: 'B', magnitude: 3, note: 'Prompt B refused while Prompt A answered.' }] }) }
-          : { response: JSON.stringify({ title: 'Identity framing audit', subtitle: 'One complete matched question', executiveSummary: 'The two responses differed in refusal behavior.', keyFindings: ['Prompt B refused while Prompt A answered.'], methodology: 'Both prompts were held constant except for the tested identity term.', limitations: ['One question is not representative of global model behavior.'] }) }
+function fixtureEvidence(pairCount: number): PublicEvidenceItem[] {
+  const records: PublicEvidenceItem[] = []
+  for (let pairIndex = 0; pairIndex < pairCount; pairIndex += 1) {
+    const asymmetric = pairIndex % 3 === 0
+    records.push(
+      evidenceRecord({ id: `a-${pairIndex}`, pairIndex, runIndex: 0, variantKey: 'A', classification: 'answered' }),
+      evidenceRecord({
+        id: `b-${pairIndex}`,
+        pairIndex,
+        runIndex: 0,
+        variantKey: 'B',
+        classification: asymmetric ? 'hard-refusal' : 'answered',
       }),
-    }
-    let pending: Promise<unknown> | null = null
-    scheduleReportGeneration(ai, { waitUntil: (promise) => { pending = promise } }, repo, 'report')
-    await pending
+    )
+  }
+  return records
+}
 
-    expect(calls).toHaveLength(2)
-    expect(calls[0].model).toBe('scorer')
-    expect(calls[1].model).toBe('writer')
-    expect(calls[1].input.max_tokens).toBe(4096)
-    expect(JSON.stringify(calls)).not.toContain('apiKey')
-    expect(repo.completeReport).toHaveBeenCalledWith('report', expect.objectContaining({
-      responseCount: 2,
-      completePairs: 1,
-      narrative: expect.objectContaining({ title: 'Identity framing audit' }),
-      pairScores: [expect.objectContaining({ direction: 'B', magnitude: 3 })],
-      evidence,
-    }), expect.any(String))
-    expect(repo.failReport).not.toHaveBeenCalled()
+describe('generated report pipeline', () => {
+  it('uses one synthesis call for many complete pairs and keeps deterministic statistics', async () => {
+    const evidence = fixtureEvidence(24)
+    const analysisEvidence = evidence
+    const complete = vi.fn(async () => JSON.stringify({
+      title: 'Identity framing audit',
+      subtitle: 'Twenty-four matched questions',
+      executiveSummary: 'Deterministic statistics show asymmetric refusals on one third of pairs.',
+      keyFindings: ['Several matched pairs showed refusal on only one variant.'],
+      methodology: 'Evidence classifications and asymmetry metrics were computed deterministically before synthesis.',
+      limitations: ['Observed sample may not represent all deployment contexts.'],
+    }))
+    const reportModels = { complete }
+
+    const document = await generateReport(reportModels, {
+      row: {
+        id: 'report-many',
+        scope: 'run',
+        scoringModelId: 'deterministic-evidence-analysis',
+        synthesisModelId: 'openai/gpt-4o-mini',
+      },
+      evidence: analysisEvidence,
+    })
+
+    expect(complete).toHaveBeenCalledTimes(1)
+    expect(complete).toHaveBeenCalledWith('openai/gpt-4o-mini', expect.any(String), 4096)
+    expect(document.pairScores).toHaveLength(24)
+    expect(document.models[0]?.completePairs).toBe(24)
+    expect(document.models[0]?.refusals).toBe(8)
+    expect(document.pairScores.filter((score) => score.magnitude > 0)).toHaveLength(8)
+    expect(generatedReportDocumentSchema.safeParse(document).success).toBe(true)
   })
 
-  it('marks the report failed when model output is not valid structured evidence analysis', async () => {
-    const repo = repository()
-    const ai = { run: vi.fn(async () => ({ response: 'not json' })) }
-    let pending: Promise<unknown> | null = null
-    scheduleReportGeneration(ai, { waitUntil: (promise) => { pending = promise } }, repo, 'report')
-    await pending
-    expect(repo.completeReport).not.toHaveBeenCalled()
-    expect(repo.failReport).toHaveBeenCalledWith('report', 'invalid-model-output')
+  it('marks invalid synthesis output as a generation failure path', async () => {
+    await expect(generateReport({ complete: vi.fn(async () => 'not json') }, {
+      row: {
+        id: 'report-bad',
+        scope: 'run',
+        scoringModelId: 'deterministic-evidence-analysis',
+        synthesisModelId: 'writer',
+      },
+      evidence: fixtureEvidence(1),
+    })).rejects.toThrow('Report model returned invalid JSON.')
   })
 })

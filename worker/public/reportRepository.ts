@@ -8,8 +8,8 @@ import {
 } from '../../src/public/contracts'
 import type { D1DatabaseLike } from './d1'
 
-const SCORING_MODEL = '@cf/meta/llama-3.1-8b-instruct-fp8-fast'
-const SYNTHESIS_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast'
+const SCORING_MODEL = 'deterministic-evidence-analysis'
+const SYNTHESIS_MODEL = 'openai/gpt-4o-mini'
 const DAILY_REPORT_JOB_LIMIT = 20
 
 const n = (value: unknown) => Number(value ?? 0)
@@ -178,6 +178,10 @@ export class GeneratedReportRepository {
   }
 
   private async reclaimOrReturn(row: ReportRow, now: string): Promise<{ kind: 'claimed' | 'existing'; report: GeneratedReportSummary }> {
+    if (row.status === 'pending' && Date.now() - Date.parse(row.createdAt) > 5 * 60_000) {
+      await this.db.prepare("UPDATE generated_reports SET status='failed', error_code='stale-pending' WHERE id=?").bind(row.id).run()
+      row = { ...row, status: 'failed' }
+    }
     if (row.status !== 'failed') return { kind: 'existing', report: this.summary(row) }
     await this.db.prepare("UPDATE generated_reports SET status='pending', error_code=NULL, created_at=? WHERE id=?")
       .bind(now, row.id).run()

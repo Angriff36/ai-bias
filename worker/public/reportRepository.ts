@@ -201,9 +201,17 @@ export class GeneratedReportRepository {
         FROM public_evidence WHERE run_id = ? ORDER BY pair_index, run_index, provider, model_id, variant_key`).bind(row.publicRunId).all()).results ?? []
       return { row, evidence: results.map(mapEvidenceRow) }
     }
-    if (!row.cohortSnapshotJson) throw new Error('GLOBAL_COHORT_SNAPSHOT_MISSING')
-    const snapshot = snapshotFromStoredJson(row.cohortSnapshotJson)
-    return { row, evidence: remapEvidenceToCohort(await this.loadAllPublicEvidence(), snapshot) }
+    if (row.cohortSnapshotJson) {
+      const snapshot = snapshotFromStoredJson(row.cohortSnapshotJson)
+      return { row, evidence: remapEvidenceToCohort(await this.loadAllPublicEvidence(), snapshot) }
+    }
+    if (row.responseWatermark != null) {
+      const results = (await this.db.prepare(`SELECT id, run_id, pair_index, run_index, question, variant_key, variant_label, provider, model_id,
+          prompt, response, latency_ms, status_code, status, error_message, truncated, evidence_sha256, classification, received_at
+        FROM public_evidence ORDER BY received_at, id LIMIT ?`).bind(row.responseWatermark).all()).results ?? []
+      return { row, evidence: results.map(mapEvidenceRow) }
+    }
+    throw new Error('GLOBAL_REPORT_SCOPE_MISSING')
   }
 
   async completeReport(reportId: string, document: GeneratedReportDocument, now: string): Promise<void> {
@@ -238,6 +246,9 @@ export class GeneratedReportRepository {
   }
 
   private async reclaimOrReturn(row: ReportRow, now: string): Promise<{ kind: 'claimed' | 'existing'; report: GeneratedReportSummary }> {
+    const finalized = await this.finalizeStoredDocumentIfValid(row, now)
+    if (finalized) return { kind: 'existing', report: this.summary(finalized) }
+
     if (row.status === 'pending' && Date.now() - Date.parse(row.createdAt) > 5 * 60_000) {
       await this.db.prepare("UPDATE generated_reports SET status='failed', error_code='stale-pending' WHERE id=?").bind(row.id).run()
       row = { ...row, status: 'failed' }
@@ -246,6 +257,20 @@ export class GeneratedReportRepository {
     await this.db.prepare("UPDATE generated_reports SET status='pending', error_code=NULL, created_at=?, scoring_model_id=?, synthesis_model_id=? WHERE id=?")
       .bind(now, SCORING_MODEL, SYNTHESIS_MODEL, row.id).run()
     return { kind: 'claimed', report: this.summary({ ...row, status: 'pending', createdAt: now }) }
+  }
+
+  private async finalizeStoredDocumentIfValid(row: ReportRow, now: string): Promise<ReportRow | null> {
+    if (!row.structuredJson || row.status === 'complete') return row.status === 'complete' ? row : null
+    try {
+      const parsed = generatedReportDocumentSchema.safeParse(JSON.parse(row.structuredJson))
+      if (!parsed.success) return null
+      const completedAt = row.completedAt ?? parsed.data.generatedAt ?? now
+      await this.db.prepare("UPDATE generated_reports SET status='complete', title=?, error_code=NULL, completed_at=? WHERE id=?")
+        .bind(parsed.data.narrative.title, completedAt, row.id).run()
+      return { ...row, status: 'complete', title: parsed.data.narrative.title, completedAt }
+    } catch {
+      return null
+    }
   }
 
   private async findByRun(runId: string): Promise<ReportRow | null> {

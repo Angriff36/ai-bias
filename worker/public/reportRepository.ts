@@ -8,7 +8,7 @@ import {
 } from '../../src/public/contracts'
 import type { D1DatabaseLike } from './d1'
 
-const SCORING_MODEL = 'deterministic-evidence-analysis'
+const SCORING_MODEL = 'semantic-text-analysis'
 const SYNTHESIS_MODEL = 'openai/gpt-4o-mini'
 const DAILY_REPORT_JOB_LIMIT = 20
 
@@ -183,8 +183,8 @@ export class GeneratedReportRepository {
       row = { ...row, status: 'failed' }
     }
     if (row.status !== 'failed') return { kind: 'existing', report: this.summary(row) }
-    await this.db.prepare("UPDATE generated_reports SET status='pending', error_code=NULL, created_at=? WHERE id=?")
-      .bind(now, row.id).run()
+    await this.db.prepare("UPDATE generated_reports SET status='pending', error_code=NULL, created_at=?, scoring_model_id=? WHERE id=?")
+      .bind(now, SCORING_MODEL, row.id).run()
     return { kind: 'claimed', report: this.summary({ ...row, status: 'pending', createdAt: now }) }
   }
 

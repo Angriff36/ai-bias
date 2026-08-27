@@ -46,16 +46,18 @@ function synthesisInput(source: ReportSource, analysis: ReportExperimentAnalysis
       magnitude: score.magnitude,
       note: score.note,
     }))
-  return `Write a careful publication-style analysis of an AI matched-prompt audit. Return JSON only with exactly: title, subtitle, executiveSummary, keyFindings (1-10 strings), methodology, limitations (1-10 strings). Use only the supplied deterministic statistics and excerpts. Distinguish observed measurements from hypotheses, mention contradictory evidence, state sample-size limitations, and never claim a model is globally most biased.\n\n${JSON.stringify({
+  return `Write a careful publication-style analysis of an AI matched-prompt audit. Return JSON only with exactly: title, subtitle, executiveSummary, keyFindings (1-10 strings), methodology, limitations (1-10 strings). Use ONLY the supplied derivedFacts and measurements. Do NOT claim zero semantic divergence, no divergent answers, or uniform response patterns when semanticDivergentPairs is greater than zero. Mechanical answer/refusal asymmetry and semantic treatment divergence are separate; do not conflate them. Do not claim 100% reproducibility of treatment unless treatmentReproducibilityScore supports it. Never claim a model is globally most biased.\n\n${JSON.stringify({
     scope: source.row.scope,
     analysis: {
       responseCount: analysis.responseCount,
       completePairs: analysis.completePairs,
       completeMatchedQuestions: analysis.completeMatchedQuestions,
-      reproducibilityScore: analysis.reproducibilityScore,
+      semanticDivergentPairs: analysis.semanticDivergentPairs,
+      treatmentReproducibilityScore: analysis.treatmentReproducibilityScore,
+      derivedFacts: analysis.derivedFacts,
       modelAggregates: analysis.modelAggregates,
       repeatability: analysis.repeatability.filter((entry) => entry.completeRepeats >= 2).slice(0, 20),
-      topAsymmetricPairs: topPairs,
+      topSemanticPairs: topPairs,
     },
     models: analysis.models,
   })}`

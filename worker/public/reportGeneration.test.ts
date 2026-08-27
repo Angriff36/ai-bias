@@ -56,7 +56,7 @@ describe('generated report pipeline', () => {
       row: {
         id: 'report-many',
         scope: 'run',
-        scoringModelId: 'deterministic-evidence-analysis',
+        scoringModelId: 'semantic-text-analysis',
         synthesisModelId: 'openai/gpt-4o-mini',
       },
       evidence: analysisEvidence,
@@ -76,7 +76,7 @@ describe('generated report pipeline', () => {
       row: {
         id: 'report-bad',
         scope: 'run',
-        scoringModelId: 'deterministic-evidence-analysis',
+        scoringModelId: 'semantic-text-analysis',
         synthesisModelId: 'writer',
       },
       evidence: fixtureEvidence(1),

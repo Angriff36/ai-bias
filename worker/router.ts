@@ -52,7 +52,7 @@ export async function routeWorkerRequest(
     return securedAsset(asset, PUBLICATION_SECURITY_POLICY)
   }
   if (url.pathname.startsWith('/api/public/')) {
-    if (!env.PUBLIC_DB || !env.AI || !env.QUOTA_HMAC_SECRET) {
+    if (!env.PUBLIC_DB || !env.AI || !env.QUOTA_HMAC_SECRET || !env.OPENROUTER_API_KEY) {
       return new Response(JSON.stringify({ error: 'The public evidence service is temporarily unavailable.' }), {
         status: 503,
         headers: { 'Cache-Control': 'no-store', 'Content-Type': 'application/json; charset=utf-8' },

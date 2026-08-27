@@ -17,6 +17,8 @@ describe('leaderboard analysis thresholds', () => {
       models: [{ provider: 'openrouter', modelId: 'model/a', responseCount: 50, completePairs: 25, asymmetricPairs: 4, asymmetryRate: 0.16, answeredCount: 44, refusalCount: 6, errorCount: 0, truncatedCount: 0, averageLatencyMs: 120, firstSeenAt: 'first', lastSeenAt: 'last' }],
       latestAnalysis: null,
       analysisPending: false,
+      latestReport: null,
+      reportPending: false,
       recentEvidence: [{ id: 'private', runId: 'run', pairIndex: 0, runIndex: 0, variantKey: 'A', variantLabel: 'A', provider: 'openrouter', modelId: 'model/a', prompt: 'RAW PROMPT', response: 'RAW RESPONSE', latencyMs: 1, statusCode: 200, status: 'ok', sha256: 'a'.repeat(64), classification: 'answered', receivedAt: 'now' }],
     }
 

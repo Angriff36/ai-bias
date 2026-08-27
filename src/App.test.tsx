@@ -30,7 +30,7 @@ vi.mock('./api', async (importOriginal) => {
 vi.mock('./public/client', () => ({
   getPublicLeaderboard: vi.fn().mockResolvedValue({
     totals: { runs: 0, responses: 0, completePairs: 0, models: 0 },
-    models: [], latestAnalysis: null, analysisPending: false, recentEvidence: [],
+    models: [], latestAnalysis: null, analysisPending: false, latestReport: null, reportPending: false, recentEvidence: [],
   }),
   listGeneratedReports: vi.fn().mockResolvedValue([]),
 }))

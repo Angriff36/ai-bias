@@ -57,13 +57,13 @@ describe('generated report pipeline', () => {
         id: 'report-many',
         scope: 'run',
         scoringModelId: 'semantic-text-analysis',
-        synthesisModelId: 'openai/gpt-4o-mini',
+        synthesisModelId: 'x-ai/grok-4.6',
       },
       evidence: analysisEvidence,
     })
 
     expect(complete).toHaveBeenCalledTimes(1)
-    expect(complete).toHaveBeenCalledWith('openai/gpt-4o-mini', expect.any(String), 4096)
+    expect(complete).toHaveBeenCalledWith('x-ai/grok-4.6', expect.any(String), 4096)
     expect(document.pairScores).toHaveLength(24)
     expect(document.models[0]?.completePairs).toBe(24)
     expect(document.models[0]?.refusals).toBe(8)

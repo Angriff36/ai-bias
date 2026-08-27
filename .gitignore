@@ -8,3 +8,8 @@ playwright-report/
 .aboardai/
 .worktrees/
 data/
+output/
+ai-bias-analysis.json
+ai-bias-report.md
+.claude/
+.codex/

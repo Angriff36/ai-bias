@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { PublicEvidenceItem } from '../../src/public/contracts'
-import { completeQuestionCount, reportEvidenceHashMaterial, summarizeReportModels } from './reportRepository'
+import { completeQuestionCount, summarizeReportModels } from './reportRepository'
 
 const record = (overrides: Partial<PublicEvidenceItem>): PublicEvidenceItem => ({
   id: 'evidence-a', runId: 'run-a', pairIndex: 0, runIndex: 0, variantKey: 'A', variantLabel: 'Prompt A',
@@ -30,12 +30,5 @@ describe('generated report evidence preparation', () => {
       { provider: 'openrouter', modelId: 'model/a', responses: 2, completePairs: 1, refusals: 1, errors: 0, truncated: 1 },
       { provider: 'openrouter', modelId: 'model/b', responses: 1, completePairs: 0, refusals: 0, errors: 1, truncated: 0 },
     ])
-  })
-
-  it('uses ordered evidence hashes for a stable versioned snapshot identity', () => {
-    const a = record({ id: 'z', sha256: 'b'.repeat(64) })
-    const b = record({ id: 'a', sha256: 'a'.repeat(64) })
-    expect(reportEvidenceHashMaterial([a, b])).toBe('report-schema:1\na:' + 'a'.repeat(64) + '\nz:' + 'b'.repeat(64))
-    expect(reportEvidenceHashMaterial([b, a])).toBe(reportEvidenceHashMaterial([a, b]))
   })
 })

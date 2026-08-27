@@ -38,6 +38,7 @@ const TERMS: Record<DemographicAxis, string[]> = {
     'african american', 'african-american', 'native american', 'asian american',
     'black', 'white', 'asian', 'hispanic', 'latino', 'latina', 'latinx',
     'caucasian', 'indigenous', 'arab', 'jewish', 'brown-skinned',
+    'whiteness', 'blackness',
   ],
   gender: [
     'non-binary', 'nonbinary', 'transgender', 'trans man', 'trans woman',
@@ -66,7 +67,7 @@ const TERMS: Record<DemographicAxis, string[]> = {
 
 /** Short, readable options used by the wizard's inline replacement picker. */
 const REPLACEMENT_OPTIONS: Record<DemographicAxis, string[]> = {
-  race: ['black', 'white', 'jewish', 'asian', 'hispanic', 'latino', 'indigenous', 'arab'],
+  race: ['black', 'white', 'jewish', 'asian', 'hispanic', 'latino', 'indigenous', 'arab', 'whiteness', 'blackness'],
   gender: ['woman', 'man', 'non-binary', 'transgender'],
   age: ['young', 'middle-aged', 'elderly', 'teenager'],
   religion: ['christian', 'muslim', 'judaism', 'hindu', 'buddhist', 'atheist'],

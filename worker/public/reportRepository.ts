@@ -7,9 +7,18 @@ import {
   type PublicEvidenceItem,
 } from '../../src/public/contracts'
 import type { D1DatabaseLike } from './d1'
+import {
+  buildGlobalCohortSnapshot,
+  buildQuestionCatalog,
+  remapEvidenceToCohort,
+  selectReportableQuestions,
+  snapshotFromStoredJson,
+  type GlobalReportCohortSnapshot,
+} from './reportGlobalCohort'
+import { evaluateGlobalReportTrigger } from './reportGlobalEligibility'
 
 const SCORING_MODEL = 'semantic-text-analysis'
-const SYNTHESIS_MODEL = 'openai/gpt-4o-mini'
+const SYNTHESIS_MODEL = 'x-ai/grok-4.6'
 const DAILY_REPORT_JOB_LIMIT = 20
 
 const n = (value: unknown) => Number(value ?? 0)
@@ -59,12 +68,6 @@ function countCompleteModelPairs(records: PublicEvidenceItem[]): number {
   return [...groups.values()].filter((variants) => variants.has('A') && variants.has('B')).length
 }
 
-export function reportEvidenceHashMaterial(evidence: PublicEvidenceItem[]): string {
-  return ['report-schema:1', ...evidence
-    .map((item) => `${item.id}:${item.sha256}`)
-    .sort((a, b) => a.localeCompare(b))].join('\n')
-}
-
 async function sha256(value: string): Promise<string> {
   const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))
   return [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, '0')).join('')
@@ -75,6 +78,8 @@ interface ReportRow {
   scope: 'run' | 'global'
   publicRunId: string | null
   responseWatermark: number | null
+  cohortFingerprint: string | null
+  cohortSnapshotJson: string | null
   status: 'pending' | 'complete' | 'failed'
   scoringModelId: string
   synthesisModelId: string
@@ -89,10 +94,80 @@ export type RunReportClaim =
   | { kind: 'limited' }
   | { kind: 'claimed' | 'existing'; report: GeneratedReportSummary }
 
-type GlobalReportClaim = { kind: 'claimed' | 'existing'; report: GeneratedReportSummary } | { kind: 'limited' }
+export type GlobalReportClaim =
+  | { kind: 'ineligible'; reportableQuestions: number }
+  | { kind: 'unchanged'; report: GeneratedReportSummary }
+  | { kind: 'not-due'; reportableQuestions: number }
+  | { kind: 'limited' }
+  | { kind: 'claimed' | 'existing'; report: GeneratedReportSummary }
 
 export class GeneratedReportRepository {
   constructor(private readonly db: D1DatabaseLike) {}
+
+  async loadAllPublicEvidence(): Promise<PublicEvidenceItem[]> {
+    const results = (await this.db.prepare(`SELECT id, run_id, pair_index, run_index, question, variant_key, variant_label, provider, model_id,
+      prompt, response, latency_ms, status_code, status, error_message, truncated, evidence_sha256, classification, received_at
+      FROM public_evidence ORDER BY received_at, id`).all()).results ?? []
+    return results.map(mapEvidenceRow)
+  }
+
+  async evaluateGlobalReportAfterPublish(now: string): Promise<GlobalReportClaim> {
+    const evidence = await this.loadAllPublicEvidence()
+    const catalog = buildQuestionCatalog(evidence)
+    const snapshot = await buildGlobalCohortSnapshot(evidence, now)
+    if (!snapshot) {
+      return { kind: 'ineligible', reportableQuestions: selectReportableQuestions(catalog).length }
+    }
+    const existing = await this.findByCohortFingerprint(snapshot.cohortFingerprint)
+    if (existing && existing.status !== 'failed') {
+      return { kind: 'unchanged', report: this.summary(existing) }
+    }
+    const previous = await this.latestGlobalSnapshotRow()
+    const previousSnapshot = previous?.cohortSnapshotJson ? snapshotFromStoredJson(previous.cohortSnapshotJson) : null
+    const trigger = evaluateGlobalReportTrigger(
+      snapshot,
+      catalog,
+      previousSnapshot,
+      previousSnapshot ? new Set(previousSnapshot.reportableQuestionKeys) : null,
+    )
+    if (!trigger.shouldGenerate) {
+      return { kind: 'not-due', reportableQuestions: selectReportableQuestions(catalog).length }
+    }
+    return this.claimGlobalCohortReport(snapshot, now, existing)
+  }
+
+  async claimCurrentGlobalReport(now: string): Promise<GlobalReportClaim> {
+    const evidence = await this.loadAllPublicEvidence()
+    const catalog = buildQuestionCatalog(evidence)
+    const snapshot = await buildGlobalCohortSnapshot(evidence, now)
+    if (!snapshot) {
+      return { kind: 'ineligible', reportableQuestions: selectReportableQuestions(catalog).length }
+    }
+    const existing = await this.findByCohortFingerprint(snapshot.cohortFingerprint)
+    if (existing && existing.status !== 'failed') {
+      return { kind: 'unchanged', report: this.summary(existing) }
+    }
+    return this.claimGlobalCohortReport(snapshot, now, existing)
+  }
+
+  async claimGlobalCohortReport(
+    snapshot: GlobalReportCohortSnapshot,
+    now: string,
+    existing: ReportRow | null = null,
+  ): Promise<GlobalReportClaim> {
+    const found = existing ?? await this.findByCohortFingerprint(snapshot.cohortFingerprint)
+    if (found) return this.reclaimOrReturn(found, now)
+    if (await this.dailyLimitReached(now)) return { kind: 'limited' }
+    const id = crypto.randomUUID()
+    const evidenceHash = await sha256(`report-schema:1\nglobal-cohort:${snapshot.cohortFingerprint}`)
+    await this.db.prepare(`INSERT INTO generated_reports
+      (id, scope, cohort_fingerprint, cohort_snapshot_json, evidence_hash, status, scoring_model_id, synthesis_model_id, report_schema_version, created_at)
+      VALUES (?, 'global', ?, ?, ?, 'pending', ?, ?, 1, ?) ON CONFLICT DO NOTHING`)
+      .bind(id, snapshot.cohortFingerprint, JSON.stringify(snapshot), evidenceHash, SCORING_MODEL, SYNTHESIS_MODEL, now).run()
+    const report = await this.findByCohortFingerprint(snapshot.cohortFingerprint)
+    if (!report) throw new Error('Could not claim global cohort report.')
+    return { kind: report.id === id ? 'claimed' : 'existing', report: this.summary(report) }
+  }
 
   async claimRunReport(runId: string, now: string): Promise<RunReportClaim> {
     const existing = await this.findByRun(runId)
@@ -117,33 +192,18 @@ export class GeneratedReportRepository {
     return { kind: report.id === id ? 'claimed' : 'existing', report: this.summary(report) }
   }
 
-  async claimGlobalReport(watermark: number, now: string): Promise<GlobalReportClaim> {
-    const existing = await this.findByWatermark(watermark)
-    if (existing) return this.reclaimOrReturn(existing, now)
-    if (await this.dailyLimitReached(now)) return { kind: 'limited' }
-    const id = crypto.randomUUID()
-    const evidenceHash = await sha256(`report-schema:1\nglobal:${watermark}`)
-    await this.db.prepare(`INSERT INTO generated_reports
-      (id, scope, response_watermark, evidence_hash, status, scoring_model_id, synthesis_model_id, report_schema_version, created_at)
-      VALUES (?, 'global', ?, ?, 'pending', ?, ?, 1, ?) ON CONFLICT DO NOTHING`)
-      .bind(id, watermark, evidenceHash, SCORING_MODEL, SYNTHESIS_MODEL, now).run()
-    const report = await this.findByWatermark(watermark)
-    if (!report) throw new Error('Could not claim global report.')
-    return { kind: report.id === id ? 'claimed' : 'existing', report: this.summary(report) }
-  }
-
   async getReportEvidence(reportId: string): Promise<{ row: ReportRow; evidence: PublicEvidenceItem[] }> {
     const row = await this.getRow(reportId)
     if (!row) throw new Error('REPORT_NOT_FOUND')
-    const statement = row.scope === 'run'
-      ? this.db.prepare(`SELECT id, run_id, pair_index, run_index, question, variant_key, variant_label, provider, model_id,
+    if (row.scope === 'run') {
+      const results = (await this.db.prepare(`SELECT id, run_id, pair_index, run_index, question, variant_key, variant_label, provider, model_id,
           prompt, response, latency_ms, status_code, status, error_message, truncated, evidence_sha256, classification, received_at
-        FROM public_evidence WHERE run_id = ? ORDER BY pair_index, run_index, provider, model_id, variant_key`).bind(row.publicRunId)
-      : this.db.prepare(`SELECT id, run_id, pair_index, run_index, question, variant_key, variant_label, provider, model_id,
-          prompt, response, latency_ms, status_code, status, error_message, truncated, evidence_sha256, classification, received_at
-        FROM public_evidence ORDER BY received_at, id LIMIT ?`).bind(row.responseWatermark)
-    const results = (await statement.all()).results ?? []
-    return { row, evidence: results.map(mapEvidenceRow) }
+        FROM public_evidence WHERE run_id = ? ORDER BY pair_index, run_index, provider, model_id, variant_key`).bind(row.publicRunId).all()).results ?? []
+      return { row, evidence: results.map(mapEvidenceRow) }
+    }
+    if (!row.cohortSnapshotJson) throw new Error('GLOBAL_COHORT_SNAPSHOT_MISSING')
+    const snapshot = snapshotFromStoredJson(row.cohortSnapshotJson)
+    return { row, evidence: remapEvidenceToCohort(await this.loadAllPublicEvidence(), snapshot) }
   }
 
   async completeReport(reportId: string, document: GeneratedReportDocument, now: string): Promise<void> {
@@ -160,8 +220,8 @@ export class GeneratedReportRepository {
   }
 
   async listReports(): Promise<GeneratedReportSummary[]> {
-    const rows = (await this.db.prepare(`SELECT id, scope, public_run_id, response_watermark, status, scoring_model_id,
-      synthesis_model_id, title, structured_json, created_at, completed_at FROM generated_reports
+    const rows = (await this.db.prepare(`SELECT id, scope, public_run_id, response_watermark, cohort_fingerprint, cohort_snapshot_json,
+      status, scoring_model_id, synthesis_model_id, title, structured_json, created_at, completed_at FROM generated_reports
       ORDER BY COALESCE(completed_at, created_at) DESC LIMIT 50`).all()).results ?? []
     return rows.map(mapReportRow).map((row) => this.summary(row))
   }
@@ -183,28 +243,36 @@ export class GeneratedReportRepository {
       row = { ...row, status: 'failed' }
     }
     if (row.status !== 'failed') return { kind: 'existing', report: this.summary(row) }
-    await this.db.prepare("UPDATE generated_reports SET status='pending', error_code=NULL, created_at=?, scoring_model_id=? WHERE id=?")
-      .bind(now, SCORING_MODEL, row.id).run()
+    await this.db.prepare("UPDATE generated_reports SET status='pending', error_code=NULL, created_at=?, scoring_model_id=?, synthesis_model_id=? WHERE id=?")
+      .bind(now, SCORING_MODEL, SYNTHESIS_MODEL, row.id).run()
     return { kind: 'claimed', report: this.summary({ ...row, status: 'pending', createdAt: now }) }
   }
 
   private async findByRun(runId: string): Promise<ReportRow | null> {
-    const row = await this.db.prepare(`SELECT id, scope, public_run_id, response_watermark, status, scoring_model_id,
-      synthesis_model_id, title, structured_json, created_at, completed_at FROM generated_reports WHERE scope='run' AND public_run_id=?`)
+    const row = await this.db.prepare(`SELECT id, scope, public_run_id, response_watermark, cohort_fingerprint, cohort_snapshot_json,
+      status, scoring_model_id, synthesis_model_id, title, structured_json, created_at, completed_at FROM generated_reports WHERE scope='run' AND public_run_id=?`)
       .bind(runId).first<Record<string, unknown>>()
     return row ? mapReportRow(row) : null
   }
 
-  private async findByWatermark(watermark: number): Promise<ReportRow | null> {
-    const row = await this.db.prepare(`SELECT id, scope, public_run_id, response_watermark, status, scoring_model_id,
-      synthesis_model_id, title, structured_json, created_at, completed_at FROM generated_reports WHERE scope='global' AND response_watermark=?`)
-      .bind(watermark).first<Record<string, unknown>>()
+  private async findByCohortFingerprint(fingerprint: string): Promise<ReportRow | null> {
+    const row = await this.db.prepare(`SELECT id, scope, public_run_id, response_watermark, cohort_fingerprint, cohort_snapshot_json,
+      status, scoring_model_id, synthesis_model_id, title, structured_json, created_at, completed_at FROM generated_reports WHERE scope='global' AND cohort_fingerprint=?`)
+      .bind(fingerprint).first<Record<string, unknown>>()
+    return row ? mapReportRow(row) : null
+  }
+
+  private async latestGlobalSnapshotRow(): Promise<ReportRow | null> {
+    const row = await this.db.prepare(`SELECT id, scope, public_run_id, response_watermark, cohort_fingerprint, cohort_snapshot_json,
+      status, scoring_model_id, synthesis_model_id, title, structured_json, created_at, completed_at FROM generated_reports
+      WHERE scope='global' AND cohort_snapshot_json IS NOT NULL
+      ORDER BY COALESCE(completed_at, created_at) DESC LIMIT 1`).first<Record<string, unknown>>()
     return row ? mapReportRow(row) : null
   }
 
   private async getRow(id: string): Promise<ReportRow | null> {
-    const row = await this.db.prepare(`SELECT id, scope, public_run_id, response_watermark, status, scoring_model_id,
-      synthesis_model_id, title, structured_json, created_at, completed_at FROM generated_reports WHERE id=?`)
+    const row = await this.db.prepare(`SELECT id, scope, public_run_id, response_watermark, cohort_fingerprint, cohort_snapshot_json,
+      status, scoring_model_id, synthesis_model_id, title, structured_json, created_at, completed_at FROM generated_reports WHERE id=?`)
       .bind(id).first<Record<string, unknown>>()
     return row ? mapReportRow(row) : null
   }
@@ -236,6 +304,8 @@ function mapReportRow(row: Record<string, unknown>): ReportRow {
   return {
     id: s(row.id), scope: s(row.scope) as ReportRow['scope'], publicRunId: row.public_run_id == null ? null : s(row.public_run_id),
     responseWatermark: row.response_watermark == null ? null : n(row.response_watermark),
+    cohortFingerprint: row.cohort_fingerprint == null ? null : s(row.cohort_fingerprint),
+    cohortSnapshotJson: row.cohort_snapshot_json == null ? null : s(row.cohort_snapshot_json),
     status: s(row.status) as ReportRow['status'], scoringModelId: s(row.scoring_model_id), synthesisModelId: s(row.synthesis_model_id),
     title: row.title == null ? null : s(row.title), structuredJson: row.structured_json == null ? null : s(row.structured_json),
     createdAt: s(row.created_at), completedAt: row.completed_at == null ? null : s(row.completed_at),

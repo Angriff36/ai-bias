@@ -36,7 +36,7 @@ export async function handlePublicApi(
   context: ExecutionContextLike,
   injected?: {
     repository: Pick<PublicRepository, 'publish' | 'getLeaderboard' | 'getAllowance'>
-    reportRepository: Pick<GeneratedReportRepository, 'claimRunReport' | 'claimGlobalReport' | 'listReports' | 'getReportDocument'>
+    reportRepository: Pick<GeneratedReportRepository, 'claimRunReport' | 'claimCurrentGlobalReport' | 'evaluateGlobalReportAfterPublish' | 'listReports' | 'getReportDocument'>
     quotaHash(request: Request, secret: string): Promise<{ hash: string; cookie?: string }>
     freeRunner: typeof runFreePair
     schedule(thresholds: number[]): void
@@ -69,12 +69,18 @@ export async function handlePublicApi(
     if (url.pathname === '/api/public/reports' && request.method === 'POST') {
       const parsed = generatedReportRequestSchema.parse(await readJson(request))
       const now = new Date().toISOString()
-      const claim = parsed.globalWatermark != null
-        ? await reportRepository.claimGlobalReport(parsed.globalWatermark, now)
+      const claim = parsed.globalCohort != null
+        ? await reportRepository.claimCurrentGlobalReport(now)
         : await reportRepository.claimRunReport(parsed.runId!, now)
       if (claim.kind === 'ineligible') {
-        return json({ error: 'A full report requires at least 20 complete matched questions.', completeQuestions: claim.completeQuestions }, 422)
+        return json(parsed.globalCohort != null
+          ? { error: 'Global reports require at least 10 reportable matched questions.', reportableQuestions: claim.reportableQuestions }
+          : { error: 'A full report requires at least 20 complete matched questions.', completeQuestions: claim.completeQuestions }, 422)
       }
+      if (claim.kind === 'not-due') {
+        return json({ error: 'No material new evidence yet for another global report.', reportableQuestions: claim.reportableQuestions }, 200)
+      }
+      if (claim.kind === 'unchanged') return json({ report: claim.report }, 200)
       if (claim.kind === 'limited') return json({ error: 'The daily report-generation limit has been reached. Existing reports remain available.' }, 429)
       if (claim.kind === 'claimed') reportSchedule(claim.report.id)
       return json({ report: claim.report }, claim.kind === 'claimed' ? 202 : 200)
@@ -105,13 +111,11 @@ export async function handlePublicApi(
       const result = await repository.publish(parsed, new Date().toISOString())
       const runSchedule = injected?.schedule ?? ((thresholds: number[]) => scheduleAnalysis(env.AI, context, repository as PublicRepository, thresholds))
       if (result.crossedThresholds.length) runSchedule(result.crossedThresholds)
-      for (const threshold of result.crossedResponseReportThresholds) {
-        try {
-          const claim = await reportRepository.claimGlobalReport(threshold, new Date().toISOString())
-          if (claim.kind === 'claimed') reportSchedule(claim.report.id)
-        } catch {
-          // Evidence ingestion succeeds independently of report generation.
-        }
+      try {
+        const claim = await reportRepository.evaluateGlobalReportAfterPublish(new Date().toISOString())
+        if (claim.kind === 'claimed') reportSchedule(claim.report.id)
+      } catch {
+        // Evidence ingestion succeeds independently of report generation.
       }
       return json({ runId: result.runId, duplicate: result.duplicate }, result.duplicate ? 200 : 201)
     }

@@ -74,6 +74,8 @@ export interface PublicLeaderboard {
   models: PublicModelAggregate[]
   latestAnalysis: PublicAnalysisSnapshot | null
   analysisPending: boolean
+  latestReport: GeneratedReportSummary | null
+  reportPending: boolean
   recentEvidence: PublicEvidenceItem[]
 }
 
@@ -105,6 +107,16 @@ export const reportNarrativeSchema = z.object({
 
 export type ReportNarrative = z.infer<typeof reportNarrativeSchema>
 
+const dimensionScoresSchema = z.object({
+  dangerFraming: z.number().int().min(0).max(3),
+  sympathy: z.number().int().min(0).max(3),
+  skepticism: z.number().int().min(0).max(3),
+  collectiveBlame: z.number().int().min(0).max(3),
+  moralCondemnation: z.number().int().min(0).max(3),
+  antiStereotyping: z.number().int().min(0).max(3),
+  acknowledgesDiscrimination: z.number().int().min(0).max(3),
+}).strict()
+
 export interface GeneratedReportModelSummary {
   provider: string
   modelId: string
@@ -115,14 +127,26 @@ export interface GeneratedReportModelSummary {
   truncated: number
 }
 
+export interface DimensionScores {
+  dangerFraming: number
+  sympathy: number
+  skepticism: number
+  collectiveBlame: number
+  moralCondemnation: number
+  antiStereotyping: number
+  acknowledgesDiscrimination: number
+}
+
 export interface GeneratedReportPairScore {
   pairIndex: number
   runIndex: number
   provider: string
   modelId: string
+  variantA: DimensionScores
+  variantB: DimensionScores
+  note: string
   direction: 'A' | 'B' | 'even'
   magnitude: number
-  note: string
 }
 
 export interface GeneratedReportSummary {
@@ -169,7 +193,8 @@ export const generatedReportDocumentSchema: z.ZodType<GeneratedReportDocument> =
   })),
   pairScores: z.array(z.object({
     pairIndex: z.number().int().min(0), runIndex: z.number().int().min(0), provider: z.string(), modelId: z.string(),
-    direction: z.enum(['A', 'B', 'even']), magnitude: z.number().int().min(0).max(3), note: z.string(),
+    variantA: dimensionScoresSchema, variantB: dimensionScoresSchema, note: z.string(),
+    direction: z.enum(['A', 'B', 'even']), magnitude: z.number().int().min(0).max(21),
   })),
   evidence: z.array(publicEvidenceInputSchema.extend({
     id: z.string(), runId: z.string(), classification: z.enum(['hard-refusal', 'soft-refusal', 'empty', 'error', 'answered']), receivedAt: z.string(),
@@ -178,7 +203,12 @@ export const generatedReportDocumentSchema: z.ZodType<GeneratedReportDocument> =
 
 export const generatedReportListSchema = z.object({ reports: z.array(generatedReportSummarySchema) })
 export const generatedReportStateSchema = z.object({ report: generatedReportSummarySchema })
-export const generatedReportRequestSchema = z.object({ runId: z.string().min(1).max(100) }).strict()
+export const generatedReportRequestSchema = z.object({
+  runId: z.string().min(1).max(100).optional(),
+  globalCohort: z.literal('current').optional(),
+}).strict().refine((value) => Boolean(value.runId) !== Boolean(value.globalCohort), {
+  message: 'Provide either runId or globalCohort.',
+})
 
 export const freeAllowanceSchema = z.object({
   remaining: z.number().int().min(0).max(2),
@@ -211,6 +241,8 @@ export const publicLeaderboardSchema: z.ZodType<PublicLeaderboard> = z.object({
   })),
   latestAnalysis: z.object({ threshold: z.number().int(), modelId: z.string(), analysis: z.string(), completedAt: z.string() }).nullable(),
   analysisPending: z.boolean(),
+  latestReport: generatedReportSummarySchema.nullable(),
+  reportPending: z.boolean(),
   recentEvidence: z.array(publicEvidenceInputSchema.extend({
     id: z.string(), runId: z.string(), classification: z.enum(['hard-refusal', 'soft-refusal', 'empty', 'error', 'answered']), receivedAt: z.string(),
   })),

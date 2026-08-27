@@ -1,8 +1,8 @@
-import type { PublicEvidenceItem, PublicLeaderboard, PublicModelAggregate, PublicSubmission } from '../../src/public/contracts'
+import type { PublicEvidenceItem, PublicLeaderboard, PublicModelAggregate, PublicSubmission, GeneratedReportSummary } from '../../src/public/contracts'
+import { generatedReportSummarySchema } from '../../src/public/contracts'
 import { classifyPublicEvidence, normalizeSubmission, pairContribution, submissionHashMaterial } from '../../src/public/normalize'
 import type { D1DatabaseLike, D1Statement } from './d1'
 import { thresholdsCrossed } from './analysis'
-import { responseReportThresholdsCrossed } from './reportThresholds'
 
 export interface ModelContribution {
   provider: string
@@ -59,21 +59,18 @@ export class PublicRepository {
     runId: string
     duplicate: boolean
     crossedThresholds: number[]
-    crossedResponseReportThresholds: number[]
   }> {
     const submission = normalizeSubmission(raw)
     const hash = await sha256(submissionHashMaterial(submission))
     const existing = await this.db.prepare('SELECT id FROM public_runs WHERE submission_hash = ?').bind(hash).first<{ id: string }>()
-    if (existing) return { runId: existing.id, duplicate: true, crossedThresholds: [], crossedResponseReportThresholds: [] }
+    if (existing) return { runId: existing.id, duplicate: true, crossedThresholds: [] }
 
     const runId = crypto.randomUUID()
     const contributions = aggregateSubmission(submission)
     const completePairs = contributions.reduce((sum, item) => sum + item.completePairs, 0)
-    const beforeRow = await this.db.prepare(`SELECT
-      (SELECT COALESCE(SUM(complete_pair_count), 0) FROM model_aggregates) AS total,
-      (SELECT COUNT(*) FROM public_evidence) AS responses`).first<{ total: number; responses: number }>()
+    const beforeRow = await this.db.prepare('SELECT COALESCE(SUM(complete_pair_count), 0) AS total FROM model_aggregates')
+      .first<{ total: number }>()
     const before = n(beforeRow?.total)
-    const responsesBefore = n(beforeRow?.responses)
     const statements: D1Statement[] = [
       this.db.prepare('INSERT INTO public_runs (id, submission_hash, source, created_at, record_count, complete_pair_count) VALUES (?, ?, ?, ?, ?, ?)')
         .bind(runId, hash, submission.source, receivedAt, submission.records.length, completePairs),
@@ -109,7 +106,6 @@ export class PublicRepository {
       runId,
       duplicate: false,
       crossedThresholds: thresholdsCrossed(before, before + completePairs),
-      crossedResponseReportThresholds: responseReportThresholdsCrossed(responsesBefore, responsesBefore + submission.records.length),
     }
   }
 
@@ -129,6 +125,9 @@ export class PublicRepository {
     const analysis = await this.db.prepare(`SELECT threshold, model_id, analysis, completed_at FROM analysis_snapshots
       WHERE status='complete' ORDER BY threshold DESC LIMIT 1`).first<Record<string, unknown>>()
     const pending = await this.db.prepare("SELECT COUNT(*) AS count FROM analysis_snapshots WHERE status='pending'").first<{ count: number }>()
+    const latestReportRow = await this.db.prepare(`SELECT id, scope, status, title, structured_json, created_at, completed_at
+      FROM generated_reports WHERE status='complete' ORDER BY COALESCE(completed_at, created_at) DESC LIMIT 1`).first<Record<string, unknown>>()
+    const pendingReports = await this.db.prepare("SELECT COUNT(*) AS count FROM generated_reports WHERE status='pending'").first<{ count: number }>()
     const models: PublicModelAggregate[] = modelRows.map((row) => {
       const responses = n(row.response_count)
       const pairs = n(row.complete_pair_count)
@@ -153,6 +152,8 @@ export class PublicRepository {
       models,
       latestAnalysis: analysis ? { threshold: n(analysis.threshold), modelId: s(analysis.model_id), analysis: s(analysis.analysis), completedAt: s(analysis.completed_at) } : null,
       analysisPending: n(pending?.count) > 0,
+      latestReport: latestReportRow ? parseReportSummary(latestReportRow) : null,
+      reportPending: n(pendingReports?.count) > 0,
       recentEvidence,
     }
   }
@@ -200,4 +201,25 @@ export class PublicRepository {
   async failAnalysis(threshold: number): Promise<void> {
     await this.db.prepare("UPDATE analysis_snapshots SET status='failed' WHERE threshold=?").bind(threshold).run()
   }
+}
+
+function parseReportSummary(row: Record<string, unknown>): GeneratedReportSummary | null {
+  let document: { responseCount?: number; completePairs?: number; modelCount?: number } | null = null
+  try {
+    document = row.structured_json ? JSON.parse(s(row.structured_json)) as typeof document : null
+  } catch {
+    document = null
+  }
+  const parsed = generatedReportSummarySchema.safeParse({
+    id: s(row.id),
+    scope: s(row.scope),
+    status: s(row.status),
+    title: row.title == null ? null : s(row.title),
+    responseCount: n(document?.responseCount),
+    completePairs: n(document?.completePairs),
+    modelCount: n(document?.modelCount),
+    createdAt: s(row.created_at),
+    completedAt: row.completed_at == null ? null : s(row.completed_at),
+  })
+  return parsed.success ? parsed.data : null
 }

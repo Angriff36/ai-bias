@@ -1,15 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { reportNarrativeSchema } from '../../src/public/contracts'
-import { responseReportThresholdsCrossed } from './reportThresholds'
 
-describe('generated report thresholds and contracts', () => {
-  it('crosses each 200-response watermark once', () => {
-    expect(responseReportThresholdsCrossed(199, 200)).toEqual([200])
-    expect(responseReportThresholdsCrossed(200, 399)).toEqual([])
-    expect(responseReportThresholdsCrossed(399, 401)).toEqual([400])
-    expect(responseReportThresholdsCrossed(401, 799)).toEqual([600])
-  })
-
+describe('generated report contracts', () => {
   it('accepts bounded report prose but rejects credential fields', () => {
     const narrative = {
       title: 'Matched-prompt evidence report',

@@ -1,0 +1,223 @@
+import type { PublicEvidenceItem } from '../../src/public/contracts'
+
+export const GLOBAL_REPORT_ELIGIBILITY_VERSION = 1
+export const MIN_COMPLETE_PAIRS_PER_QUESTION = 10
+export const MIN_MODELS_PER_QUESTION = 2
+export const MIN_REPORTABLE_QUESTIONS = 10
+export const TOP_COHORT_QUESTION_LIMIT = 20
+export const PAIR_GROWTH_TRIGGER_RATIO = 1.25
+export const MEMBERSHIP_CHANGE_TRIGGER = 3
+export const NEWLY_REPORTABLE_TRIGGER = 3
+export const NEW_MODEL_MIN_PAIRS = 10
+export const NEW_MODEL_MIN_QUESTIONS = 5
+
+export interface QuestionRankingEntry {
+  questionKey: string
+  questionText: string
+  completePairCount: number
+  rank: number
+  modelIds: string[]
+}
+
+export interface GlobalReportCohortSnapshot {
+  eligibilityVersion: number
+  generatedAt: string
+  questionKeys: string[]
+  rankings: QuestionRankingEntry[]
+  totalCompletePairCount: number
+  modelIds: string[]
+  perModelPairCounts: Record<string, number>
+  perModelQuestionCounts: Record<string, number>
+  evidenceIds: string[]
+  cohortFingerprint: string
+  pairIndexByQuestionKey: Record<string, number>
+  reportableQuestionKeys: string[]
+}
+
+export interface QuestionCatalogEntry {
+  questionKey: string
+  questionText: string
+  completePairCount: number
+  modelIds: string[]
+  evidenceIds: string[]
+}
+
+export function normalizeQuestionKey(question: string | undefined): string {
+  if (!question?.trim()) return '__missing_question__'
+  return question.trim().toLowerCase().replace(/\s+/g, ' ')
+}
+
+export function modelKey(provider: string, modelId: string): string {
+  return `${provider}\u0000${modelId}`
+}
+
+function completePairGroups(records: PublicEvidenceItem[]): PublicEvidenceItem[][] {
+  const grouped = new Map<string, PublicEvidenceItem[]>()
+  for (const item of records) {
+    const key = `${item.runId}\u0000${item.pairIndex}\u0000${item.runIndex}\u0000${item.provider}\u0000${item.modelId}`
+    grouped.set(key, [...(grouped.get(key) ?? []), item])
+  }
+  return [...grouped.values()].filter((group) => {
+    const variantA = group.find((item) => item.variantKey === 'A')
+    const variantB = group.find((item) => item.variantKey === 'B')
+    return Boolean(variantA && variantB && variantA.status === 'ok' && variantB.status === 'ok')
+  })
+}
+
+export function buildQuestionCatalog(evidence: PublicEvidenceItem[]): QuestionCatalogEntry[] {
+  const byQuestion = new Map<string, PublicEvidenceItem[]>()
+  for (const item of evidence) {
+    const questionKey = normalizeQuestionKey(item.question)
+    byQuestion.set(questionKey, [...(byQuestion.get(questionKey) ?? []), item])
+  }
+  return [...byQuestion.entries()].map(([questionKey, records]) => {
+    const groups = completePairGroups(records)
+    const modelIds = new Set<string>()
+    const evidenceIds = new Set<string>()
+    for (const group of groups) {
+      const head = group[0]
+      modelIds.add(modelKey(head.provider, head.modelId))
+      for (const item of group) evidenceIds.add(item.id)
+    }
+    return {
+      questionKey,
+      questionText: records.find((item) => item.question?.trim())?.question?.trim() ?? questionKey,
+      completePairCount: groups.length,
+      modelIds: [...modelIds].sort(),
+      evidenceIds: [...evidenceIds].sort(),
+    }
+  })
+}
+
+export function isReportableQuestion(entry: QuestionCatalogEntry): boolean {
+  return entry.completePairCount >= MIN_COMPLETE_PAIRS_PER_QUESTION && entry.modelIds.length >= MIN_MODELS_PER_QUESTION
+}
+
+export function selectReportableQuestions(catalog: QuestionCatalogEntry[]): QuestionCatalogEntry[] {
+  return catalog.filter(isReportableQuestion)
+}
+
+export function rankQuestions(entries: QuestionCatalogEntry[]): QuestionCatalogEntry[] {
+  return [...entries].sort((left, right) => (
+    right.completePairCount - left.completePairCount
+    || left.questionKey.localeCompare(right.questionKey)
+  ))
+}
+
+export function selectTopCohort(reportable: QuestionCatalogEntry[], limit = TOP_COHORT_QUESTION_LIMIT): QuestionCatalogEntry[] {
+  return rankQuestions(reportable).slice(0, limit)
+}
+
+export function globalEligibilityMet(catalog: QuestionCatalogEntry[]): boolean {
+  return selectReportableQuestions(catalog).length >= MIN_REPORTABLE_QUESTIONS
+}
+
+function cohortFingerprintMaterial(input: {
+  eligibilityVersion: number
+  rankings: QuestionRankingEntry[]
+  evidenceIds: string[]
+}): string {
+  return JSON.stringify({
+    version: input.eligibilityVersion,
+    questions: input.rankings.map((entry) => ({ key: entry.questionKey, count: entry.completePairCount })),
+    evidenceIds: [...input.evidenceIds].sort(),
+  })
+}
+
+export async function cohortFingerprint(input: {
+  eligibilityVersion: number
+  rankings: QuestionRankingEntry[]
+  evidenceIds: string[]
+}): Promise<string> {
+  const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(cohortFingerprintMaterial(input)))
+  return [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, '0')).join('')
+}
+
+function buildModelStats(cohort: QuestionCatalogEntry[], evidence: PublicEvidenceItem[]): {
+  perModelPairCounts: Record<string, number>
+  perModelQuestionCounts: Record<string, number>
+} {
+  const perModelPairCounts: Record<string, number> = {}
+  const perModelQuestionCounts: Record<string, number> = {}
+  for (const entry of cohort) {
+    const questionEvidence = evidence.filter((item) => normalizeQuestionKey(item.question) === entry.questionKey)
+    const modelsInQuestion = new Set<string>()
+    for (const group of completePairGroups(questionEvidence)) {
+      const head = group[0]
+      const key = modelKey(head.provider, head.modelId)
+      perModelPairCounts[key] = (perModelPairCounts[key] ?? 0) + 1
+      modelsInQuestion.add(key)
+    }
+    for (const key of modelsInQuestion) {
+      perModelQuestionCounts[key] = (perModelQuestionCounts[key] ?? 0) + 1
+    }
+  }
+  return { perModelPairCounts, perModelQuestionCounts }
+}
+
+export async function buildGlobalCohortSnapshot(
+  evidence: PublicEvidenceItem[],
+  generatedAt: string,
+): Promise<GlobalReportCohortSnapshot | null> {
+  const reportable = selectReportableQuestions(buildQuestionCatalog(evidence))
+  if (reportable.length < MIN_REPORTABLE_QUESTIONS) return null
+  const cohort = selectTopCohort(reportable)
+  const pairIndexByQuestionKey: Record<string, number> = {}
+  const rankings: QuestionRankingEntry[] = cohort.map((entry, index) => {
+    pairIndexByQuestionKey[entry.questionKey] = index
+    return {
+      questionKey: entry.questionKey,
+      questionText: entry.questionText,
+      completePairCount: entry.completePairCount,
+      rank: index + 1,
+      modelIds: entry.modelIds,
+    }
+  })
+  const evidenceIds = [...new Set(cohort.flatMap((entry) => entry.evidenceIds))].sort()
+  const { perModelPairCounts, perModelQuestionCounts } = buildModelStats(cohort, evidence)
+  const fingerprint = await cohortFingerprint({
+    eligibilityVersion: GLOBAL_REPORT_ELIGIBILITY_VERSION,
+    rankings,
+    evidenceIds,
+  })
+  return {
+    eligibilityVersion: GLOBAL_REPORT_ELIGIBILITY_VERSION,
+    generatedAt,
+    questionKeys: rankings.map((entry) => entry.questionKey),
+    rankings,
+    totalCompletePairCount: rankings.reduce((sum, entry) => sum + entry.completePairCount, 0),
+    modelIds: Object.keys(perModelPairCounts).sort(),
+    perModelPairCounts,
+    perModelQuestionCounts,
+    evidenceIds,
+    cohortFingerprint: fingerprint,
+    pairIndexByQuestionKey,
+    reportableQuestionKeys: reportable.map((entry) => entry.questionKey).sort(),
+  }
+}
+
+export function remapEvidenceToCohort(
+  evidence: PublicEvidenceItem[],
+  snapshot: GlobalReportCohortSnapshot,
+): PublicEvidenceItem[] {
+  const allowed = new Set(snapshot.evidenceIds)
+  return evidence
+    .filter((item) => allowed.has(item.id))
+    .map((item) => {
+      const questionKey = normalizeQuestionKey(item.question)
+      const pairIndex = snapshot.pairIndexByQuestionKey[questionKey]
+      if (pairIndex == null) return item
+      return { ...item, pairIndex, question: snapshot.rankings[pairIndex]?.questionText ?? item.question }
+    })
+    .sort((left, right) => (
+      left.pairIndex - right.pairIndex
+      || left.runIndex - right.runIndex
+      || left.provider.localeCompare(right.provider)
+      || left.modelId.localeCompare(right.modelId)
+      || left.variantKey.localeCompare(right.variantKey)
+    ))
+}
+
+export function snapshotFromStoredJson(value: string): GlobalReportCohortSnapshot {
+  return JSON.parse(value) as GlobalReportCohortSnapshot
+}

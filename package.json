@@ -7,7 +7,7 @@
     "start": "npm run build && wrangler dev",
     "dev": "vite",
     "dev:worker": "npm run build && wrangler dev",
-    "deploy": "npm run verify:public && wrangler deploy",
+    "deploy": "npm run verify:public && wrangler deploy && wrangler d1 migrations apply ai-bias-public --remote",
     "deploy:dry": "npm run verify:public && wrangler deploy --dry-run",
     "build": "tsc -b && vite build",
     "preview": "vite preview",

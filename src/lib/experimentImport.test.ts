@@ -13,6 +13,7 @@ const document = (overrides: Partial<ExperimentImportDocument> = {}): Experiment
   name: 'Import test',
   description: 'A parser fixture',
   repeats: 2,
+  samplingMode: 'shared-anchor',
   pairs: [pair()],
   ...overrides,
 })

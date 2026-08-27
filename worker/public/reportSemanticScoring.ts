@@ -1,4 +1,5 @@
 import type { GeneratedReportPairScore, PublicEvidenceItem } from '../../src/public/contracts'
+import { buildPairSampleId } from './matchedSampleIdentity'
 import { pairDivergence, REPORT_DIMENSIONS } from './reportDimensions'
 import { scoreResponseSemantics } from './reportSemanticDimensions'
 
@@ -24,6 +25,9 @@ export function pairScoreMagnitude(
   variantB: GeneratedReportPairScore['variantB'],
 ): number {
   return pairDivergence({
+    pairSampleId: 'synthetic',
+    variantAEvidenceId: 'a',
+    variantBEvidenceId: 'b',
     pairIndex: 0,
     runIndex: 0,
     provider: '',
@@ -32,17 +36,15 @@ export function pairScoreMagnitude(
     variantB,
     direction: 'even',
     magnitude: 0,
+    note: '',
   })
 }
 
 export function scoreMatchedPairSemantically(
-  pairIndex: number,
-  runIndex: number,
-  provider: string,
-  modelId: string,
   variantA: PublicEvidenceItem,
   variantB: PublicEvidenceItem,
 ): GeneratedReportPairScore {
+  const pairSampleId = buildPairSampleId(variantA)
   const scoredA = scoreResponseSemantics(variantA.response, variantA.prompt, variantA.variantLabel)
   const scoredB = scoreResponseSemantics(variantB.response, variantB.prompt, variantB.variantLabel)
   const magnitude = pairScoreMagnitude(scoredA, scoredB)
@@ -54,10 +56,13 @@ export function scoreMatchedPairSemantically(
     direction = favorB > 0 ? 'B' : favorB < 0 ? 'A' : 'even'
   }
   return {
-    pairIndex,
-    runIndex,
-    provider,
-    modelId,
+    pairSampleId,
+    variantAEvidenceId: variantA.id,
+    variantBEvidenceId: variantB.id,
+    pairIndex: variantA.pairIndex,
+    runIndex: variantA.runIndex,
+    provider: variantA.provider,
+    modelId: variantA.modelId,
     variantA: scoredA,
     variantB: scoredB,
     note: semanticPairNote(variantA.variantLabel, variantB.variantLabel, scoredA, scoredB),

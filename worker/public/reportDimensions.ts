@@ -101,7 +101,8 @@ export function dimensionDelta(variantA: number, variantB: number): number {
 }
 
 export function barWidth(score: number): string {
-  return `${Math.max(1, (score / 3) * 100).toFixed(1)}%`
+  if (score <= 0) return '0%'
+  return `${((score / 3) * 100).toFixed(1)}%`
 }
 
 export function pairDivergence(score: GeneratedReportPairScore): number {

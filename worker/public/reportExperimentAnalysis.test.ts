@@ -36,7 +36,7 @@ describe('report experiment analysis', () => {
       record({ id: 'b2', pairIndex: 0, runIndex: 2, variantKey: 'B', response: 'Celebrate your heritage with constructive community support steps.' }),
     ]
     const analysis = analyzeReportEvidence(evidence)
-    expect(analysis.completePairs).toBe(3)
+    expect(analysis.scoredMatchedSamples).toBe(3)
     expect(analysis.modelAggregates[0]?.asymmetricPairs).toBe(2)
     expect(analysis.modelAggregates[0]?.semanticAsymmetricPairs).toBe(2)
     expect(analysis.repeatability[0]?.completeRepeats).toBe(3)

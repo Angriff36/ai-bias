@@ -19,6 +19,7 @@ import { CloneExperimentButton } from './CloneExperimentButton'
 import { ImportExperimentDialog } from './ImportExperimentDialog'
 import { DropdownSelect } from './DropdownSelect'
 import type { ExperimentImportDocument } from '../lib/experimentImport'
+import { ExperimentRunGuide } from './ExperimentRunGuide'
 
 const PAGE_SIZES = [10, 20, 50]
 const DEFAULT_PAGE_SIZE = 20
@@ -458,6 +459,8 @@ export function ExperimentHistoryList() {
           <button className="secondary" onClick={() => setImportOpen(true)}>Import JSON</button>
         </div>
       </header>
+
+      <ExperimentRunGuide />
 
       <section className="leaderboard-totals experiment-totals" aria-label="Evidence overview">
         <div><span>Experiments</span><strong>{data ? data.summary.experimentCount.toLocaleString('en-US') : '—'}</strong></div>

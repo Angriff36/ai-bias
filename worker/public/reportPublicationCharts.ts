@@ -8,6 +8,7 @@ import {
   type ModelDimensionAggregate,
 } from './reportDimensions'
 import type { VariantSideLabels } from './reportVariantLabels'
+import { buildPairScoreIndex, matchedSampleKey } from './matchedSampleIdentity'
 
 const escapeHtml = (value: unknown): string => String(value ?? '')
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -64,16 +65,6 @@ export function renderModelDimensionCard(model: ModelDimensionAggregate): string
   return `<div class="card"><div class="who">${escapeHtml(model.provider)}</div><h4>${escapeHtml(model.modelId)}</h4>${rows}</div>`
 }
 
-function scoreLookup(scores: GeneratedReportPairScore[], group: PublicEvidenceItem[]): GeneratedReportPairScore | undefined {
-  const first = group[0]
-  return scores.find((score) => (
-    score.pairIndex === first.pairIndex
-    && score.runIndex === first.runIndex
-    && score.provider === first.provider
-    && score.modelId === first.modelId
-  ))
-}
-
 function dimensionCells(score: GeneratedReportPairScore | undefined): string {
   if (!score?.variantA || !score.variantB) {
     return REPORT_DIMENSIONS.map(() => '<td class="n">—</td>').join('')
@@ -86,43 +77,59 @@ function dimensionCells(score: GeneratedReportPairScore | undefined): string {
   }).join('')
 }
 
+function formatSampleDivergence(score: GeneratedReportPairScore | undefined): string {
+  if (!score) return 'Unscored'
+  return `${pairDivergence(score)} pt divergence`
+}
+
+function maxScoredDivergence(scores: Array<GeneratedReportPairScore | undefined>): string {
+  const magnitudes = scores.filter((score): score is GeneratedReportPairScore => Boolean(score)).map(pairDivergence)
+  if (magnitudes.length === 0) return 'Unscored'
+  return String(Math.max(...magnitudes))
+}
+
 export function renderPairEvidenceSection(
   pairScores: GeneratedReportPairScore[],
   evidence: PublicEvidenceItem[],
 ): string {
-  const grouped = new Map<number, PublicEvidenceItem[][]>()
+  const scoreIndex = buildPairScoreIndex(pairScores)
+  const grouped = new Map<number, Map<string, PublicEvidenceItem[]>>()
   for (const item of evidence) {
-    const key = `${item.pairIndex}\u0000${item.runIndex}\u0000${item.provider}\u0000${item.modelId}`
-    const list = grouped.get(item.pairIndex) ?? []
-    const existing = list.find((group) => group[0] && `${group[0].pairIndex}\u0000${group[0].runIndex}\u0000${group[0].provider}\u0000${group[0].modelId}` === key)
+    const sampleKey = matchedSampleKey(item)
+    const bySample = grouped.get(item.pairIndex) ?? new Map<string, PublicEvidenceItem[]>()
+    const existing = bySample.get(sampleKey)
     if (existing) existing.push(item)
-    else list.push([item])
-    grouped.set(item.pairIndex, list)
+    else bySample.set(sampleKey, [item])
+    grouped.set(item.pairIndex, bySample)
   }
 
   const rankedPairs = [...grouped.entries()].sort((left, right) => {
-    const leftMax = Math.max(...left[1].map((group) => pairDivergence(scoreLookup(pairScores, group) ?? { magnitude: 0 } as GeneratedReportPairScore)))
-    const rightMax = Math.max(...right[1].map((group) => pairDivergence(scoreLookup(pairScores, group) ?? { magnitude: 0 } as GeneratedReportPairScore)))
-    return rightMax - leftMax || left[0] - right[0]
+    const leftMax = maxScoredDivergence([...left[1].values()].map((group) => scoreIndex.get(matchedSampleKey(group[0]))))
+    const rightMax = maxScoredDivergence([...right[1].values()].map((group) => scoreIndex.get(matchedSampleKey(group[0]))))
+    const leftNum = leftMax === 'Unscored' ? -1 : Number(leftMax)
+    const rightNum = rightMax === 'Unscored' ? -1 : Number(rightMax)
+    return rightNum - leftNum || left[0] - right[0]
   })
 
-  return rankedPairs.map(([pairIndex, groups]) => {
+  return rankedPairs.map(([pairIndex, groupsBySample]) => {
+    const groups = [...groupsBySample.values()]
     const question = groups[0]?.[0]?.question ?? `Matched question ${pairIndex + 1}`
-    const divergence = Math.max(...groups.map((group) => pairDivergence(scoreLookup(pairScores, group) ?? { magnitude: 0 } as GeneratedReportPairScore)))
+    const divergence = maxScoredDivergence(groups.map((group) => scoreIndex.get(matchedSampleKey(group[0]))))
     const modelRows = groups.map((group) => {
       const first = group[0]
-      const score = scoreLookup(pairScores, group)
-      const rowDivergence = pairDivergence(score ?? { magnitude: 0 } as GeneratedReportPairScore)
+      const sampleKey = matchedSampleKey(first)
+      const score = scoreIndex.get(sampleKey)
       const variants = group.sort((a, b) => a.variantKey.localeCompare(b.variantKey))
       const body = variants.map((item) => `<div class="col ${item.variantKey === 'A' ? 'a' : 'b'}"><h5>${escapeHtml(item.variantLabel)}</h5>`
         + `<div class="raw">${escapeHtml(item.response || item.errorMessage || '(No response)')}</div></div>`).join('')
-      return `<details class="mod"><summary><span>${escapeHtml(first.modelId)}</span><span class="rf">${rowDivergence} pt divergence</span></summary>`
+      return `<details class="mod"><summary><span>${escapeHtml(first.modelId)}</span><span class="rf">${formatSampleDivergence(score)}</span></summary>`
         + `<div class="inner"><table class="dimtab"><tr><th style="text-align:left">Model</th>`
         + `${REPORT_DIMENSIONS.map((dimension) => `<th>${escapeHtml(dimension.label.split(' ')[0])}</th>`).join('')}</tr>`
         + `<tr><td>${escapeHtml(first.modelId)}</td>${dimensionCells(score)}</tr></table>`
         + `<div class="two">${body}</div>${score?.note ? `<p class="note"><span class="mn">Scoring note</span>${escapeHtml(score.note)}</p>` : ''}</div></details>`
     }).join('')
-    return `<details class="pair"><summary><span class="qn">Q${pairIndex + 1}</span><span class="qt">${escapeHtml(question)}</span><span class="dv2">${divergence}</span></summary><div class="body">${modelRows}</div></details>`
+    const divergenceLabel = divergence === 'Unscored' ? 'Unscored' : divergence
+    return `<details class="pair"><summary><span class="qn">Q${pairIndex + 1}</span><span class="qt">${escapeHtml(question)}</span><span class="dv2">${divergenceLabel}</span></summary><div class="body">${modelRows}</div></details>`
   }).join('')
 }
 

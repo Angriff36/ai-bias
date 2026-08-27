@@ -205,7 +205,12 @@ export function remapEvidenceToCohort(
       const questionKey = normalizeQuestionKey(item.question)
       const pairIndex = snapshot.pairIndexByQuestionKey[questionKey]
       if (pairIndex == null) return item
-      return { ...item, pairIndex, question: snapshot.rankings[pairIndex]?.questionText ?? item.question }
+      return {
+        ...item,
+        sourcePairIndex: item.sourcePairIndex ?? item.pairIndex,
+        pairIndex,
+        question: snapshot.rankings[pairIndex]?.questionText ?? item.question,
+      }
     })
     .sort((left, right) => (
       left.pairIndex - right.pairIndex

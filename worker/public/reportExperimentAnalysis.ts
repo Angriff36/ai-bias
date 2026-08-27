@@ -3,6 +3,7 @@ import type {
   GeneratedReportPairScore,
   PublicEvidenceItem,
 } from '../../src/public/contracts'
+import { groupCompleteMatchedSamples, matchedSampleKey } from './matchedSampleIdentity'
 import { completeQuestionCount, summarizeReportModels } from './reportRepository'
 import { REPORT_DIMENSIONS } from './reportDimensions'
 import { scoreMatchedPairSemantically } from './reportSemanticScoring'
@@ -34,8 +35,8 @@ export interface ReportRepeatabilityStat {
 
 export interface ReportExperimentAnalysis {
   responseCount: number
-  completePairs: number
-  completeMatchedQuestions: number
+  scoredMatchedSamples: number
+  uniqueQuestionCount: number
   semanticDivergentPairs: number
   models: GeneratedReportModelSummary[]
   modelAggregates: ReportModelAggregateStats[]
@@ -45,41 +46,23 @@ export interface ReportExperimentAnalysis {
   derivedFacts: string[]
 }
 
-function completePairGroups(evidence: PublicEvidenceItem[]): PublicEvidenceItem[][] {
-  const grouped = new Map<string, PublicEvidenceItem[]>()
-  for (const item of evidence) {
-    const key = `${item.pairIndex}\u0000${item.runIndex}\u0000${item.provider}\u0000${item.modelId}`
-    grouped.set(key, [...(grouped.get(key) ?? []), item])
-  }
-  return [...grouped.values()].filter((records) => {
-    const a = records.find((item) => item.variantKey === 'A')
-    const b = records.find((item) => item.variantKey === 'B')
-    return Boolean(a && b && a.status === 'ok' && b.status === 'ok')
-  })
-}
-
 function pairStatsFromEvidence(records: PublicEvidenceItem[], pairScores: GeneratedReportPairScore[]): {
   completePairs: number
   asymmetricPairs: number
   semanticAsymmetricPairs: number
 } {
-  const groups = new Map<string, PublicEvidenceItem[]>()
-  for (const record of records) {
-    const key = `${record.provider}\u0000${record.modelId}\u0000${record.pairIndex}\u0000${record.runIndex}`
-    groups.set(key, [...(groups.get(key) ?? []), record])
-  }
+  const sampleIds = new Set(pairScores.map((score) => score.pairSampleId))
   let completePairs = 0
   let asymmetricPairs = 0
-  for (const group of groups.values()) {
-    const variantA = group.find((item) => item.variantKey === 'A')
-    const variantB = group.find((item) => item.variantKey === 'B')
-    if (!variantA || !variantB || variantA.status !== 'ok' || variantB.status !== 'ok') continue
+  for (const group of groupCompleteMatchedSamples(records)) {
     completePairs += 1
+    const variantA = group.find((item) => item.variantKey === 'A')!
+    const variantB = group.find((item) => item.variantKey === 'B')!
     if (variantA.classification !== variantB.classification) asymmetricPairs += 1
   }
   const semanticAsymmetricPairs = pairScores.filter((score) => (
-    score.magnitude > 0
-    && records.some((item) => item.provider === score.provider && item.modelId === score.modelId && item.pairIndex === score.pairIndex && item.runIndex === score.runIndex)
+    score.magnitude > 0 && sampleIds.has(score.pairSampleId)
+    && records.some((item) => matchedSampleKey(item) === score.pairSampleId)
   )).length
   return { completePairs, asymmetricPairs, semanticAsymmetricPairs }
 }
@@ -117,18 +100,30 @@ function modelAggregateStats(evidence: PublicEvidenceItem[], pairScores: Generat
   }).sort((left, right) => left.provider.localeCompare(right.provider) || left.modelId.localeCompare(right.modelId))
 }
 
+function repeatabilityKeyFromSampleId(pairSampleId: string): string {
+  const parts = pairSampleId.split('\u0000')
+  if (parts.length === 5) {
+    return `${parts[0]}\u0000${parts[1]}\u0000${parts[3]}\u0000${parts[4]}`
+  }
+  if (parts.length >= 6) {
+    return `${parts[0]}\u0000${parts[2]}\u0000${parts[4]}\u0000${parts[5]}`
+  }
+  return pairSampleId
+}
+
 function repeatabilityStats(evidence: PublicEvidenceItem[], pairScores: GeneratedReportPairScore[]): ReportRepeatabilityStat[] {
   const grouped = new Map<string, GeneratedReportPairScore[]>()
   for (const score of pairScores) {
-    const key = `${score.pairIndex}\u0000${score.provider}\u0000${score.modelId}`
+    const key = repeatabilityKeyFromSampleId(score.pairSampleId)
     grouped.set(key, [...(grouped.get(key) ?? []), score])
   }
   return [...grouped.entries()].map(([key, scores]) => {
-    const [pairIndexRaw, provider, modelId] = key.split('\u0000')
+    const [runId, pairSlot, provider, modelId] = key.split('\u0000')
     const completeRepeats = scores.length
-    const mechanicalAsymmetricRepeats = completePairGroups(evidence).filter((group) => {
+    const mechanicalAsymmetricRepeats = groupCompleteMatchedSamples(evidence).filter((group) => {
       const head = group[0]
-      if (head.pairIndex !== Number(pairIndexRaw) || head.provider !== provider || head.modelId !== modelId) return false
+      const headPairSlot = head.sourcePairIndex ?? head.pairIndex
+      if (head.runId !== runId || String(headPairSlot) !== pairSlot || head.provider !== provider || head.modelId !== modelId) return false
       const a = group.find((item) => item.variantKey === 'A')!
       const b = group.find((item) => item.variantKey === 'B')!
       return a.classification !== b.classification
@@ -140,8 +135,9 @@ function repeatabilityStats(evidence: PublicEvidenceItem[], pairScores: Generate
     const treatmentReproducibilityScore = completeRepeats >= 3
       ? directions.filter((entry) => entry === dominant).length / completeRepeats
       : null
+    const pairIndex = scores[0]?.pairIndex ?? 0
     return {
-      pairIndex: Number(pairIndexRaw),
+      pairIndex,
       provider,
       modelId,
       completeRepeats,
@@ -153,12 +149,12 @@ function repeatabilityStats(evidence: PublicEvidenceItem[], pairScores: Generate
 
 function deriveFacts(analysis: Omit<ReportExperimentAnalysis, 'derivedFacts'>): string[] {
   const facts = [
-    `${analysis.semanticDivergentPairs} of ${analysis.completePairs} scored pairs show semantic treatment divergence across measured dimensions.`,
-    `${analysis.modelAggregates.reduce((sum, model) => sum + model.asymmetricPairs, 0)} complete pairs differ in mechanical answer/refusal status; this is separate from semantic divergence.`,
+    `${analysis.semanticDivergentPairs} of ${analysis.scoredMatchedSamples} scored matched samples show semantic treatment divergence across measured dimensions.`,
+    `${analysis.modelAggregates.reduce((sum, model) => sum + model.asymmetricPairs, 0)} complete samples differ in mechanical answer/refusal status; this is separate from semantic divergence.`,
   ]
   const top = [...analysis.pairScores].sort((left, right) => right.magnitude - left.magnitude)[0]
   if (top && top.magnitude > 0) {
-    facts.push(`Largest measured semantic divergence is pair ${top.pairIndex + 1} on ${top.modelId} (magnitude ${top.magnitude}).`)
+    facts.push(`Largest measured semantic divergence is question ${top.pairIndex + 1} on ${top.modelId} (magnitude ${top.magnitude}).`)
   }
   if (analysis.treatmentReproducibilityScore != null) {
     facts.push(`Substantive treatment reproducibility across repeated runs averages ${analysis.treatmentReproducibilityScore}%.`)
@@ -167,11 +163,10 @@ function deriveFacts(analysis: Omit<ReportExperimentAnalysis, 'derivedFacts'>): 
 }
 
 export function analyzeReportEvidence(evidence: PublicEvidenceItem[]): ReportExperimentAnalysis {
-  const pairScores = completePairGroups(evidence).map((group) => {
-    const head = group[0]
+  const pairScores = groupCompleteMatchedSamples(evidence).map((group) => {
     const variantA = group.find((item) => item.variantKey === 'A')!
     const variantB = group.find((item) => item.variantKey === 'B')!
-    return scoreMatchedPairSemantically(head.pairIndex, head.runIndex, head.provider, head.modelId, variantA, variantB)
+    return scoreMatchedPairSemantically(variantA, variantB)
   })
   const semanticDivergentPairs = pairScores.filter((score) => score.magnitude > 0).length
   const repeatability = repeatabilityStats(evidence, pairScores)
@@ -182,8 +177,8 @@ export function analyzeReportEvidence(evidence: PublicEvidenceItem[]): ReportExp
   const modelAggregates = modelAggregateStats(evidence, pairScores)
   const base = {
     responseCount: evidence.length,
-    completePairs: pairScores.length,
-    completeMatchedQuestions: completeQuestionCount(evidence),
+    scoredMatchedSamples: pairScores.length,
+    uniqueQuestionCount: completeQuestionCount(evidence),
     semanticDivergentPairs,
     models: summarizeReportModels(evidence),
     modelAggregates,
@@ -197,8 +192,8 @@ export function analyzeReportEvidence(evidence: PublicEvidenceItem[]): ReportExp
 export function emptyAnalysis(): ReportExperimentAnalysis {
   return {
     responseCount: 0,
-    completePairs: 0,
-    completeMatchedQuestions: 0,
+    scoredMatchedSamples: 0,
+    uniqueQuestionCount: 0,
     semanticDivergentPairs: 0,
     models: [],
     modelAggregates: [],

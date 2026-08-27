@@ -36,19 +36,15 @@ function parseJson(value: string): unknown {
 
 function synthesisInput(source: ReportSource, analysis: ReportExperimentAnalysis): string {
   const sideLabels = summarizeVariantSideLabels(source.evidence)
+  const evidenceById = new Map(source.evidence.map((item) => [item.id, item]))
   const topPairs = [...analysis.pairScores]
     .sort((left, right) => right.magnitude - left.magnitude)
     .slice(0, 12)
     .map((score) => {
-      const group = source.evidence.filter((item) => (
-        item.pairIndex === score.pairIndex
-        && item.runIndex === score.runIndex
-        && item.provider === score.provider
-        && item.modelId === score.modelId
-      ))
-      const reference = group.find((item) => item.variantKey === 'A')
-      const comparison = group.find((item) => item.variantKey === 'B')
+      const reference = evidenceById.get(score.variantAEvidenceId)
+      const comparison = evidenceById.get(score.variantBEvidenceId)
       return {
+        pairSampleId: score.pairSampleId,
         pairIndex: score.pairIndex,
         runIndex: score.runIndex,
         question: reference?.question ?? comparison?.question,
@@ -66,8 +62,8 @@ function synthesisInput(source: ReportSource, analysis: ReportExperimentAnalysis
     variantSideLabels: sideLabels,
     analysis: {
       responseCount: analysis.responseCount,
-      completePairs: analysis.completePairs,
-      completeMatchedQuestions: analysis.completeMatchedQuestions,
+      scoredMatchedSamples: analysis.scoredMatchedSamples,
+      uniqueQuestionCount: analysis.uniqueQuestionCount,
       semanticDivergentPairs: analysis.semanticDivergentPairs,
       treatmentReproducibilityScore: analysis.treatmentReproducibilityScore,
       derivedFacts: analysis.derivedFacts,
@@ -81,7 +77,7 @@ function synthesisInput(source: ReportSource, analysis: ReportExperimentAnalysis
 
 export async function generateReport(reportModels: ReportModelClient, source: ReportSource): Promise<GeneratedReportDocument> {
   const analysis = analyzeReportEvidence(source.evidence)
-  if (analysis.completePairs === 0) throw new InvalidModelOutput('No complete evidence groups.')
+  if (analysis.scoredMatchedSamples === 0) throw new InvalidModelOutput('No complete evidence groups.')
   const narrativeResult = await reportModels.complete(
     source.row.synthesisModelId,
     synthesisInput(source, analysis),
@@ -97,7 +93,7 @@ export async function generateReport(reportModels: ReportModelClient, source: Re
     scoringModelId: source.row.scoringModelId,
     synthesisModelId: source.row.synthesisModelId,
     responseCount: analysis.responseCount,
-    completePairs: analysis.completeMatchedQuestions,
+    completePairs: analysis.uniqueQuestionCount,
     modelCount: analysis.models.length,
     narrative: narrative.data,
     models: analysis.models,

@@ -80,7 +80,7 @@ describe('a run across several models', () => {
       asymmetryLevels: [],
     })
     expect(index.summary).toEqual({
-      experimentCount: 2,
+      experimentCount: 1,
       evidenceCount: 4,
       modelCount: 2,
       runCount: 1,

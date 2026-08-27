@@ -18,6 +18,10 @@ vi.mock('../api', () => ({
   },
 }))
 
+vi.mock('../public/client', () => ({
+  getFreeAllowance: vi.fn().mockResolvedValue({ remaining: 2, dailyRemaining: 250 }),
+}))
+
 const indexPage: ExperimentPage = {
   total: 1,
   summary: { experimentCount: 1, evidenceCount: 1482, modelCount: 3, runCount: 12 },
@@ -55,6 +59,7 @@ describe('experiments evidence dashboard', () => {
     render(<ExperimentHistoryList />)
 
     expect(await screen.findByRole('heading', { name: 'Experiments' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'How to run experiments' })).toBeTruthy()
     expect(screen.getByRole('region', { name: 'Evidence overview' }).textContent).toContain('1,482')
     expect(screen.getByRole('heading', { name: 'Large racial framing audit' })).toBeTruthy()
     expect(screen.getByText(/60 matched pairs/)).toBeTruthy()

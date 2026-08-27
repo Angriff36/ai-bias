@@ -15,6 +15,9 @@ const base = {
 describe('reportDimensions', () => {
   it('aggregates pooled and per-model dimension means', () => {
     const pairScores: GeneratedReportPairScore[] = [{
+      pairSampleId: 'run-1\u0000q\u00000\u0000openai\u0000gpt',
+      variantAEvidenceId: 'a1',
+      variantBEvidenceId: 'b1',
       pairIndex: 0, runIndex: 0, provider: 'openai', modelId: 'gpt', note: 'note',
       variantA: base, variantB: { ...base, sympathy: 3 }, direction: 'B', magnitude: 2,
     }]

@@ -1,5 +1,4 @@
 import {
-  generatedReportDocumentSchema,
   generatedReportSummarySchema,
   type GeneratedReportDocument,
   type GeneratedReportModelSummary,
@@ -16,6 +15,8 @@ import {
   type GlobalReportCohortSnapshot,
 } from './reportGlobalCohort'
 import { evaluateGlobalReportTrigger } from './reportGlobalEligibility'
+import { parseStoredReportDocument } from './reportDocumentParse'
+import { comparisonIdentity, groupCompleteMatchedSamples } from './matchedSampleIdentity'
 
 const SCORING_MODEL = 'semantic-text-analysis'
 const SYNTHESIS_MODEL = 'x-ai/grok-4.6'
@@ -25,16 +26,11 @@ const n = (value: unknown) => Number(value ?? 0)
 const s = (value: unknown) => String(value ?? '')
 
 export function completeQuestionCount(evidence: PublicEvidenceItem[]): number {
-  const complete = new Set<number>()
-  const variants = new Map<string, Set<string>>()
-  for (const item of evidence) {
-    const key = `${item.pairIndex}\u0000${item.runIndex}\u0000${item.provider}\u0000${item.modelId}`
-    const keys = variants.get(key) ?? new Set<string>()
-    keys.add(item.variantKey)
-    variants.set(key, keys)
-    if (keys.has('A') && keys.has('B')) complete.add(item.pairIndex)
+  const completeQuestions = new Set<string>()
+  for (const group of groupCompleteMatchedSamples(evidence)) {
+    completeQuestions.add(comparisonIdentity(group[0]))
   }
-  return complete.size
+  return completeQuestions.size
 }
 
 export function summarizeReportModels(evidence: PublicEvidenceItem[]): GeneratedReportModelSummary[] {
@@ -58,14 +54,7 @@ export function summarizeReportModels(evidence: PublicEvidenceItem[]): Generated
 }
 
 function countCompleteModelPairs(records: PublicEvidenceItem[]): number {
-  const groups = new Map<string, Set<string>>()
-  for (const item of records) {
-    const key = `${item.pairIndex}\u0000${item.runIndex}`
-    const variants = groups.get(key) ?? new Set<string>()
-    variants.add(item.variantKey)
-    groups.set(key, variants)
-  }
-  return [...groups.values()].filter((variants) => variants.has('A') && variants.has('B')).length
+  return groupCompleteMatchedSamples(records).length
 }
 
 async function sha256(value: string): Promise<string> {
@@ -216,11 +205,18 @@ export class GeneratedReportRepository {
 
   async completeReport(reportId: string, document: GeneratedReportDocument, now: string): Promise<void> {
     const scoreStatements = document.pairScores.map((score) => this.db.prepare(`INSERT OR REPLACE INTO report_pair_scores
+      (report_id, pair_sample_id, pair_index, run_index, provider, model_id, score_json) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+      .bind(reportId, score.pairSampleId, score.pairIndex, score.runIndex, score.provider, score.modelId, JSON.stringify(score)))
+    const legacyScoreStatements = document.pairScores.map((score) => this.db.prepare(`INSERT OR REPLACE INTO report_pair_scores
       (report_id, pair_index, run_index, provider, model_id, score_json) VALUES (?, ?, ?, ?, ?, ?)`)
       .bind(reportId, score.pairIndex, score.runIndex, score.provider, score.modelId, JSON.stringify(score)))
     const update = this.db.prepare(`UPDATE generated_reports SET status='complete', title=?, structured_json=?, error_code=NULL, completed_at=? WHERE id=?`)
       .bind(document.narrative.title, JSON.stringify(document), now, reportId)
-    await this.db.batch([...scoreStatements, update])
+    try {
+      await this.db.batch([...scoreStatements, update])
+    } catch {
+      await this.db.batch([...legacyScoreStatements, update])
+    }
   }
 
   async failReport(reportId: string, code: string): Promise<void> {
@@ -237,12 +233,7 @@ export class GeneratedReportRepository {
   async getReportDocument(id: string): Promise<GeneratedReportDocument | null> {
     const row = await this.getRow(id)
     if (!row?.structuredJson || row.status !== 'complete') return null
-    try {
-      const parsed = generatedReportDocumentSchema.safeParse(JSON.parse(row.structuredJson))
-      return parsed.success ? parsed.data : null
-    } catch {
-      return null
-    }
+    return parseStoredReportDocument(row.structuredJson)
   }
 
   private async reclaimOrReturn(row: ReportRow, now: string): Promise<{ kind: 'claimed' | 'existing'; report: GeneratedReportSummary }> {
@@ -261,16 +252,12 @@ export class GeneratedReportRepository {
 
   private async finalizeStoredDocumentIfValid(row: ReportRow, now: string): Promise<ReportRow | null> {
     if (!row.structuredJson || row.status === 'complete') return row.status === 'complete' ? row : null
-    try {
-      const parsed = generatedReportDocumentSchema.safeParse(JSON.parse(row.structuredJson))
-      if (!parsed.success) return null
-      const completedAt = row.completedAt ?? parsed.data.generatedAt ?? now
-      await this.db.prepare("UPDATE generated_reports SET status='complete', title=?, error_code=NULL, completed_at=? WHERE id=?")
-        .bind(parsed.data.narrative.title, completedAt, row.id).run()
-      return { ...row, status: 'complete', title: parsed.data.narrative.title, completedAt }
-    } catch {
-      return null
-    }
+    const parsed = parseStoredReportDocument(row.structuredJson)
+    if (!parsed) return null
+    const completedAt = row.completedAt ?? parsed.generatedAt ?? now
+    await this.db.prepare("UPDATE generated_reports SET status='complete', title=?, error_code=NULL, completed_at=? WHERE id=?")
+      .bind(parsed.narrative.title, completedAt, row.id).run()
+    return { ...row, status: 'complete', title: parsed.narrative.title, completedAt }
   }
 
   private async findByRun(runId: string): Promise<ReportRow | null> {
@@ -303,13 +290,7 @@ export class GeneratedReportRepository {
   }
 
   private summary(row: ReportRow): GeneratedReportSummary {
-    let document: GeneratedReportDocument | null = null
-    try {
-      const parsed = row.structuredJson ? generatedReportDocumentSchema.safeParse(JSON.parse(row.structuredJson)) : null
-      document = parsed?.success ? parsed.data : null
-    } catch {
-      document = null
-    }
+    const document = row.structuredJson ? parseStoredReportDocument(row.structuredJson) : null
     return generatedReportSummarySchema.parse({
       id: row.id, scope: row.scope, status: row.status, title: row.title,
       responseCount: document?.responseCount ?? 0, completePairs: document?.completePairs ?? 0,

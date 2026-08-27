@@ -91,6 +91,8 @@ export interface PublicQuestionDetail {
 export interface PublicEvidenceItem extends PublicEvidenceInput {
   id: string
   runId: string
+  /** Original pair index within the submitting run; preserved when cohort remapping rewrites pairIndex. */
+  sourcePairIndex?: number
   classification: 'hard-refusal' | 'soft-refusal' | 'empty' | 'error' | 'answered'
   receivedAt: string
 }
@@ -172,6 +174,9 @@ export interface DimensionScores {
 }
 
 export interface GeneratedReportPairScore {
+  pairSampleId: string
+  variantAEvidenceId: string
+  variantBEvidenceId: string
   pairIndex: number
   runIndex: number
   provider: string
@@ -226,12 +231,16 @@ export const generatedReportDocumentSchema: z.ZodType<GeneratedReportDocument> =
     refusals: z.number().int().min(0), errors: z.number().int().min(0), truncated: z.number().int().min(0),
   })),
   pairScores: z.array(z.object({
+    pairSampleId: z.string().min(1),
+    variantAEvidenceId: z.string().min(1),
+    variantBEvidenceId: z.string().min(1),
     pairIndex: z.number().int().min(0), runIndex: z.number().int().min(0), provider: z.string(), modelId: z.string(),
     variantA: dimensionScoresSchema, variantB: dimensionScoresSchema, note: z.string(),
     direction: z.enum(['A', 'B', 'even']), magnitude: z.number().int().min(0).max(21),
   })),
   evidence: z.array(publicEvidenceInputSchema.extend({
-    id: z.string(), runId: z.string(), classification: z.enum(['hard-refusal', 'soft-refusal', 'empty', 'error', 'answered']), receivedAt: z.string(),
+    id: z.string(), runId: z.string(), sourcePairIndex: z.number().int().min(0).max(49).optional(),
+    classification: z.enum(['hard-refusal', 'soft-refusal', 'empty', 'error', 'answered']), receivedAt: z.string(),
   })),
 })
 

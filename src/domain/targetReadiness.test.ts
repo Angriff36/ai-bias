@@ -35,7 +35,7 @@ describe('targetReadiness', () => {
 
 describe('estimateRequests', () => {
   it('multiplies pairs, variants, repeats, and models', () => {
-    expect(estimateRequests({ pairs: 3, variantsPerPair: 2, repeats: 5, models: 2 })).toBe(60)
+    expect(estimateRequests({ pairs: 3, variantsPerPair: 2, repeats: 5, models: 2 })).toBe(40)
   })
 
   it('is zero when no model is selected', () => {

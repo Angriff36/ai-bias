@@ -156,9 +156,11 @@ function buildModelStats(cohort: QuestionCatalogEntry[], evidence: PublicEvidenc
 export async function buildGlobalCohortSnapshot(
   evidence: PublicEvidenceItem[],
   generatedAt: string,
+  options?: { minReportableQuestions?: number },
 ): Promise<GlobalReportCohortSnapshot | null> {
   const reportable = selectReportableQuestions(buildQuestionCatalog(evidence))
-  if (reportable.length < MIN_REPORTABLE_QUESTIONS) return null
+  const minReportable = options?.minReportableQuestions ?? MIN_REPORTABLE_QUESTIONS
+  if (reportable.length < minReportable) return null
   const cohort = selectTopCohort(reportable)
   const pairIndexByQuestionKey: Record<string, number> = {}
   const rankings: QuestionRankingEntry[] = cohort.map((entry, index) => {

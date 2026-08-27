@@ -223,6 +223,14 @@ export class GeneratedReportRepository {
     await this.db.prepare("UPDATE generated_reports SET status='failed', error_code=? WHERE id=?").bind(code.slice(0, 80), reportId).run()
   }
 
+  async prepareReportGeneration(reportId: string, now: string): Promise<GeneratedReportSummary | null> {
+    const row = await this.getRow(reportId)
+    if (!row || row.status === 'complete') return null
+    await this.db.prepare("UPDATE generated_reports SET status='pending', error_code=NULL, created_at=?, scoring_model_id=?, synthesis_model_id=? WHERE id=?")
+      .bind(now, SCORING_MODEL, SYNTHESIS_MODEL, reportId).run()
+    return this.summary({ ...row, status: 'pending', createdAt: now })
+  }
+
   async listReports(): Promise<GeneratedReportSummary[]> {
     const rows = (await this.db.prepare(`SELECT id, scope, public_run_id, response_watermark, cohort_fingerprint, cohort_snapshot_json,
       status, scoring_model_id, synthesis_model_id, title, structured_json, created_at, completed_at FROM generated_reports

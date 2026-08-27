@@ -4,14 +4,15 @@ import { scheduleReportGeneration } from '../worker/public/reportGeneration.ts'
 import { createReportModelClient } from '../worker/public/reportModelClient.ts'
 
 const reportId = process.argv[2] ?? '3c4888a3-a41d-441a-84a0-ede450ee258c'
-const apiKey = process.env.OPENROUTER_API_KEY
 
 async function main() {
-  if (!apiKey?.trim()) throw new Error('Set OPENROUTER_API_KEY before running report generation.')
   const { env, dispose } = await getPlatformProxy({
     configPath: 'wrangler.jsonc',
     remoteBindings: true,
   })
+
+  const apiKey = process.env.OPENROUTER_API_KEY ?? (env as { OPENROUTER_API_KEY?: string }).OPENROUTER_API_KEY
+  if (!apiKey?.trim()) throw new Error('OPENROUTER_API_KEY is not available locally or via remote bindings.')
 
   const repo = new GeneratedReportRepository(env.PUBLIC_DB)
   const models = createReportModelClient(apiKey, 'https://ai-tests.com')

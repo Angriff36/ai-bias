@@ -3,7 +3,7 @@ import { scheduleAnalysis, type AiBindingLike, type ExecutionContextLike } from 
 import type { D1DatabaseLike } from './d1'
 import { quotaIdentity, runFreePair } from './freeRun'
 import { PublicRepository } from './repository'
-import { scheduleReportGeneration } from './reportGeneration'
+import { scheduleReportGeneration, generateReport } from './reportGeneration'
 import { renderReportHtml } from './reportHtml'
 import { GeneratedReportRepository } from './reportRepository'
 import { createReportModelClient } from './reportModelClient'
@@ -98,6 +98,24 @@ export async function handlePublicApi(
       if (claim.kind === 'limited') return json({ error: 'The daily report-generation limit has been reached. Existing reports remain available.' }, 429)
       if (claim.kind === 'claimed') reportSchedule(claim.report.id)
       return json({ report: claim.report }, claim.kind === 'claimed' ? 202 : 200)
+    }
+    const regenerate = url.pathname.match(/^\/api\/public\/reports\/([0-9a-f-]{36})\/generate$/)
+    if (regenerate && request.method === 'POST') {
+      const now = new Date().toISOString()
+      const reportId = regenerate[1]
+      const report = await reportRepository.prepareReportGeneration(reportId, now)
+      if (!report) return json({ error: 'Report not found or already complete.' }, 404)
+      try {
+        const models = createReportModelClient(env.OPENROUTER_API_KEY, url.origin)
+        const source = await reportRepository.getReportEvidence(reportId)
+        const document = await generateReport(models, source)
+        await reportRepository.completeReport(reportId, document, now)
+        return json({ report: { ...report, status: 'complete', title: document.narrative.title, responseCount: document.responseCount, completePairs: document.completePairs, modelCount: document.modelCount, completedAt: now } }, 200)
+      } catch (error) {
+        const code = error instanceof Error && error.message.includes('invalid') ? 'invalid-model-output' : 'generation-failed'
+        await reportRepository.failReport(reportId, code)
+        return json({ error: 'Report generation failed.', code }, 500)
+      }
     }
     const reportHtml = url.pathname.match(/^\/api\/public\/reports\/([A-Za-z0-9-]+)\.html$/)
     if (reportHtml && request.method === 'GET') {

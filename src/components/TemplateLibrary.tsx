@@ -48,8 +48,9 @@ export function TemplateLibrary({ onUsePrompt }: { onUsePrompt: (prompt: string,
           <p className="eyebrow">Prompt library</p>
           <h2 id="templates-title">Templates</h2>
           <p className="lead">
-            Fill in a template's placeholders to produce a prompt, then send it straight to the
-            new-experiment wizard, which finds the demographic phrases to compare.
+            Starter templates for controlled comparisons, matched prompts, and repeatable
+            behavioral testing. Fill in placeholders, then send the prompt to the new-experiment
+            wizard to set up paired variants.
           </p>
         </div>
       </header>

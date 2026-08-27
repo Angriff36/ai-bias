@@ -1,4 +1,4 @@
-import { freeRunRequestSchema, generatedReportRequestSchema, publicSubmissionSchema } from '../../src/public/contracts'
+import { freeRunRequestSchema, generatedReportRequestSchema, publicQuestionDetailSchema, publicSubmissionSchema } from '../../src/public/contracts'
 import { scheduleAnalysis, type AiBindingLike, type ExecutionContextLike } from './analysis'
 import type { D1DatabaseLike } from './d1'
 import { quotaIdentity, runFreePair } from './freeRun'
@@ -8,6 +8,9 @@ import { renderReportHtml } from './reportHtml'
 import { GeneratedReportRepository } from './reportRepository'
 import { createReportModelClient } from './reportModelClient'
 import { CURATED_REPORTS } from './curatedReports'
+import { readCachedReports, writeCachedReports } from './readCache'
+
+const PUBLIC_CACHE_CONTROL = 'public, max-age=60, stale-while-revalidate=300'
 
 export interface PublicWorkerEnv {
   PUBLIC_DB: D1DatabaseLike
@@ -35,7 +38,7 @@ export async function handlePublicApi(
   env: PublicWorkerEnv,
   context: ExecutionContextLike,
   injected?: {
-    repository: Pick<PublicRepository, 'publish' | 'getLeaderboard' | 'getAllowance'>
+    repository: Pick<PublicRepository, 'publish' | 'getLeaderboard' | 'getQuestionDetail' | 'getAllowance'>
     reportRepository: Pick<GeneratedReportRepository, 'claimRunReport' | 'claimCurrentGlobalReport' | 'evaluateGlobalReportAfterPublish' | 'listReports' | 'getReportDocument'>
     quotaHash(request: Request, secret: string): Promise<{ hash: string; cookie?: string }>
     freeRunner: typeof runFreePair
@@ -58,12 +61,23 @@ export async function handlePublicApi(
   try {
     if (url.pathname === '/api/public/leaderboard' && request.method === 'GET') {
       const response = json(await repository.getLeaderboard())
-      response.headers.set('Cache-Control', 'public, max-age=30, stale-while-revalidate=60')
+      response.headers.set('Cache-Control', PUBLIC_CACHE_CONTROL)
+      return response
+    }
+    const questionDetail = url.pathname.match(/^\/api\/public\/questions\/([^/]+)$/)
+    if (questionDetail && request.method === 'GET') {
+      const detail = await repository.getQuestionDetail(decodeURIComponent(questionDetail[1]))
+      if (!detail) return json({ error: 'Question not found.' }, 404)
+      const response = json({ question: publicQuestionDetailSchema.parse(detail) })
+      response.headers.set('Cache-Control', PUBLIC_CACHE_CONTROL)
       return response
     }
     if (url.pathname === '/api/public/reports' && request.method === 'GET') {
-      const response = json({ reports: [...CURATED_REPORTS, ...await reportRepository.listReports()] })
-      response.headers.set('Cache-Control', 'public, max-age=30, stale-while-revalidate=60')
+      const cached = readCachedReports()
+      const reports = cached ?? [...CURATED_REPORTS, ...await reportRepository.listReports()]
+      if (!cached) writeCachedReports(reports)
+      const response = json({ reports })
+      response.headers.set('Cache-Control', PUBLIC_CACHE_CONTROL)
       return response
     }
     if (url.pathname === '/api/public/reports' && request.method === 'POST') {

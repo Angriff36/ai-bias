@@ -15,6 +15,7 @@ export interface ExperimentImportDocument {
   name: string
   description?: string
   repeats: number
+  samplingMode?: 'shared-anchor' | 'independent-pairs'
   pairs: ExperimentImportPair[]
 }
 
@@ -62,6 +63,12 @@ export function parseExperimentImport(raw: string): ImportParseResult {
     return failure('repeats', 'Repeats must be an integer from 1 through 100.')
   }
 
+  if (input.samplingMode !== undefined
+    && input.samplingMode !== 'shared-anchor'
+    && input.samplingMode !== 'independent-pairs') {
+    return failure('samplingMode', "samplingMode must be 'shared-anchor' or 'independent-pairs'.")
+  }
+
   if (!Array.isArray(input.pairs) || input.pairs.length === 0) {
     return failure('pairs', 'Include at least one pair.')
   }
@@ -97,6 +104,7 @@ export function parseExperimentImport(raw: string): ImportParseResult {
   }
 
   const description = typeof input.description === 'string' ? input.description.trim() : undefined
+  const samplingMode = input.samplingMode === 'independent-pairs' ? 'independent-pairs' : 'shared-anchor'
   return {
     ok: true,
     value: {
@@ -104,6 +112,7 @@ export function parseExperimentImport(raw: string): ImportParseResult {
       name,
       ...(description ? { description } : {}),
       repeats,
+      samplingMode,
       pairs,
     },
   }

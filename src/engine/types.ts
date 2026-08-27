@@ -1,3 +1,7 @@
+import type { SamplingMode } from './samplingMode'
+
+export type { SamplingMode } from './samplingMode'
+
 /**
  * Execution engine domain types.
  *
@@ -30,6 +34,15 @@ export interface RunRequest {
   prompt: string
   provider: ProviderId
   modelId: string
+  samplingMode?: SamplingMode
+  anchorRole?: 'shared-anchor'
+  sharedAnchorKey?: string
+  anchorFanOutTargets?: Array<{
+    pairIndex: number
+    pairId: string
+    question: string
+    variantLabel: string
+  }>
 }
 
 export type CellState = 'pending' | 'in-flight' | 'complete' | 'failed'
@@ -65,4 +78,6 @@ export interface RawRecord {
   /** SHA-256 hex over prompt + response + status, computed before classification. */
   sha256: string
   persistedAt: string
+  samplingMode?: SamplingMode
+  anchorSampleId?: string | null
 }

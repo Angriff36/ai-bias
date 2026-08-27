@@ -19,7 +19,7 @@ vi.mock('./api', async (importOriginal) => {
       ...actual.api,
       health: vi.fn().mockResolvedValue({
         ok: true,
-        schemaVersion: 8,
+        schemaVersion: 10,
         runtime: 'browser-local',
       }),
       listReports: vi.fn().mockResolvedValue([]),
@@ -29,8 +29,8 @@ vi.mock('./api', async (importOriginal) => {
 
 vi.mock('./public/client', () => ({
   getPublicLeaderboard: vi.fn().mockResolvedValue({
-    totals: { runs: 0, responses: 0, completePairs: 0, models: 0 },
-    models: [], latestAnalysis: null, analysisPending: false, latestReport: null, reportPending: false, recentEvidence: [],
+    totals: { runs: 0, responses: 0, completePairs: 0, models: 0, questions: 0 },
+    topQuestions: [], models: [], latestAnalysis: null, analysisPending: false, latestReport: null, reportPending: false, recentEvidence: [],
   }),
   listGeneratedReports: vi.fn().mockResolvedValue([]),
 }))
@@ -53,13 +53,13 @@ describe('application navigation', () => {
     expect(screen.queryByRole('button', { name: 'Reset database' })).toBeNull()
   })
 
-  it('exposes the anonymous public model leaderboard as a primary section', async () => {
+  it('exposes the anonymous public question leaderboard as a primary section', async () => {
     window.history.replaceState({}, '', '/#/leaderboard')
     window.location.hash = '#/leaderboard'
     render(<App />)
 
     expect(await screen.findByRole('tab', { name: 'Leaderboard' })).toBeTruthy()
-    expect(await screen.findByRole('heading', { name: 'Model leaderboard' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Question leaderboard' })).toBeTruthy()
   })
 
   it('completes the OpenRouter callback and removes the authorization code from the URL', async () => {

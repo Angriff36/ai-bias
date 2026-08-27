@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, type ReportRow } from './api'
+import { getPublicLeaderboard } from './public/client'
+import { readPublicCache } from './public/publicApiCache'
 import { EmptyState, SkeletonRows } from './components/EmptyState'
 import { ReadOnlyBadge, RecordedHashBadge } from './components/StatusBadge'
 import { ExperimentHistoryList } from './components/ExperimentHistoryList'
@@ -10,6 +12,7 @@ import { TemplateLibrary } from './components/TemplateLibrary'
 import { ObservationsPanel } from './components/ObservationsPanel'
 import { completeOpenRouterOAuth } from './openrouter/oauth'
 import { LeaderboardPage } from './public/LeaderboardPage'
+import { QuestionDetailPage } from './public/QuestionDetailPage'
 
 type ServerState =
   | { phase: 'connecting' }
@@ -80,8 +83,19 @@ export default function App() {
         <div className="banner error" role="alert">
           <span>
             {state.message} Check this browser&apos;s storage settings, then try again.
+            {' '}If this keeps happening, reset your local workspace below. That removes experiments saved only in this browser.
           </span>
-          <button className="secondary" onClick={() => setAttempt((n) => n + 1)}>Try again</button>
+          <div className="workspace-error-actions">
+            <button className="secondary" onClick={() => setAttempt((n) => n + 1)}>Try again</button>
+            <button
+              className="secondary danger-outline"
+              onClick={() => {
+                void api.resetDatabase().then(() => setAttempt((n) => n + 1))
+              }}
+            >
+              Reset local workspace
+            </button>
+          </div>
         </div>
       </div>
     )
@@ -97,6 +111,9 @@ function MainApp() {
 
   useEffect(() => {
     document.title = 'AI Bias Lab'
+    if (!readPublicCache('leaderboard')) {
+      void getPublicLeaderboard().catch(() => {})
+    }
     const readCloneToast = () => {
       const message = sessionStorage.getItem('ai-bias-clone-toast')
       if (message) {
@@ -148,7 +165,7 @@ function MainApp() {
       </nav>
       {toast && <div className="toast" role="status" aria-live="polite"><span>{toast}</span><button aria-label="Dismiss notification" onClick={() => setToast(null)}>×</button></div>}
       {tab === 'experiments' && <ExperimentRoute />}
-      {tab === 'leaderboard' && <LeaderboardPage />}
+      {tab === 'leaderboard' && <LeaderboardRoute />}
       {tab === 'templates' && (
         <TemplateLibrary
           onUsePrompt={(prompt, name) => {
@@ -162,6 +179,12 @@ function MainApp() {
       {tab === 'reports' && <ReportsRoute />}
     </div>
   )
+}
+
+function LeaderboardRoute() {
+  const match = window.location.hash.match(/^#\/leaderboard\/questions\/([^/]+)$/)
+  if (match) return <QuestionDetailPage questionKey={decodeURIComponent(match[1])} />
+  return <LeaderboardPage />
 }
 
 function ExperimentRoute() {

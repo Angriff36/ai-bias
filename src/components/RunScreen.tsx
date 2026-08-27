@@ -11,7 +11,8 @@ import {
   createBatchExecutor,
   type BatchExecutor,
 } from '../engine/executor'
-import type { CellStatus, ProviderId, RawRecord, RunPair, RunRequest } from '../engine/types'
+import type { CellStatus, ProviderId, RawRecord, RunPair, RunRequest, SamplingMode } from '../engine/types'
+import { countModelRunRequests } from '../engine/samplingMode'
 import { ProgressGrid } from './ProgressGrid'
 
 type RunPhase = 'idle' | 'running' | 'paused' | 'complete' | 'cancelled'
@@ -45,6 +46,7 @@ interface RunScreenProps {
   modelId?: string
   concurrency?: number
   authenticationMode?: 'subscription' | 'api-key' | 'offline'
+  samplingMode?: SamplingMode
 }
 
 export interface RunCompletion {
@@ -71,6 +73,7 @@ export function RunScreen({
   modelId = 'sim-model-1',
   concurrency,
   authenticationMode = 'offline',
+  samplingMode = 'shared-anchor',
 }: RunScreenProps) {
   const [queue, setQueue] = useState<RunRequest[]>([])
   const [cells, setCells] = useState<Record<string, CellStatus>>({})
@@ -141,6 +144,7 @@ export function RunScreen({
         target.provider,
         target.modelId,
         prompt,
+        samplingMode,
       ).map((request) => ({ ...request, batchId })),
     )
     clearBatch(batchId)
@@ -255,6 +259,9 @@ export function RunScreen({
     )
   }
 
+  const pairCount = pairDefinitions ? pairDefinitions.length : pairs
+  const requestCount = countModelRunRequests(pairCount, runsPerVariant, samplingMode)
+
   return (
     <div className="run-screen" data-phase={phase}>
       <p className="sr-only" aria-live="polite">
@@ -264,8 +271,10 @@ export function RunScreen({
       {phase === 'idle' && (
         <div className="start-panel">
           <p>
-            {pairDefinitions ? pairDefinitions.length : pairs} questions × 2 variants × {runsPerVariant} runs ={' '}
-            <strong>{(pairDefinitions ? pairDefinitions.length : pairs) * 2 * runsPerVariant} requests</strong>, shuffled.
+            {samplingMode === 'shared-anchor'
+              ? `${pairCount} comparisons + 1 shared anchor × ${runsPerVariant} ${runsPerVariant === 1 ? 'repeat' : 'repeats'} = `
+              : `${pairCount} questions × 2 variants × ${runsPerVariant} ${runsPerVariant === 1 ? 'repeat' : 'repeats'} = `}
+            <strong>{requestCount} requests</strong>, shuffled.
           </p>
           <button type="button" className="primary" onClick={start}>
             {startButtonLabel}

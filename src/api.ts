@@ -5,6 +5,7 @@ export { ServerError }
 export type {
   ExperimentDetail,
   DraftExperimentUpdate,
+  ExperimentIndexRow,
   ExperimentPage,
   ExperimentRow,
   ExperimentRunSummary,

@@ -5,12 +5,15 @@ import {
   generatedReportListSchema,
   generatedReportStateSchema,
   publicLeaderboardSchema,
+  publicQuestionDetailSchema,
   publishResultSchema,
   type FreeRunRequest,
   type FreeRunResponse,
   type GeneratedReportSummary,
   type PublicLeaderboard,
+  type PublicQuestionDetail,
 } from './contracts'
+import { invalidatePublicCache, readPublicCache, writePublicCache } from './publicApiCache'
 
 type Fetcher = typeof fetch
 
@@ -49,16 +52,41 @@ export async function publishRun(records: RawRecord[], fetcher: Fetcher = fetch)
   const response = await fetcher('/api/public/submissions', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), credentials: 'same-origin',
   })
-  return publishResultSchema.parse(await responseJson(response))
+  try {
+    return publishResultSchema.parse(await responseJson(response))
+  } finally {
+    invalidatePublicCache('leaderboard')
+    invalidatePublicCache('reports')
+    invalidatePublicCache('question:')
+  }
 }
 
 export async function getPublicLeaderboard(fetcher: Fetcher = fetch): Promise<PublicLeaderboard> {
-  return publicLeaderboardSchema.parse(await responseJson(await fetcher('/api/public/leaderboard', { credentials: 'same-origin' })))
+  const cached = readPublicCache<PublicLeaderboard>('leaderboard')
+  if (cached?.status === 'fresh') return cached.data
+  const data = publicLeaderboardSchema.parse(await responseJson(await fetcher('/api/public/leaderboard', { credentials: 'same-origin' })))
+  writePublicCache('leaderboard', data)
+  return data
+}
+
+export async function getPublicQuestionDetail(questionKey: string, fetcher: Fetcher = fetch): Promise<PublicQuestionDetail> {
+  const cacheKey = `question:${questionKey}`
+  const cached = readPublicCache<PublicQuestionDetail>(cacheKey)
+  if (cached?.status === 'fresh') return cached.data
+  const response = await fetcher(`/api/public/questions/${encodeURIComponent(questionKey)}`, { credentials: 'same-origin' })
+  const body = await responseJson(response) as { question?: PublicQuestionDetail }
+  const detail = publicQuestionDetailSchema.parse(body.question)
+  writePublicCache(cacheKey, detail)
+  return detail
 }
 
 export async function listGeneratedReports(fetcher: Fetcher = fetch): Promise<GeneratedReportSummary[]> {
+  const cached = readPublicCache<GeneratedReportSummary[]>('reports')
+  if (cached?.status === 'fresh') return cached.data
   const response = await fetcher('/api/public/reports', { credentials: 'same-origin' })
-  return generatedReportListSchema.parse(await responseJson(response)).reports
+  const reports = generatedReportListSchema.parse(await responseJson(response)).reports
+  writePublicCache('reports', reports)
+  return reports
 }
 
 export async function requestGeneratedReport(runId: string, fetcher: Fetcher = fetch): Promise<GeneratedReportSummary> {

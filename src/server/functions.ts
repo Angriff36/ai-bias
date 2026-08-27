@@ -2,6 +2,7 @@ import { getDb, persist } from '../db/database'
 import { ServerError } from './errors'
 import type { RawRecord } from '../engine/types'
 import { parseExperimentImport, type ExperimentImportDocument } from '../lib/experimentImport'
+import { normalizeSamplingMode } from '../engine/samplingMode'
 
 /**
  * Bolt server functions. Every function requires a session token and scopes
@@ -67,6 +68,7 @@ export interface ExperimentDetail extends ExperimentRow {
   run_count: number
   cloned_from_name: string | null
   default_repeats: number
+  sampling_mode: 'shared-anchor' | 'independent-pairs'
   pairs: ExperimentPairDetail[]
 }
 
@@ -236,7 +238,7 @@ function lastInsertId(db: ReturnType<typeof getDb>): number {
   return Number(db.exec('SELECT last_insert_rowid()')[0]?.values[0]?.[0])
 }
 
-function seedSyntheticSample(db: ReturnType<typeof getDb>, userId: number): void {
+export function seedSyntheticSample(db: ReturnType<typeof getDb>, userId: number): void {
   const label = 'SYNTHETIC SAMPLE DATA'
   db.run('INSERT INTO targets (name, model_id, created_by, is_synthetic) VALUES (?, ?, ?, 1)', [
     `${label} target #${userId}`, 'synthetic:no-provider', userId,
@@ -281,7 +283,6 @@ export function signIn(email: string, _password: string): { token: string; user:
   if (!res[0]) {
     withTransaction(db, () => {
       db.run('INSERT INTO users (email, display_name) VALUES (?, ?)', [normalized, normalized.split('@')[0]])
-      seedSyntheticSample(db, lastInsertId(db))
     })
     res = db.exec('SELECT id, email, display_name FROM users WHERE email = ?', [normalized])
   }
@@ -319,7 +320,7 @@ export function getCurrentUser(token: string | null): SessionUser {
 export function listExperiments(token: string | null, opts: ListExperimentsOptions): ExperimentPage {
   const userId = requireUser(token)
   const db = getDb()
-  const where: string[] = ['created_by = ?']
+  const where: string[] = ['created_by = ?', 'is_synthetic = 0']
   const params: (string | number)[] = [userId]
   if (opts.statuses.length > 0) {
     where.push(`status IN (${opts.statuses.map(() => '?').join(',')})`)
@@ -433,7 +434,7 @@ export function getExperiment(token: string | null, id: number): ExperimentDetai
   const db = getDb()
   const result = db.exec(
     `SELECT e.id, e.name, e.hypothesis, e.status, e.target_id, e.asymmetry_level, e.created_at,
-      e.last_run_at, e.is_synthetic, e.default_repeats, source.name,
+      e.last_run_at, e.is_synthetic, e.default_repeats, e.sampling_mode, source.name,
       (SELECT COUNT(*) FROM run_batches b WHERE b.experiment_id = e.id),
       (SELECT COUNT(*) FROM variants v
        JOIN variables vr ON vr.id = v.variable_id
@@ -446,7 +447,7 @@ export function getExperiment(token: string | null, id: number): ExperimentDetai
   )
   const row = result[0]?.values[0]
   if (!row) throw new ServerError(404, 'Not found')
-  const [experimentId, name, hypothesis, status, targetId, asymmetryLevel, createdAt, lastRunAt, isSynthetic, defaultRepeats, clonedFromName, runCount, variantCount] = row
+  const [experimentId, name, hypothesis, status, targetId, asymmetryLevel, createdAt, lastRunAt, isSynthetic, defaultRepeats, samplingMode, clonedFromName, runCount, variantCount] = row
   const templateRows = db.exec('SELECT id, name, body FROM templates WHERE experiment_id = ? ORDER BY id', [Number(experimentId)])[0]?.values ?? []
   const templates = templateRows.map((template) => {
     const templateId = Number(template[0])
@@ -497,7 +498,8 @@ export function getExperiment(token: string | null, id: number): ExperimentDetai
     created_at: String(createdAt), last_run_at: lastRunAt == null ? null : String(lastRunAt),
     is_synthetic: Number(isSynthetic) === 1,
     cloned_from_name: clonedFromName == null ? null : String(clonedFromName), run_count: Number(runCount),
-    variant_count: Number(variantCount), templates, default_repeats: Number(defaultRepeats ?? 1), pairs,
+    variant_count: Number(variantCount), templates, default_repeats: Number(defaultRepeats ?? 1),
+    sampling_mode: normalizeSamplingMode(samplingMode), pairs,
   }
 }
 
@@ -510,7 +512,7 @@ export function importExperiment(token: string | null, input: ExperimentImportDo
   }
   const db = getDb()
   let targetId = db.exec(
-    'SELECT id FROM targets WHERE created_by = ? ORDER BY id LIMIT 1',
+    'SELECT id FROM targets WHERE created_by = ? AND is_synthetic = 0 ORDER BY id LIMIT 1',
     [userId],
   )[0]?.values[0]?.[0]
   if (targetId == null) {
@@ -524,9 +526,9 @@ export function importExperiment(token: string | null, input: ExperimentImportDo
   try {
     const experimentId = withTransaction(db, () => {
       db.run(
-        `INSERT INTO experiments (name, hypothesis, status, target_id, created_by, default_repeats)
-         VALUES (?, ?, 'draft', ?, ?, ?)`,
-        [parsed.value.name, parsed.value.description ?? null, Number(targetId), userId, parsed.value.repeats],
+        `INSERT INTO experiments (name, hypothesis, status, target_id, created_by, default_repeats, sampling_mode)
+         VALUES (?, ?, 'draft', ?, ?, ?, ?)`,
+        [parsed.value.name, parsed.value.description ?? null, Number(targetId), userId, parsed.value.repeats, parsed.value.samplingMode ?? 'shared-anchor'],
       )
       const createdExperimentId = lastInsertId(db)
       clearLeftoverPairs(db, createdExperimentId)
@@ -566,7 +568,7 @@ export function cloneExperiment(token: string | null, id: number): ExperimentDet
   const userId = requireUser(token)
   const db = getDb()
   const source = db.exec(
-    'SELECT id, name, hypothesis, target_id, asymmetry_level, default_repeats FROM experiments WHERE id = ? AND created_by = ?',
+    'SELECT id, name, hypothesis, target_id, asymmetry_level, default_repeats, sampling_mode FROM experiments WHERE id = ? AND created_by = ?',
     [id, userId],
   )[0]?.values[0]
   if (!source) throw new ServerError(404, 'Not found')
@@ -574,9 +576,9 @@ export function cloneExperiment(token: string | null, id: number): ExperimentDet
   try {
     const cloneId = withTransaction(db, () => {
       db.run(
-        `INSERT INTO experiments (name, hypothesis, status, target_id, created_by, asymmetry_level, cloned_from_experiment_id, default_repeats)
-         VALUES (?, ?, 'draft', ?, ?, ?, ?, ?)`,
-        [`Copy of ${String(source[1])}`, source[2] == null ? null : String(source[2]), Number(source[3]), userId, String(source[4]), Number(source[0]), Number(source[5] ?? 1)],
+        `INSERT INTO experiments (name, hypothesis, status, target_id, created_by, asymmetry_level, cloned_from_experiment_id, default_repeats, sampling_mode)
+         VALUES (?, ?, 'draft', ?, ?, ?, ?, ?, ?)`,
+        [`Copy of ${String(source[1])}`, source[2] == null ? null : String(source[2]), Number(source[3]), userId, String(source[4]), Number(source[0]), Number(source[5] ?? 1), normalizeSamplingMode(source[6])],
       )
       const createdCloneId = Number(db.exec('SELECT last_insert_rowid()')[0].values[0][0])
       const templates = db.exec('SELECT id, name, body FROM templates WHERE experiment_id = ? ORDER BY id', [Number(source[0])])[0]?.values ?? []
@@ -663,8 +665,8 @@ export function updateDraftExperiment(
     }
 
     db.run(
-      "UPDATE experiments SET name = ?, hypothesis = ?, default_repeats = ?, status = 'draft' WHERE id = ? AND created_by = ?",
-      [parsed.value.name, parsed.value.description ?? null, parsed.value.repeats, id, userId],
+      "UPDATE experiments SET name = ?, hypothesis = ?, default_repeats = ?, sampling_mode = ?, status = 'draft' WHERE id = ? AND created_by = ?",
+      [parsed.value.name, parsed.value.description ?? null, parsed.value.repeats, parsed.value.samplingMode ?? 'shared-anchor', id, userId],
     )
     clearLeftoverPairs(db, id)
     db.run('DELETE FROM templates WHERE experiment_id = ?', [id])
@@ -751,6 +753,7 @@ export function completeOfflineRun(
         schemaVersion: 1,
         experimentId,
         batchId,
+        samplingMode: records.find((record) => record.samplingMode)?.samplingMode ?? 'shared-anchor',
         evidenceCount: records.length,
         succeeded,
         failed,
@@ -778,6 +781,7 @@ export function completeOfflineRun(
           recordedAt: record.persistedAt,
           recordHash: record.sha256,
           truncated: record.truncated === true,
+          ...(record.anchorSampleId ? { anchorSampleId: record.anchorSampleId } : {}),
         })),
       })
       const reportHash = records.map((record) => record.sha256).join('')
@@ -864,7 +868,7 @@ export function createExperiment(token: string | null, input: NewExperimentInput
   const userId = requireUser(token)
   const db = getDb()
   let targetId = db.exec(
-    'SELECT id FROM targets WHERE created_by = ? ORDER BY id LIMIT 1',
+    'SELECT id FROM targets WHERE created_by = ? AND is_synthetic = 0 ORDER BY id LIMIT 1',
     [userId],
   )[0]?.values[0]?.[0]
   if (targetId == null) {

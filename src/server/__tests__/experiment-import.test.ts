@@ -50,6 +50,7 @@ describe('importExperiment', () => {
     expect(imported).toMatchObject({
       name: 'Imported hiring test',
       default_repeats: 3,
+      sampling_mode: 'shared-anchor',
       variant_count: 0,
       pairs: [
         {
@@ -95,7 +96,8 @@ describe('importExperiment', () => {
       .toThrowError('The experiment could not be saved. Reload the page and try again.')
     expect(db.exec('SELECT COUNT(*) FROM experiments WHERE created_by = (SELECT id FROM users WHERE email = ?)', [
       'rollback-import-owner@example.com',
-    ])[0].values[0][0]).toBe(1)
+    ])[0].values[0][0]).toBe(0)
+    expect(pairInsertCount).toBe(2)
     vi.restoreAllMocks()
   })
 })

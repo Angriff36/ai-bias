@@ -13,7 +13,8 @@ describe('leaderboard analysis thresholds', () => {
 
   it('sends aggregate model statistics to analysis without raw evidence', () => {
     const leaderboard: PublicLeaderboard = {
-      totals: { runs: 3, responses: 50, completePairs: 25, models: 1 },
+      totals: { runs: 3, responses: 50, completePairs: 25, models: 1, questions: 1 },
+      topQuestions: [],
       models: [{ provider: 'openrouter', modelId: 'model/a', responseCount: 50, completePairs: 25, asymmetricPairs: 4, asymmetryRate: 0.16, answeredCount: 44, refusalCount: 6, errorCount: 0, truncatedCount: 0, averageLatencyMs: 120, firstSeenAt: 'first', lastSeenAt: 'last' }],
       latestAnalysis: null,
       analysisPending: false,

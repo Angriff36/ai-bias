@@ -20,7 +20,7 @@ describe('buildRunQueue', () => {
       variantB: { key: 'B', label: 'Christian candidate', prompt: 'Recommend the Christian candidate.' },
     }]
 
-    const queue = buildRunQueue('batch-2', pairs, 2, 'simulated', 'sim-model-1')
+    const queue = buildRunQueue('batch-2', pairs, 2, 'simulated', 'sim-model-1', undefined, 'independent-pairs')
 
     expect(queue).toHaveLength(4)
     expect(queue).toEqual(expect.arrayContaining([

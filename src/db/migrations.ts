@@ -268,4 +268,60 @@ export const migrations: Migration[] = [
       `)
     },
   },
+  {
+    id: '0009',
+    name: 'remove_synthetic_sample_data',
+    up(db) {
+      // Runs reference templates with ON DELETE RESTRICT, so remove run rows
+      // before deleting synthetic experiments (which cascade-delete templates).
+      db.run(`
+        DELETE FROM runs
+         WHERE batch_id IN (
+           SELECT id FROM run_batches
+            WHERE experiment_id IN (SELECT id FROM experiments WHERE is_synthetic = 1)
+         );
+      `)
+
+      // Real experiments created before this cleanup could reuse the synthetic
+      // target because importExperiment picked the first target for the user.
+      const reassigned = db.exec(`
+        SELECT e.id, e.created_by
+          FROM experiments e
+          JOIN targets t ON t.id = e.target_id
+         WHERE e.is_synthetic = 0 AND t.is_synthetic = 1
+      `)[0]?.values ?? []
+      for (const row of reassigned) {
+        const experimentId = Number(row[0])
+        const userId = Number(row[1])
+        let targetId = db.exec(
+          'SELECT id FROM targets WHERE created_by = ? AND is_synthetic = 0 ORDER BY id LIMIT 1',
+          [userId],
+        )[0]?.values[0]?.[0]
+        if (targetId == null) {
+          db.run(
+            'INSERT INTO targets (name, model_id, created_by) VALUES (?, ?, ?)',
+            [`Default (${userId})`, 'unassigned', userId],
+          )
+          targetId = db.exec('SELECT last_insert_rowid()')[0]?.values[0]?.[0]
+        }
+        db.run('UPDATE experiments SET target_id = ? WHERE id = ?', [Number(targetId), experimentId])
+      }
+
+      db.run(`
+        DELETE FROM experiments WHERE is_synthetic = 1;
+        DELETE FROM targets WHERE is_synthetic = 1;
+      `)
+    },
+  },
+  {
+    id: '0010',
+    name: 'experiment_sampling_mode',
+    up(db) {
+      db.run(`
+        ALTER TABLE experiments
+          ADD COLUMN sampling_mode TEXT NOT NULL DEFAULT 'shared-anchor'
+          CHECK (sampling_mode IN ('shared-anchor', 'independent-pairs'));
+      `)
+    },
+  },
 ]

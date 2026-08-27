@@ -20,6 +20,7 @@ describe('NewBiasTestWizard research flow', () => {
         initialValue={{
           name: 'Existing race test',
           description: 'Existing description',
+          samplingMode: 'shared-anchor',
           pairs: [
             {
               id: 'prompt-1-vs-prompt-2',

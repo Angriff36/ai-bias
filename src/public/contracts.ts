@@ -55,6 +55,39 @@ export interface PublicModelAggregate {
   lastSeenAt: string
 }
 
+export interface PublicQuestionSummary {
+  questionKey: string
+  questionText: string
+  runCount: number
+  modelCount: number
+  lastSeenAt: string
+}
+
+export interface PublicQuestionInstance {
+  runId: string
+  pairIndex: number
+  runIndex: number
+  provider: string
+  modelId: string
+  variantLabelA: string
+  variantLabelB: string
+  promptA: string
+  promptB: string
+  responseA: string
+  responseB: string
+  classificationA: PublicEvidenceItem['classification']
+  classificationB: PublicEvidenceItem['classification']
+  receivedAt: string
+}
+
+export interface PublicQuestionDetail {
+  questionKey: string
+  questionText: string
+  runCount: number
+  modelCount: number
+  instances: PublicQuestionInstance[]
+}
+
 export interface PublicEvidenceItem extends PublicEvidenceInput {
   id: string
   runId: string
@@ -70,7 +103,8 @@ export interface PublicAnalysisSnapshot {
 }
 
 export interface PublicLeaderboard {
-  totals: { runs: number; responses: number; completePairs: number; models: number }
+  totals: { runs: number; responses: number; completePairs: number; models: number; questions: number }
+  topQuestions: PublicQuestionSummary[]
   models: PublicModelAggregate[]
   latestAnalysis: PublicAnalysisSnapshot | null
   analysisPending: boolean
@@ -231,8 +265,42 @@ export const freeRunResponseSchema: z.ZodType<FreeRunResponse> = z.object({
   dailyRemaining: z.number().int().min(0),
 })
 
+export const publicQuestionSummarySchema: z.ZodType<PublicQuestionSummary> = z.object({
+  questionKey: z.string(),
+  questionText: z.string(),
+  runCount: z.number().int().min(0),
+  modelCount: z.number().int().min(0),
+  lastSeenAt: z.string(),
+})
+
+export const publicQuestionInstanceSchema: z.ZodType<PublicQuestionInstance> = z.object({
+  runId: z.string(),
+  pairIndex: z.number().int().min(0),
+  runIndex: z.number().int().min(0),
+  provider: z.string(),
+  modelId: z.string(),
+  variantLabelA: z.string(),
+  variantLabelB: z.string(),
+  promptA: z.string(),
+  promptB: z.string(),
+  responseA: z.string(),
+  responseB: z.string(),
+  classificationA: z.enum(['hard-refusal', 'soft-refusal', 'empty', 'error', 'answered']),
+  classificationB: z.enum(['hard-refusal', 'soft-refusal', 'empty', 'error', 'answered']),
+  receivedAt: z.string(),
+})
+
+export const publicQuestionDetailSchema: z.ZodType<PublicQuestionDetail> = z.object({
+  questionKey: z.string(),
+  questionText: z.string(),
+  runCount: z.number().int().min(0),
+  modelCount: z.number().int().min(0),
+  instances: z.array(publicQuestionInstanceSchema),
+})
+
 export const publicLeaderboardSchema: z.ZodType<PublicLeaderboard> = z.object({
-  totals: z.object({ runs: z.number().int(), responses: z.number().int(), completePairs: z.number().int(), models: z.number().int() }),
+  totals: z.object({ runs: z.number().int(), responses: z.number().int(), completePairs: z.number().int(), models: z.number().int(), questions: z.number().int() }),
+  topQuestions: z.array(publicQuestionSummarySchema),
   models: z.array(z.object({
     provider: z.string(), modelId: z.string(), responseCount: z.number().int(), completePairs: z.number().int(),
     asymmetricPairs: z.number().int(), asymmetryRate: z.number().nullable(), answeredCount: z.number().int(),

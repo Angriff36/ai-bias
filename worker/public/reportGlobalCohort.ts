@@ -1,4 +1,5 @@
 import type { PublicEvidenceItem } from '../../src/public/contracts'
+import { normalizeQuestionKey } from '../../src/public/questionKeys'
 
 export const GLOBAL_REPORT_ELIGIBILITY_VERSION = 1
 export const MIN_COMPLETE_PAIRS_PER_QUESTION = 10
@@ -42,10 +43,7 @@ export interface QuestionCatalogEntry {
   evidenceIds: string[]
 }
 
-export function normalizeQuestionKey(question: string | undefined): string {
-  if (!question?.trim()) return '__missing_question__'
-  return question.trim().toLowerCase().replace(/\s+/g, ' ')
-}
+export { normalizeQuestionKey } from '../../src/public/questionKeys'
 
 export function modelKey(provider: string, modelId: string): string {
   return `${provider}\u0000${modelId}`

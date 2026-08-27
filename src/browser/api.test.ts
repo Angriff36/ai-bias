@@ -15,7 +15,7 @@ describe('browser API', () => {
     const fetcher = vi.spyOn(globalThis, 'fetch')
     const api = createBrowserApi(new MemoryDatabaseStorage(), () => initSqlJs())
 
-    expect(await api.health()).toEqual({ ok: true, schemaVersion: 8, runtime: 'browser-local' })
+    expect(await api.health()).toEqual({ ok: true, schemaVersion: 10, runtime: 'browser-local' })
     const created = await api.importExperiment({
       schemaVersion: 1,
       name: 'No cloud database',

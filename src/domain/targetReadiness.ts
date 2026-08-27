@@ -39,12 +39,17 @@ export function targetReadiness(target: TargetConfig): TargetReadiness {
   }
 }
 
-/** Requests one run will send: pairs x variants x repeats x models. */
+/** Provider requests for one run configuration. */
 export function estimateRequests(input: {
   pairs: number
   variantsPerPair: number
   repeats: number
   models: number
+  samplingMode?: 'shared-anchor' | 'independent-pairs'
 }): number {
-  return input.pairs * input.variantsPerPair * input.repeats * input.models
+  const mode = input.samplingMode ?? 'shared-anchor'
+  const perModel = mode === 'independent-pairs'
+    ? input.pairs * input.variantsPerPair * input.repeats
+    : (1 + input.pairs) * input.repeats
+  return perModel * input.models
 }

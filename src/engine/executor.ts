@@ -7,6 +7,8 @@
 import type { ProviderAdapter } from './adapter'
 import { isAdapterFailure } from './adapter'
 import { persistRawRecord } from './db'
+import { RunQueuePlanner } from './runQueuePlanner'
+import type { SamplingMode } from './samplingMode'
 import type { CellStatus, RawRecord, RunPair, RunRequest } from './types'
 
 export interface ExecutorCallbacks {
@@ -94,17 +96,10 @@ export function createBatchExecutor(
     }
 
     const status = errorMessage ? 'error' : 'ok'
-    // Persist BEFORE reporting completion — the cell only turns
-    // complete/failed once the raw record (with hash) is written.
-    const record = await persistRawRecord({
-      requestId: request.id,
+    const anchorSampleId = request.anchorRole === 'shared-anchor' ? crypto.randomUUID() : undefined
+    const sharedFields = {
       batchId: request.batchId,
-      pairIndex: request.pairIndex,
       runIndex: request.runIndex,
-      pairId: request.pairId,
-      question: request.question,
-      variantKey: request.variantKey,
-      variantLabel: request.variantLabel,
       provider: request.provider,
       modelId: request.modelId,
       prompt: request.prompt,
@@ -112,10 +107,37 @@ export function createBatchExecutor(
       latencyMs,
       statusCode,
       status,
-      errorMessage,
+      ...(errorMessage ? { errorMessage } : {}),
       ...(truncated ? { truncated } : {}),
-    })
-    callbacks.onRecord(record)
+      ...(request.samplingMode ? { samplingMode: request.samplingMode } : {}),
+      ...(anchorSampleId ? { anchorSampleId } : {}),
+    } satisfies Omit<RawRecord, 'requestId' | 'sha256' | 'persistedAt' | 'pairIndex' | 'variantKey' | 'variantLabel' | 'pairId' | 'question'>
+
+    if (request.anchorRole === 'shared-anchor' && request.anchorFanOutTargets?.length) {
+      for (const target of request.anchorFanOutTargets) {
+        const record = await persistRawRecord({
+          requestId: `${request.id}-fanout-p${target.pairIndex}`,
+          pairIndex: target.pairIndex,
+          pairId: target.pairId,
+          question: target.question,
+          variantKey: 'A',
+          variantLabel: target.variantLabel,
+          ...sharedFields,
+        })
+        callbacks.onRecord(record)
+      }
+    } else {
+      const record = await persistRawRecord({
+        requestId: request.id,
+        pairIndex: request.pairIndex,
+        pairId: request.pairId,
+        question: request.question,
+        variantKey: request.variantKey,
+        variantLabel: request.variantLabel,
+        ...sharedFields,
+      })
+      callbacks.onRecord(record)
+    }
 
     if (status === 'error') {
       consecutiveFailures++
@@ -185,8 +207,8 @@ export function buildRunQueue(
   provider: RunRequest['provider'],
   modelId: string,
   legacyPrompt?: string,
+  samplingMode: SamplingMode = 'shared-anchor',
 ): RunRequest[] {
-  const requests: RunRequest[] = []
   const definitions: RunPair[] = Array.isArray(pairs)
     ? pairs
     : Array.from({ length: pairs }, (_, index) => ({
@@ -195,25 +217,12 @@ export function buildRunQueue(
       variantA: { key: 'A' as const, label: 'A', prompt: legacyPrompt ?? '' },
       variantB: { key: 'B' as const, label: 'B', prompt: legacyPrompt ?? '' },
     }))
-  for (let p = 0; p < definitions.length; p++) {
-    const pair = definitions[p]
-    for (const variant of [pair.variantA, pair.variantB]) {
-      for (let r = 0; r < runsPerVariant; r++) {
-        requests.push({
-          id: `${batchId}-p${p}-${variant.key}-r${r}`,
-          batchId,
-          pairIndex: p,
-          runIndex: r,
-          pairId: pair.id,
-          question: pair.question,
-          variantKey: variant.key,
-          variantLabel: variant.label,
-          prompt: variant.prompt,
-          provider,
-          modelId,
-        })
-      }
-    }
-  }
-  return shuffle(requests)
+  return shuffle(RunQueuePlanner.build({
+    batchId,
+    pairs: definitions,
+    runsPerVariant,
+    provider,
+    modelId,
+    samplingMode,
+  }))
 }

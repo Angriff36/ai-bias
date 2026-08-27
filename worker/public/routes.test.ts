@@ -1,13 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
 import { handlePublicApi } from './routes'
 
-const leaderboard = { totals: { runs: 0, responses: 0, completePairs: 0, models: 0 }, models: [], latestAnalysis: null, analysisPending: false, latestReport: null, reportPending: false, recentEvidence: [] }
+const leaderboard = { totals: { runs: 0, responses: 0, completePairs: 0, models: 0, questions: 0 }, topQuestions: [], models: [], latestAnalysis: null, analysisPending: false, latestReport: null, reportPending: false, recentEvidence: [] }
 
 function dependencies() {
   return {
     repository: {
       publish: vi.fn(async () => ({ runId: 'public-run', duplicate: false, crossedThresholds: [] as number[] })),
       getLeaderboard: vi.fn(async () => leaderboard),
+      getQuestionDetail: vi.fn(async () => null),
       getAllowance: vi.fn(async () => ({ remaining: 2, dailyRemaining: 250 })),
     },
     reportRepository: {

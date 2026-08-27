@@ -285,6 +285,7 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
     const initialValue: WizardResult = {
       name: experiment.name,
       description: experiment.hypothesis ?? '',
+      samplingMode: experiment.sampling_mode,
       pairs: experiment.pairs.map((pair) => ({
         id: pair.external_id,
         question: pair.question,
@@ -302,6 +303,7 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
           const updated = await api.updateDraftExperiment(experiment.id, {
             name: result.name,
             ...(result.description ? { description: result.description } : {}),
+            samplingMode: result.samplingMode,
             repeats,
             pairs: result.pairs,
           })
@@ -429,9 +431,9 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
           />
           <div className="workload-readout" aria-label="Run workload">
             <span>
-              {pairCount} {pairCount === 1 ? 'pair' : 'pairs'} × 2 variants × {repeats}{' '}
-              {repeats === 1 ? 'repeat' : 'repeats'} × {runTargets.length}{' '}
-              {runTargets.length === 1 ? 'model' : 'models'}
+              {experiment.sampling_mode === 'shared-anchor'
+                ? `${pairCount} comparisons + 1 shared anchor × ${repeats} ${repeats === 1 ? 'repeat' : 'repeats'} × ${runTargets.length} ${runTargets.length === 1 ? 'model' : 'models'}`
+                : `${pairCount} ${pairCount === 1 ? 'pair' : 'pairs'} × 2 variants × ${repeats} ${repeats === 1 ? 'repeat' : 'repeats'} × ${runTargets.length} ${runTargets.length === 1 ? 'model' : 'models'}`}
             </span>
             <strong>
               {estimateRequests({
@@ -439,6 +441,7 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
                 variantsPerPair: 2,
                 repeats,
                 models: runTargets.length,
+                samplingMode: experiment.sampling_mode,
               }).toLocaleString('en-US')}{' '}
               requests
             </strong>
@@ -525,6 +528,7 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
           runsPerVariant={repeats}
           pairDefinitions={importedPairs.length > 0 ? importedPairs : undefined}
           prompt={experiment.templates[0]?.body ?? ''}
+          samplingMode={experiment.sampling_mode}
           failureRate={0}
           baseLatencyMs={80}
           startButtonLabel={

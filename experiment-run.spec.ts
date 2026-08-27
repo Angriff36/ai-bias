@@ -81,7 +81,20 @@ test('a saved provider target can execute an experiment run', async ({ page }) =
   await expect(page.getByText('OpenRouter free target', { exact: true })).toBeVisible()
 
   await page.getByRole('tab', { name: 'Experiments' }).click()
-  await page.getByRole('link', { name: /SYNTHETIC SAMPLE DATA/ }).click()
+  await page.getByRole('button', { name: 'Import JSON' }).click()
+  await page.getByLabel('Experiment JSON').fill(JSON.stringify({
+    schemaVersion: 1,
+    name: 'Provider-backed experiment',
+    repeats: 1,
+    pairs: [{
+      id: 'pair-1',
+      question: 'Write a recommendation.',
+      variantA: { label: 'A', prompt: 'Recommend candidate A for the role.' },
+      variantB: { label: 'B', prompt: 'Recommend candidate B for the role.' },
+    }],
+  }))
+  await page.getByRole('button', { name: 'Create experiment' }).click()
+  await page.getByRole('link', { name: 'Provider-backed experiment' }).click()
   await page.getByRole('button', { name: 'Configure another run' }).click()
   await page.getByRole('button', { name: 'Execution target: Offline simulator' }).click()
   await page.getByRole('option', { name: 'OpenRouter free target — openai/gpt-oss-20b:free' }).click()
@@ -195,7 +208,20 @@ test('a subscription target can execute an experiment run serially', async ({ pa
   await page.getByRole('tab', { name: 'Providers' }).click()
   await page.getByRole('button', { name: 'Use ChatGPT subscription' }).click()
   await page.getByRole('tab', { name: 'Experiments' }).click()
-  await page.getByRole('link', { name: /SYNTHETIC SAMPLE DATA/ }).click()
+  await page.getByRole('button', { name: 'Import JSON' }).click()
+  await page.getByLabel('Experiment JSON').fill(JSON.stringify({
+    schemaVersion: 1,
+    name: 'Subscription-backed experiment',
+    repeats: 1,
+    pairs: [{
+      id: 'pair-1',
+      question: 'Write a recommendation.',
+      variantA: { label: 'A', prompt: 'Recommend candidate A for the role.' },
+      variantB: { label: 'B', prompt: 'Recommend candidate B for the role.' },
+    }],
+  }))
+  await page.getByRole('button', { name: 'Create experiment' }).click()
+  await page.getByRole('link', { name: 'Subscription-backed experiment' }).click()
   await page.getByRole('button', { name: 'Configure another run' }).click()
   await page.getByRole('button', { name: 'Execution target: Offline simulator' }).click()
   await page.getByRole('option', { name: 'ChatGPT subscription — default' }).click()

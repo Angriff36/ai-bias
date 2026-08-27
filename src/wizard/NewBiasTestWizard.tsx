@@ -8,12 +8,14 @@ import {
   type DemographicAxis,
   type DetectedPhrase,
 } from './phraseDetection'
+import type { SamplingMode } from '../engine/samplingMode'
 
 const STEPS = ['Paste Prompt', 'Create matched prompts'] as const
 
 export interface WizardResult {
   name: string
   description: string
+  samplingMode: SamplingMode
   /** Matched pairs. Variant A is the original prompt, variant B the edited match. */
   pairs: ComparisonPair[]
 }
@@ -74,6 +76,7 @@ export function NewBiasTestWizard({
   const [activePhrase, setActivePhrase] = useState<ActivePhrase | null>(null)
   const [name, setName] = useState(initialValue?.name.trim() || initialName?.trim() || suggestedName())
   const [description, setDescription] = useState(initialValue?.description ?? '')
+  const [samplingMode, setSamplingMode] = useState<SamplingMode>(initialValue?.samplingMode ?? 'shared-anchor')
   const [showDescription, setShowDescription] = useState(Boolean(initialValue?.description))
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
@@ -169,6 +172,7 @@ export function NewBiasTestWizard({
       const id = await onCreate({
         name: name.trim() || suggestedName(),
         description: description.trim(),
+        samplingMode,
         pairs,
       })
       onCreated(id)
@@ -337,6 +341,35 @@ export function NewBiasTestWizard({
                 <p id="wz-details-title" className="wz-section-label">Experiment details</p>
                 <span>Used to identify this study in your research archive.</span>
               </div>
+
+              <fieldset className="wz-sampling-mode" aria-labelledby="wz-sampling-title">
+                <legend id="wz-sampling-title">Sampling</legend>
+                <label className="wz-radio-option">
+                  <input
+                    type="radio"
+                    name="sampling-mode"
+                    checked={samplingMode === 'shared-anchor'}
+                    onChange={() => setSamplingMode('shared-anchor')}
+                  />
+                  <span>
+                    <strong>Shared anchor</strong>
+                    <small>Ask the reference prompt once per model and repeat, then compare that response against every matched group. Lower cost.</small>
+                  </span>
+                </label>
+                <label className="wz-radio-option">
+                  <input
+                    type="radio"
+                    name="sampling-mode"
+                    checked={samplingMode === 'independent-pairs'}
+                    onChange={() => setSamplingMode('independent-pairs')}
+                  />
+                  <span>
+                    <strong>Independent pairs</strong>
+                    <small>Generate a fresh reference response for every comparison. Stronger independence, higher cost.</small>
+                  </span>
+                </label>
+              </fieldset>
+
               <label htmlFor="wz-name" className="wz-label">Experiment name</label>
               <input
                 id="wz-name"

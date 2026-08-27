@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import {
   api,
   ServerError,
+  type ExperimentIndexRow,
   type ExperimentPage,
-  type ExperimentRow,
   type ExperimentSortField,
   type SortDir,
   type TargetRow,
@@ -24,13 +24,9 @@ const PAGE_SIZES = [10, 20, 50]
 const DEFAULT_PAGE_SIZE = 20
 const STATUS_OPTIONS = ['draft', 'running', 'complete', 'failed', 'paused']
 const ASYMMETRY_OPTIONS = ['none', 'low', 'moderate', 'high', 'inconclusive']
-/** Filters are debounced; the fetch itself is sync (sql.js), so this only delays the query. */
 const FILTER_DEBOUNCE_MS = 200
-/** Search text is debounced longer than filters to limit query frequency while typing. */
 const SEARCH_DEBOUNCE_MS = 300
-/** Do not flash the skeleton when data resolves this fast. */
 const MIN_SKELETON_MS = 300
-/** Matches YYYY-MM-DD so garbage in the URL cannot reach the query. */
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
 interface QueryState {
@@ -80,7 +76,6 @@ function writeParams(state: QueryState) {
   if (state.dateFrom) p.set('from', state.dateFrom)
   if (state.dateTo) p.set('to', state.dateTo)
   const qs = p.toString()
-  // Query string must precede the hash fragment to stay on the same route.
   window.history.replaceState(null, '', `${window.location.pathname}${qs ? `?${qs}` : ''}${window.location.hash}`)
 }
 
@@ -93,12 +88,85 @@ function formatDate(iso: string | null, short = false): string {
     : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
 }
 
-function formatCount(value: number, singular: string, plural: string): string {
-  return `${value.toLocaleString('en-US')} ${value === 1 ? singular : plural}`
-}
-
 function formatStatus(value: string): string {
   return value ? `${value[0].toUpperCase()}${value.slice(1)}` : 'Unknown'
+}
+
+function ExperimentCard({
+  row,
+  firstRowRef,
+  openMenuId,
+  setOpenMenuId,
+  setDeleting,
+  navigateToClone,
+  setCloneRetry,
+}: {
+  row: ExperimentIndexRow
+  firstRowRef?: RefObject<HTMLElement | null>
+  openMenuId: number | null
+  setOpenMenuId: (value: number | null) => void
+  setDeleting: (row: ExperimentIndexRow) => void
+  navigateToClone: (cloned: { id: number; name: string }) => void
+  setCloneRetry: (retry: (() => void) | null) => void
+}) {
+  const hasAsymmetry = row.asymmetry_level !== '' && row.asymmetry_level !== 'none'
+  return (
+    <article ref={firstRowRef as RefObject<HTMLElement>} tabIndex={-1} className="experiment-card" role="listitem">
+      <div className="experiment-card-layout">
+        <aside className="experiment-card-meta" aria-label={`${row.name} details`}>
+          <span className={`experiment-status status-${row.status}`}>{formatStatus(row.status)}</span>
+          <dl>
+            <div><dt>Last run</dt><dd>{formatDate(row.last_run_at, true)}</dd></div>
+            {hasAsymmetry && (
+              <div><dt>Asymmetry</dt><dd><AsymmetryBadge level={row.asymmetry_level} /></dd></div>
+            )}
+          </dl>
+        </aside>
+        <div className="experiment-card-main">
+          <h3><a href={`#/experiments/${row.id}`}>{row.name}</a></h3>
+          <p className="experiment-card-models">
+            {row.model_ids.length > 0 ? row.model_ids.join(' · ') : 'No model evidence captured yet'}
+          </p>
+          <p className="experiment-card-stats">
+            {row.pair_count.toLocaleString()} matched {row.pair_count === 1 ? 'pair' : 'pairs'}
+            {' · '}
+            {row.model_ids.length.toLocaleString()} {row.model_ids.length === 1 ? 'model' : 'models'}
+            {' · '}
+            {row.evidence_count.toLocaleString()} {row.evidence_count === 1 ? 'response' : 'responses'}
+          </p>
+        </div>
+        <div className="experiment-card-actions">
+          <a className="text-link experiment-view-link" href={`#/experiments/${row.id}`}>
+            View results <span aria-hidden="true">→</span>
+          </a>
+          <div className="context-menu-wrap">
+            <button
+              className="secondary experiment-more-button"
+              aria-label={`More actions for ${row.name}`}
+              aria-haspopup="menu"
+              aria-expanded={openMenuId === row.id}
+              onClick={() => setOpenMenuId(openMenuId === row.id ? null : row.id)}
+            >
+              More
+            </button>
+            {openMenuId === row.id && (
+              <div className="context-menu" role="menu" aria-label={`Actions for ${row.name}`}>
+                <CloneExperimentButton
+                  source={row}
+                  inMenu
+                  onCloned={navigateToClone}
+                  onFailure={(retry) => { setOpenMenuId(null); setCloneRetry(() => retry) }}
+                />
+                <button className="context-menu-item danger" role="menuitem" onClick={() => { setOpenMenuId(null); setDeleting(row) }}>
+                  Delete experiment
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </article>
+  )
 }
 
 export function ExperimentHistoryList() {
@@ -108,12 +176,11 @@ export function ExperimentHistoryList() {
   const [targets, setTargets] = useState<TargetRow[]>([])
   const [data, setData] = useState<ExperimentPage | null>(null)
   const [showSkeleton, setShowSkeleton] = useState(true)
-  const [deleting, setDeleting] = useState<ExperimentRow | null>(null)
+  const [deleting, setDeleting] = useState<ExperimentIndexRow | null>(null)
   const [deleteCounts, setDeleteCounts] = useState<Record<string, number>>({})
   const [error, setError] = useState<string | null>(null)
   const [notFound, setNotFound] = useState(false)
   const [wizardOpen, setWizardOpen] = useState(false)
-  // A prompt handed over from the Templates tab opens the wizard pre-filled.
   const [pendingPrompt, setPendingPrompt] = useState<{ prompt: string; name: string } | null>(() => {
     const raw = sessionStorage.getItem(PENDING_PROMPT_KEY)
     if (!raw) return null
@@ -133,16 +200,14 @@ export function ExperimentHistoryList() {
   const firstRowRef = useRef<HTMLElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
 
-  // Load target options for the Target filter.
   useEffect(() => {
     let cancelled = false
     api.listTargets()
       .then((rows) => { if (!cancelled) setTargets(rows) })
-      .catch(() => { /* the filter simply stays hidden; the list itself reports load failures */ })
+      .catch(() => {})
     return () => { cancelled = true }
   }, [])
 
-  // Child-record counts for the delete confirmation.
   useEffect(() => {
     if (!deleting) { setDeleteCounts({}); return }
     let cancelled = false
@@ -152,7 +217,6 @@ export function ExperimentHistoryList() {
     return () => { cancelled = true }
   }, [deleting])
 
-  // Debounce the search text (300ms) before it enters the query state.
   useEffect(() => {
     const t = setTimeout(
       () => setQuery((q) => (q.search === searchInput ? q : { ...q, search: searchInput, page: 1 })),
@@ -161,7 +225,6 @@ export function ExperimentHistoryList() {
     return () => clearTimeout(t)
   }, [searchInput])
 
-  // Cmd/Ctrl+K focuses the search bar from anywhere on the page.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
@@ -173,7 +236,6 @@ export function ExperimentHistoryList() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  // Debounce filter/sort/page changes before querying.
   useEffect(() => {
     const t = setTimeout(() => setDebounced(query), FILTER_DEBOUNCE_MS)
     return () => clearTimeout(t)
@@ -183,8 +245,6 @@ export function ExperimentHistoryList() {
     writeParams(query)
   }, [query])
 
-  // Fetch the current page only; keep the previous data visible while
-  // re-fetching so filter changes do not flash the skeleton.
   const load = useCallback(() => {
     let cancelled = false
     api.listExperiments({
@@ -207,7 +267,6 @@ export function ExperimentHistoryList() {
       })
       .catch((cause: unknown) => {
         if (cancelled) return
-        // Any failure must be shown, or the skeleton spins forever.
         setError(cause instanceof Error ? cause.message : 'Could not load experiments.')
         setShowSkeleton(false)
       })
@@ -215,8 +274,6 @@ export function ExperimentHistoryList() {
   }, [debounced])
   useEffect(load, [load])
 
-  // Minimum skeleton display threshold: only show it if load took >300ms.
-  // The sync fetch resolves instantly, so this runs once on mount.
   useEffect(() => {
     const t = setTimeout(() => setShowSkeleton(false), MIN_SKELETON_MS)
     return () => clearTimeout(t)
@@ -266,7 +323,6 @@ export function ExperimentHistoryList() {
       dateTo: '',
       page: 1,
     }))
-    // Focus returns to the search bar after clearing all filters.
     requestAnimationFrame(() => searchRef.current?.focus())
   }
 
@@ -279,7 +335,6 @@ export function ExperimentHistoryList() {
         : [...q.targetIds, id],
     }))
 
-  // Scroll the list back to the top whenever search or filters change.
   useEffect(() => {
     listTopRef.current?.scrollIntoView({ block: 'start' })
   }, [
@@ -293,7 +348,6 @@ export function ExperimentHistoryList() {
 
   const goToPage = (p: number) => {
     setQuery((q) => ({ ...q, page: Math.min(Math.max(1, p), totalPages) }))
-    // Scroll to top of list and focus the first row after re-render.
     requestAnimationFrame(() => {
       listTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
       firstRowRef.current?.focus()
@@ -339,6 +393,7 @@ export function ExperimentHistoryList() {
       schemaVersion: 1,
       name: result.name,
       ...(result.description ? { description: result.description } : {}),
+      samplingMode: result.samplingMode,
       repeats: 1,
       pairs: result.pairs,
     })).id
@@ -393,11 +448,10 @@ export function ExperimentHistoryList() {
       {error && <div className="banner error" role="alert">{error}</div>}
       {cloneRetry && <div className="banner error" role="alert">Clone failed. Try again. <button className="link" onClick={cloneRetry}>Retry</button></div>}
 
-      <header className="experiment-index-hero">
-        <div className="experiment-index-intro">
-          <p className="eyebrow">AI Bias Lab / Experiments</p>
+      <header className="research-header experiment-index-header">
+        <div className="experiment-index-top">
+          <p className="eyebrow">YOUR TESTS</p>
           <h2>Experiments</h2>
-          <p>Measure differential treatment across AI models with matched prompts and preserved response evidence.</p>
         </div>
         <div className="experiment-index-actions">
           <button className="primary" onClick={() => setWizardOpen(true)}>New experiment</button>
@@ -405,11 +459,11 @@ export function ExperimentHistoryList() {
         </div>
       </header>
 
-      <section className="experiment-summary-strip" aria-label="Evidence overview">
-        <div><strong>{data ? data.summary.experimentCount.toLocaleString('en-US') : '—'}</strong><span>Experiments</span></div>
-        <div><strong>{data ? data.summary.evidenceCount.toLocaleString('en-US') : '—'}</strong><span>Responses</span></div>
-        <div><strong>{data ? data.summary.modelCount.toLocaleString('en-US') : '—'}</strong><span>Models tested</span></div>
-        <div><strong>{data ? data.summary.runCount.toLocaleString('en-US') : '—'}</strong><span>Runs</span></div>
+      <section className="leaderboard-totals experiment-totals" aria-label="Evidence overview">
+        <div><span>Experiments</span><strong>{data ? data.summary.experimentCount.toLocaleString('en-US') : '—'}</strong></div>
+        <div><span>Responses</span><strong>{data ? data.summary.evidenceCount.toLocaleString('en-US') : '—'}</strong></div>
+        <div><span>Models tested</span><strong>{data ? data.summary.modelCount.toLocaleString('en-US') : '—'}</strong></div>
+        <div><span>Runs</span><strong>{data ? data.summary.runCount.toLocaleString('en-US') : '—'}</strong></div>
       </section>
 
       <section className="experiment-index-controls" aria-label="Find experiments">
@@ -540,14 +594,11 @@ export function ExperimentHistoryList() {
         </div>
       )}
 
-      <div className="experiment-list-heading">
-        <div><p className="eyebrow">Research archive</p><h3>Recent experiments</h3></div>
-        <p className="result-count" aria-live="polite" role="status">
-          {data === null
-            ? 'Loading experiments…'
-            : `${data.total} experiment${data.total === 1 ? '' : 's'}${data.total > 0 ? ` · showing ${from}–${to}` : ''}`}
-        </p>
-      </div>
+      <p className="experiment-result-count" aria-live="polite" role="status">
+        {data === null
+          ? 'Loading experiments…'
+          : `${data.total} experiment${data.total === 1 ? '' : 's'}${data.total > 0 ? ` · showing ${from}–${to}` : ''}`}
+      </p>
 
       {loading ? (
         <div className="experiment-list-skeleton" aria-label="Loading experiments">
@@ -563,68 +614,19 @@ export function ExperimentHistoryList() {
         <EmptyState message="No experiments match these filters" actionLabel="Clear filters" onAction={clearFilters} />
       ) : (
         <>
-          <div className={data && data.total <= 50 ? 'experiment-evidence-list animate-rows' : 'experiment-evidence-list'} role="list" aria-label="Experiments">
-            {data.rows.map((r, i) => {
-              const hasAsymmetry = r.asymmetry_level !== '' && r.asymmetry_level !== 'none'
-              return (
-                <article key={r.id} ref={i === 0 ? firstRowRef : undefined} tabIndex={-1} className="experiment-evidence-row" role="listitem">
-                  <div className="experiment-row-main">
-                    <div className="experiment-row-kicker">
-                      <span className={`experiment-status status-${r.status}`}>{formatStatus(r.status)}</span>
-                      {r.is_synthetic && <span className="experiment-synthetic">Synthetic sample</span>}
-                      <span>Experiment #{r.id}</span>
-                    </div>
-                    <h3><a href={`#/experiments/${r.id}`}>{r.name}</a></h3>
-                    <p className="experiment-models">
-                      {r.model_ids.length > 0 ? r.model_ids.join(' · ') : 'No model evidence captured yet'}
-                    </p>
-                    <div className="experiment-row-metrics" aria-label={`Evidence for ${r.name}`}>
-                      <span>{formatCount(r.pair_count, 'matched pair', 'matched pairs')}</span>
-                      <span>{formatCount(r.model_ids.length, 'model', 'models')}</span>
-                      <span>{formatCount(r.evidence_count, 'response', 'responses')}</span>
-                      <span>{formatCount(r.run_count, 'run', 'runs')}</span>
-                    </div>
-                  </div>
-
-                  <div className="experiment-row-findings">
-                    {hasAsymmetry && (
-                      <div className="experiment-finding">
-                        <span>Observed asymmetry</span>
-                        <AsymmetryBadge level={r.asymmetry_level} />
-                      </div>
-                    )}
-                    <div className="experiment-last-run">
-                      <span>Last run</span>
-                      <strong>{formatDate(r.last_run_at, true)}</strong>
-                    </div>
-                  </div>
-
-                  <div className="experiment-row-actions">
-                    <a className="experiment-view-link" href={`#/experiments/${r.id}`}>View results <span aria-hidden="true">→</span></a>
-                    <div className="context-menu-wrap">
-                      <button
-                        className="experiment-more-button"
-                        aria-label={`More actions for ${r.name}`}
-                        aria-haspopup="menu"
-                        aria-expanded={openMenuId === r.id}
-                        onClick={() => setOpenMenuId((current) => current === r.id ? null : r.id)}
-                      >More <span aria-hidden="true">•••</span></button>
-                      {openMenuId === r.id && (
-                        <div className="context-menu" role="menu" aria-label={`Actions for ${r.name}`}>
-                          <CloneExperimentButton
-                            source={r}
-                            inMenu
-                            onCloned={navigateToClone}
-                            onFailure={(retry) => { setOpenMenuId(null); setCloneRetry(() => retry) }}
-                          />
-                          <button className="context-menu-item danger" role="menuitem" onClick={() => { setOpenMenuId(null); setDeleting(r) }}>Delete experiment</button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </article>
-              )
-            })}
+          <div className={data && data.total <= 50 ? 'experiment-card-list animate-rows' : 'experiment-card-list'} role="list" aria-label="Experiments">
+            {data.rows.map((r, i) => (
+              <ExperimentCard
+                key={r.id}
+                row={r}
+                firstRowRef={i === 0 ? firstRowRef : undefined}
+                openMenuId={openMenuId}
+                setOpenMenuId={setOpenMenuId}
+                setDeleting={setDeleting}
+                navigateToClone={navigateToClone}
+                setCloneRetry={setCloneRetry}
+              />
+            ))}
           </div>
 
           <div className="pagination-row">

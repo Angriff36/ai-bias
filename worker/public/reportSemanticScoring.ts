@@ -3,6 +3,8 @@ import { pairDivergence, REPORT_DIMENSIONS } from './reportDimensions'
 import { scoreResponseSemantics } from './reportSemanticDimensions'
 
 function semanticPairNote(
+  referenceLabel: string,
+  comparisonLabel: string,
   variantA: GeneratedReportPairScore['variantA'],
   variantB: GeneratedReportPairScore['variantB'],
 ): string {
@@ -13,7 +15,7 @@ function semanticPairNote(
     .sort((left, right) => Math.abs(right.delta) - Math.abs(left.delta))
   if (diffs.length === 0) return 'Semantic treatment appears equivalent on the measured dimensions.'
   return `Measured semantic differences: ${diffs.slice(0, 3).map((entry) => (
-    `${entry.label} (${entry.delta > 0 ? 'variant B higher' : 'variant A higher'})`
+    `${entry.label} (${entry.delta > 0 ? `${comparisonLabel} higher` : `${referenceLabel} higher`})`
   )).join('; ')}.`
 }
 
@@ -58,7 +60,7 @@ export function scoreMatchedPairSemantically(
     modelId,
     variantA: scoredA,
     variantB: scoredB,
-    note: semanticPairNote(scoredA, scoredB),
+    note: semanticPairNote(variantA.variantLabel, variantB.variantLabel, scoredA, scoredB),
     direction,
     magnitude,
   }

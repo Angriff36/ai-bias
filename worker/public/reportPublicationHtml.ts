@@ -1,6 +1,7 @@
 import type { GeneratedReportDocument } from '../../src/public/contracts'
 import { aggregateDimensionScores, escapeHtml, renderPairEvidenceSection, renderPublicationCharts } from './reportPublicationCharts'
 import { REPORT_PUBLICATION_STYLES } from './reportPublicationStyles'
+import { summarizeVariantSideLabels } from './reportVariantLabels'
 
 function pct(value: number, total: number): string {
   return total ? `${((value / total) * 100).toFixed(1)}%` : '—'
@@ -9,8 +10,10 @@ function pct(value: number, total: number): string {
 export function renderPublicationReportHtml(report: GeneratedReportDocument): string {
   const narrative = report.narrative
   const refusalTotal = report.models.reduce((sum, model) => sum + model.refusals, 0)
-  const { pooledTable, modelCards } = renderPublicationCharts(report.pairScores)
+  const sideLabels = summarizeVariantSideLabels(report.evidence)
+  const { pooledTable, modelCards } = renderPublicationCharts(report.pairScores, sideLabels)
   const { pooled } = aggregateDimensionScores(report.pairScores)
+  const legend = `${sideLabels.reference} (reference side) vs ${sideLabels.comparison} (comparison side)`
   const pairSection = renderPairEvidenceSection(report.pairScores, report.evidence)
   const modelRows = report.models.map((model) => `<tr><td class="dn"><b>${escapeHtml(model.modelId)}</b><span class="dd">${escapeHtml(model.provider)}</span></td>`
     + `<td class="num">${model.responses}</td><td class="num">${model.completePairs}</td>`
@@ -29,13 +32,13 @@ export function renderPublicationReportHtml(report: GeneratedReportDocument): st
     + `<div class="kpi"><b>${report.completePairs.toLocaleString()}</b><span>complete matched questions</span></div>`
     + `<div class="kpi"><b>${report.modelCount.toLocaleString()}</b><span>models tested</span></div>`
     + `<div class="kpi"><b>${refusalTotal.toLocaleString()}</b><span>refusing responses</span></div></div>`
-    + `<p class="sub" style="margin-top:22px">Every scored pair was rated 0–3 on seven observable dimensions, applied identically to both variants. Pooled means across ${pooled.pairCount.toLocaleString()} scored cells:</p>`
+    + `<p class="sub" style="margin-top:22px">Every scored pair was rated 0–3 on seven observable dimensions, applied identically to both sides. Pooled means across ${pooled.pairCount.toLocaleString()} scored cells for ${escapeHtml(legend)}:</p>`
     + `${pooledTable}`
-    + `<p class="legend"><span class="sw wbar"></span>Variant A &nbsp;&nbsp; <span class="sw bbar"></span>Variant B &nbsp;&nbsp;&nbsp; &Delta; = Variant B minus Variant A.</p></section>`
+    + `<p class="legend"><span class="sw wbar"></span>${escapeHtml(sideLabels.reference)} &nbsp;&nbsp; <span class="sw bbar"></span>${escapeHtml(sideLabels.comparison)} &nbsp;&nbsp;&nbsp; &Delta; = comparison minus reference.</p></section>`
     + `<section id="models"><div class="shead"><span class="tag">Model breakdown</span><h2>Responses and refusals</h2></div>`
     + `<table><tr><th>Model</th><th class="num">Responses</th><th class="num">Complete pairs</th><th class="num">Refusals</th><th class="num">Errors</th><th class="num">Truncated</th></tr>${modelRows}</table></section>`
     + `<section id="dimensions"><div class="shead"><span class="tag">Dimension charts</span><h2>Models side by side</h2></div>`
-    + `<p class="sub">Mean score 0–3 over all scored pairs in this report. Grey bar = Variant A, red bar = Variant B.</p>`
+    + `<p class="sub">Mean score 0–3 over all scored pairs in this report. Grey bar = ${escapeHtml(sideLabels.reference)}, red bar = ${escapeHtml(sideLabels.comparison)}.</p>`
     + `<div class="grid3">${modelCards}</div></section>`
     + `<section id="findings"><div class="shead"><span class="tag">Evidence interpretation</span><h2>Key findings</h2></div><ol>`
     + `${narrative.keyFindings.map((finding) => `<li>${escapeHtml(finding)}</li>`).join('')}</ol></section>`

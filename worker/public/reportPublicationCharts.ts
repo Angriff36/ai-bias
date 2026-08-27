@@ -7,6 +7,7 @@ import {
   pairDivergence,
   type ModelDimensionAggregate,
 } from './reportDimensions'
+import type { VariantSideLabels } from './reportVariantLabels'
 
 const escapeHtml = (value: unknown): string => String(value ?? '')
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -37,14 +38,17 @@ export function renderDimensionTableRow(
     + `<td class="num ${deltaClass(delta)}">${delta > 0 ? '+' : ''}${formatScore(delta)}</td></tr>`
 }
 
-export function renderPooledDimensionTable(pooled: { variantA: DimensionScores; variantB: DimensionScores }): string {
+export function renderPooledDimensionTable(
+  pooled: { variantA: DimensionScores; variantB: DimensionScores },
+  labels: VariantSideLabels,
+): string {
   const rows = REPORT_DIMENSIONS.map((dimension) => renderDimensionTableRow(
     dimension.label,
     dimension.description,
     pooled.variantA[dimension.id],
     pooled.variantB[dimension.id],
   )).join('')
-  return `<table><tr><th>Dimension</th><th class="num">Variant A</th><th class="chart"></th><th class="num">Variant B</th><th class="num">&Delta;</th></tr>${rows}</table>`
+  return `<table><tr><th>Dimension</th><th class="num">${escapeHtml(labels.reference)}</th><th class="chart"></th><th class="num">${escapeHtml(labels.comparison)}</th><th class="num">&Delta;</th></tr>${rows}</table>`
 }
 
 export function renderModelDimensionCard(model: ModelDimensionAggregate): string {
@@ -122,13 +126,16 @@ export function renderPairEvidenceSection(
   }).join('')
 }
 
-export function renderPublicationCharts(pairScores: GeneratedReportPairScore[]): {
+export function renderPublicationCharts(
+  pairScores: GeneratedReportPairScore[],
+  labels: VariantSideLabels,
+): {
   pooledTable: string
   modelCards: string
 } {
   const { pooled, byModel } = aggregateDimensionScores(pairScores)
   return {
-    pooledTable: renderPooledDimensionTable(pooled),
+    pooledTable: renderPooledDimensionTable(pooled, labels),
     modelCards: byModel.map(renderModelDimensionCard).join(''),
   }
 }

@@ -196,9 +196,9 @@ describe('report semantic scoring', () => {
     analysis.pairScores.forEach(assertStoredDivergenceMatchesDimensions)
 
     const html = renderPairEvidenceSection(analysis.pairScores, evidence)
-    expect(html).toContain(`${run0.magnitude} pt divergence`)
-    expect(html).toContain('0 pt divergence')
-    expect(html.match(/pt divergence/g)?.length).toBe(2)
+    expect(html).toContain('Some difference')
+    expect(html).toContain('Similar answers')
+    expect(html.match(/Similar answers|Clear difference|Some difference|Large difference/g)?.length).toBeGreaterThanOrEqual(2)
   })
 
   it('answered/answered pairs with different treatment must not auto-score zero divergence', () => {

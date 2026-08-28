@@ -59,7 +59,7 @@ describe('public API routes', () => {
 
     const html = await handlePublicApi(new Request('https://ai-tests.com/api/public/reports/report-1.html'), {} as never, { waitUntil: vi.fn() }, deps as never)
     expect(html?.headers.get('content-type')).toContain('text/html')
-    expect(await html?.text()).toContain('Dimension charts')
+    expect(await html?.text()).toContain('Answer tone')
   })
 
   it('explains the 20-question minimum for an ineligible report request', async () => {

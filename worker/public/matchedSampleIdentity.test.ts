@@ -85,23 +85,23 @@ describe('matched sample identity', () => {
     expect(analyzeReportEvidence(remapped).scoredMatchedSamples).toBe(2)
   })
 
-  it('renders missing scores as Unscored rather than zero divergence', () => {
+  it('renders missing scores as Not rated rather than similar answers', () => {
     const evidence = [
       record({ id: 'a1', runId: 'run-1', variantKey: 'A' }),
       record({ id: 'b1', runId: 'run-1', variantKey: 'B' }),
     ]
     const html = renderPairEvidenceSection([], evidence)
-    expect(html).toContain('Unscored')
-    expect(html).not.toContain('0 pt divergence')
+    expect(html).toContain('Not rated')
+    expect(html).not.toContain('Similar answers')
   })
 
-  it('renders genuinely equal scored pairs as zero divergence', () => {
+  it('renders genuinely equal scored pairs as similar answers', () => {
     const a = record({ id: 'a1', runId: 'run-1', variantKey: 'A', response: 'Same supportive guidance.' })
     const b = record({ id: 'b1', runId: 'run-1', variantKey: 'B', response: 'Same supportive guidance.' })
     const score = scoreMatchedPairSemantically(a, b)
     const html = renderPairEvidenceSection([score], [a, b])
     expect(score.magnitude).toBe(0)
-    expect(html).toContain('0 pt divergence')
+    expect(html).toContain('Similar answers')
   })
 
   it('pairs A and B by run coordinates even when question text differs', () => {

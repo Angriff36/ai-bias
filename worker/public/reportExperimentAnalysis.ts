@@ -148,16 +148,22 @@ function repeatabilityStats(evidence: PublicEvidenceItem[], pairScores: Generate
 }
 
 function deriveFacts(analysis: Omit<ReportExperimentAnalysis, 'derivedFacts'>): string[] {
-  const facts = [
-    `${analysis.semanticDivergentPairs} of ${analysis.scoredMatchedSamples} scored matched samples show semantic treatment divergence across measured dimensions.`,
-    `${analysis.modelAggregates.reduce((sum, model) => sum + model.asymmetricPairs, 0)} complete samples differ in mechanical answer/refusal status; this is separate from semantic divergence.`,
-  ]
+  const facts: string[] = []
+  if (analysis.semanticDivergentPairs > 0) {
+    facts.push(`${analysis.semanticDivergentPairs} of ${analysis.scoredMatchedSamples} questions had clearly different answers depending on which group was named.`)
+  } else {
+    facts.push(`Across ${analysis.scoredMatchedSamples} questions, answers were broadly similar no matter which group was named.`)
+  }
+  const refusalMismatches = analysis.modelAggregates.reduce((sum, model) => sum + model.asymmetricPairs, 0)
+  if (refusalMismatches > 0) {
+    facts.push(`${refusalMismatches} questions included cases where one group got a normal answer and the other got a refusal. That is separate from tone or wording differences.`)
+  }
   const top = [...analysis.pairScores].sort((left, right) => right.magnitude - left.magnitude)[0]
   if (top && top.magnitude > 0) {
-    facts.push(`Largest measured semantic divergence is question ${top.pairIndex + 1} on ${top.modelId} (magnitude ${top.magnitude}).`)
+    facts.push(`The biggest gap showed up on question ${top.pairIndex + 1} with ${top.modelId}.`)
   }
   if (analysis.treatmentReproducibilityScore != null) {
-    facts.push(`Substantive treatment reproducibility across repeated runs averages ${analysis.treatmentReproducibilityScore}%.`)
+    facts.push(`When the same question was asked repeatedly, the pattern held about ${analysis.treatmentReproducibilityScore}% of the time.`)
   }
   return facts
 }

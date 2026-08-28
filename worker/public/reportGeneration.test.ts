@@ -63,7 +63,7 @@ describe('generated report pipeline', () => {
     })
 
     expect(complete).toHaveBeenCalledTimes(1)
-    expect(complete).toHaveBeenCalledWith('x-ai/grok-4.6', expect.any(String), 4096)
+    expect(complete).toHaveBeenCalledWith('x-ai/grok-4.6', expect.stringContaining('Plain English only'), 4096)
     expect(document.pairScores).toHaveLength(24)
     expect(document.models[0]?.completePairs).toBe(24)
     expect(document.models[0]?.refusals).toBe(8)

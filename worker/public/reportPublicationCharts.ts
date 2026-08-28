@@ -77,15 +77,22 @@ function dimensionCells(score: GeneratedReportPairScore | undefined): string {
   }).join('')
 }
 
-function formatSampleDivergence(score: GeneratedReportPairScore | undefined): string {
-  if (!score) return 'Unscored'
-  return `${pairDivergence(score)} pt divergence`
+export function formatDivergenceLabel(score: GeneratedReportPairScore | undefined): string {
+  if (!score) return 'Not rated'
+  const magnitude = pairDivergence(score)
+  if (magnitude === 0) return 'Similar answers'
+  if (magnitude <= 4) return 'Some difference'
+  if (magnitude <= 10) return 'Clear difference'
+  return 'Large difference'
 }
 
-function maxScoredDivergence(scores: Array<GeneratedReportPairScore | undefined>): string {
+function formatSampleDivergence(score: GeneratedReportPairScore | undefined): string {
+  return formatDivergenceLabel(score)
+}
+
+function maxScoredDivergence(scores: Array<GeneratedReportPairScore | undefined>): number {
   const magnitudes = scores.filter((score): score is GeneratedReportPairScore => Boolean(score)).map(pairDivergence)
-  if (magnitudes.length === 0) return 'Unscored'
-  return String(Math.max(...magnitudes))
+  return magnitudes.length ? Math.max(...magnitudes) : -1
 }
 
 export function renderPairEvidenceSection(
@@ -106,15 +113,12 @@ export function renderPairEvidenceSection(
   const rankedPairs = [...grouped.entries()].sort((left, right) => {
     const leftMax = maxScoredDivergence([...left[1].values()].map((group) => scoreIndex.get(matchedSampleKey(group[0]))))
     const rightMax = maxScoredDivergence([...right[1].values()].map((group) => scoreIndex.get(matchedSampleKey(group[0]))))
-    const leftNum = leftMax === 'Unscored' ? -1 : Number(leftMax)
-    const rightNum = rightMax === 'Unscored' ? -1 : Number(rightMax)
-    return rightNum - leftNum || left[0] - right[0]
+    return rightMax - leftMax || left[0] - right[0]
   })
 
   return rankedPairs.map(([pairIndex, groupsBySample]) => {
     const groups = [...groupsBySample.values()]
-    const question = groups[0]?.[0]?.question ?? `Matched question ${pairIndex + 1}`
-    const divergence = maxScoredDivergence(groups.map((group) => scoreIndex.get(matchedSampleKey(group[0]))))
+    const question = groups[0]?.[0]?.question ?? `Question ${pairIndex + 1}`
     const modelRows = groups.map((group) => {
       const first = group[0]
       const sampleKey = matchedSampleKey(first)
@@ -126,9 +130,15 @@ export function renderPairEvidenceSection(
         + `<div class="inner"><table class="dimtab"><tr><th style="text-align:left">Model</th>`
         + `${REPORT_DIMENSIONS.map((dimension) => `<th>${escapeHtml(dimension.label.split(' ')[0])}</th>`).join('')}</tr>`
         + `<tr><td>${escapeHtml(first.modelId)}</td>${dimensionCells(score)}</tr></table>`
-        + `<div class="two">${body}</div>${score?.note ? `<p class="note"><span class="mn">Scoring note</span>${escapeHtml(score.note)}</p>` : ''}</div></details>`
+        + `<div class="two">${body}</div>${score?.note ? `<p class="note"><span class="mn">What differed</span>${escapeHtml(score.note)}</p>` : ''}</div></details>`
     }).join('')
-    const divergenceLabel = divergence === 'Unscored' ? 'Unscored' : divergence
+    const pairScoresForQuestion = groups
+      .map((group) => scoreIndex.get(matchedSampleKey(group[0])))
+      .filter((score): score is GeneratedReportPairScore => Boolean(score))
+      .sort((left, right) => pairDivergence(right) - pairDivergence(left))
+    const divergenceLabel = pairScoresForQuestion.length
+      ? formatDivergenceLabel(pairScoresForQuestion[0])
+      : 'Not rated'
     return `<details class="pair"><summary><span class="qn">Q${pairIndex + 1}</span><span class="qt">${escapeHtml(question)}</span><span class="dv2">${divergenceLabel}</span></summary><div class="body">${modelRows}</div></details>`
   }).join('')
 }

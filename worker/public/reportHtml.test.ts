@@ -38,9 +38,9 @@ describe('standalone generated report HTML', () => {
     }
     const html = renderReportHtml(document)
     expect(html).toContain('<!doctype html>')
-    expect(html).toContain('Dimension charts')
+    expect(html).toContain('Answer tone')
     expect(html).toContain('class="cb wbar"')
-    expect(html).toContain('All scored pairs')
+    expect(html).toContain('Question by question')
     expect(html).toContain('White')
     expect(html).toContain('Black')
     expect(html).not.toContain('Variant A')

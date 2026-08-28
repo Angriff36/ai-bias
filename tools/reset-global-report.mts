@@ -23,6 +23,15 @@ async function main() {
   const snapshot = await buildGlobalCohortSnapshot(evidence, now, { minReportableQuestions: 1 })
   if (!snapshot) throw new Error('Could not build a cohort snapshot from current evidence.')
 
+  const existing = await env.PUBLIC_DB.prepare('SELECT id FROM generated_reports WHERE scope = ? AND cohort_fingerprint = ?')
+    .bind('global', snapshot.cohortFingerprint).all()
+  for (const row of existing.results ?? []) {
+    const id = String((row as { id: string }).id)
+    await env.PUBLIC_DB.prepare('DELETE FROM report_pair_scores WHERE report_id = ?').bind(id).run()
+    await env.PUBLIC_DB.prepare('DELETE FROM generated_reports WHERE id = ?').bind(id).run()
+    console.log(`Removed prior global report ${id}`)
+  }
+
   const claim = await repo.claimGlobalCohortReport(snapshot, now)
   if (claim.kind !== 'claimed' && claim.kind !== 'existing') {
     throw new Error(`Could not claim global report: ${claim.kind}`)

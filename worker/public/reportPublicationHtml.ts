@@ -13,7 +13,7 @@ export function renderPublicationReportHtml(report: GeneratedReportDocument): st
   const sideLabels = summarizeVariantSideLabels(report.evidence)
   const { pooledTable, modelCards } = renderPublicationCharts(report.pairScores, sideLabels)
   const { pooled } = aggregateDimensionScores(report.pairScores)
-  const legend = `${sideLabels.reference} (reference side) vs ${sideLabels.comparison} (comparison side)`
+  const legend = `${sideLabels.reference} vs ${sideLabels.comparison}`
   const pairSection = renderPairEvidenceSection(report.pairScores, report.evidence)
   const modelRows = report.models.map((model) => `<tr><td class="dn"><b>${escapeHtml(model.modelId)}</b><span class="dd">${escapeHtml(model.provider)}</span></td>`
     + `<td class="num">${model.responses}</td><td class="num">${model.completePairs}</td>`
@@ -22,30 +22,30 @@ export function renderPublicationReportHtml(report: GeneratedReportDocument): st
 
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">`
     + `<title>${escapeHtml(narrative.title)}</title><style>${REPORT_PUBLICATION_STYLES}</style></head><body><div class="wrap">`
-    + `<header class="hero"><p class="eyebrow">Controlled matched-prompt audit · ${report.responseCount.toLocaleString()} responses</p>`
+    + `<header class="hero"><p class="eyebrow">Same question, different group names · ${report.responseCount.toLocaleString()} answers collected</p>`
     + `<h1>${escapeHtml(narrative.title)}</h1><p class="sub">${escapeHtml(narrative.subtitle)}</p>`
     + `<p class="lede">${escapeHtml(narrative.executiveSummary)}</p></header>`
-    + `<nav class="toc"><div class="in"><a href="#summary">Summary</a><a href="#models">Models</a><a href="#dimensions">Dimensions</a>`
-    + `<a href="#findings">Findings</a><a href="#pairs">Matched pairs</a><a href="#method">Method &amp; limits</a></div></nav>`
-    + `<section id="summary"><div class="shead"><span class="tag">Summary</span><h2>The headline numbers</h2></div>`
-    + `<div class="kpis"><div class="kpi"><b>${report.responseCount.toLocaleString()}</b><span>model responses captured</span></div>`
-    + `<div class="kpi"><b>${report.completePairs.toLocaleString()}</b><span>complete matched questions</span></div>`
+    + `<nav class="toc"><div class="in"><a href="#summary">Overview</a><a href="#models">Models</a><a href="#dimensions">Answer tone</a>`
+    + `<a href="#findings">Findings</a><a href="#pairs">Examples</a><a href="#method">How we tested</a></div></nav>`
+    + `<section id="summary"><div class="shead"><span class="tag">Overview</span><h2>What we looked at</h2></div>`
+    + `<div class="kpis"><div class="kpi"><b>${report.responseCount.toLocaleString()}</b><span>answers collected</span></div>`
+    + `<div class="kpi"><b>${report.completePairs.toLocaleString()}</b><span>questions compared</span></div>`
     + `<div class="kpi"><b>${report.modelCount.toLocaleString()}</b><span>models tested</span></div>`
-    + `<div class="kpi"><b>${refusalTotal.toLocaleString()}</b><span>refusing responses</span></div></div>`
-    + `<p class="sub" style="margin-top:22px">Every scored pair was rated 0–3 on seven observable dimensions, applied identically to both sides. Pooled means across ${pooled.pairCount.toLocaleString()} scored cells for ${escapeHtml(legend)}:</p>`
+    + `<div class="kpi"><b>${refusalTotal.toLocaleString()}</b><span>refusals</span></div></div>`
+    + `<p class="sub" style="margin-top:22px">Each question was asked twice — same wording except for the group named. We rated both answers on seven traits (warmth, skepticism, and so on). Averages for ${escapeHtml(legend)}:</p>`
     + `${pooledTable}`
-    + `<p class="legend"><span class="sw wbar"></span>${escapeHtml(sideLabels.reference)} &nbsp;&nbsp; <span class="sw bbar"></span>${escapeHtml(sideLabels.comparison)} &nbsp;&nbsp;&nbsp; &Delta; = comparison minus reference.</p></section>`
-    + `<section id="models"><div class="shead"><span class="tag">Model breakdown</span><h2>Responses and refusals</h2></div>`
-    + `<table><tr><th>Model</th><th class="num">Responses</th><th class="num">Complete pairs</th><th class="num">Refusals</th><th class="num">Errors</th><th class="num">Truncated</th></tr>${modelRows}</table></section>`
-    + `<section id="dimensions"><div class="shead"><span class="tag">Dimension charts</span><h2>Models side by side</h2></div>`
-    + `<p class="sub">Mean score 0–3 over all scored pairs in this report. Grey bar = ${escapeHtml(sideLabels.reference)}, red bar = ${escapeHtml(sideLabels.comparison)}.</p>`
+    + `<p class="legend"><span class="sw wbar"></span>${escapeHtml(sideLabels.reference)} &nbsp;&nbsp; <span class="sw bbar"></span>${escapeHtml(sideLabels.comparison)}</p></section>`
+    + `<section id="models"><div class="shead"><span class="tag">Models</span><h2>Who answered what</h2></div>`
+    + `<table><tr><th>Model</th><th class="num">Answers</th><th class="num">Questions</th><th class="num">Refusals</th><th class="num">Errors</th><th class="num">Cut off</th></tr>${modelRows}</table></section>`
+    + `<section id="dimensions"><div class="shead"><span class="tag">Answer tone</span><h2>How the two sides compared</h2></div>`
+    + `<p class="sub">Average scores from 0 (low) to 3 (high). Grey = ${escapeHtml(sideLabels.reference)}, red = ${escapeHtml(sideLabels.comparison)}.</p>`
     + `<div class="grid3">${modelCards}</div></section>`
-    + `<section id="findings"><div class="shead"><span class="tag">Evidence interpretation</span><h2>Key findings</h2></div><ol>`
+    + `<section id="findings"><div class="shead"><span class="tag">Findings</span><h2>What stood out</h2></div><ol>`
     + `${narrative.keyFindings.map((finding) => `<li>${escapeHtml(finding)}</li>`).join('')}</ol></section>`
-    + `<section id="pairs"><div class="shead"><span class="tag">Matched evidence</span><h2>All scored pairs</h2></div>`
-    + `<p class="sub">Sorted by total dimension divergence. Open a row for per-model dimension scores and stored responses.</p>${pairSection}</section>`
-    + `<section id="method"><div class="shead"><span class="tag">Method &amp; limits</span><h2>What this does and does not show</h2></div>`
+    + `<section id="pairs"><div class="shead"><span class="tag">Examples</span><h2>Question by question</h2></div>`
+    + `<p class="sub">Biggest differences first. Open a row to read the actual answers.</p>${pairSection}</section>`
+    + `<section id="method"><div class="shead"><span class="tag">How we tested</span><h2>Limits of this report</h2></div>`
     + `<div class="caveat"><p>${escapeHtml(narrative.methodology)}</p><ul>${narrative.limitations.map((limit) => `<li>${escapeHtml(limit)}</li>`).join('')}</ul></div>`
-    + `<p class="foot">Model-assisted analysis generated by ${escapeHtml(report.synthesisModelId)}. Pair scoring used ${escapeHtml(report.scoringModelId)}. Generated ${escapeHtml(report.generatedAt)}.</p></section>`
+    + `<p class="foot">Report text drafted with ${escapeHtml(report.synthesisModelId)}. Generated ${escapeHtml(report.generatedAt)}.</p></section>`
     + `</div></body></html>`
 }

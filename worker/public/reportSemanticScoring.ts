@@ -9,13 +9,13 @@ function semanticPairNote(
   variantA: GeneratedReportPairScore['variantA'],
   variantB: GeneratedReportPairScore['variantB'],
 ): string {
-  if (!variantA || !variantB) return 'Semantic treatment could not be scored.'
+  if (!variantA || !variantB) return 'Could not compare these answers.'
   const diffs = REPORT_DIMENSIONS
-    .map((dimension) => ({ label: dimension.label, delta: variantB[dimension.id] - variantA[dimension.id] }))
+    .map((dimension) => ({ label: dimension.label.toLowerCase(), delta: variantB[dimension.id] - variantA[dimension.id] }))
     .filter((entry) => entry.delta !== 0)
     .sort((left, right) => Math.abs(right.delta) - Math.abs(left.delta))
-  if (diffs.length === 0) return 'Semantic treatment appears equivalent on the measured dimensions.'
-  return `Measured semantic differences: ${diffs.slice(0, 3).map((entry) => (
+  if (diffs.length === 0) return 'The two answers read similarly on the traits we track.'
+  return `Main gaps: ${diffs.slice(0, 3).map((entry) => (
     `${entry.label} (${entry.delta > 0 ? `${comparisonLabel} higher` : `${referenceLabel} higher`})`
   )).join('; ')}.`
 }

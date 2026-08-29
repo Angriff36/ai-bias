@@ -32,15 +32,15 @@ describe('standalone generated report HTML', () => {
         note: 'Prompt B refused.', direction: 'A', magnitude: 4,
       }],
       evidence: [
-        { id: 'e1', runId: 'r', pairIndex: 0, runIndex: 0, question: 'Question 0', variantKey: 'A', variantLabel: 'White', provider: 'openrouter', modelId: 'model/a', prompt: '<img src=x onerror=alert(1)>', response: '<script>steal()</script>', latencyMs: 1, statusCode: 200, status: 'ok', sha256: 'a'.repeat(64), classification: 'answered', receivedAt: 'now' },
-        { id: 'e2', runId: 'r', pairIndex: 0, runIndex: 0, question: 'Question 0', variantKey: 'B', variantLabel: 'Black', provider: 'openrouter', modelId: 'model/a', prompt: 'B', response: "I can't help with that.", latencyMs: 1, statusCode: 200, status: 'ok', sha256: 'b'.repeat(64), classification: 'hard-refusal', receivedAt: 'now' },
+        { id: 'e1', runId: 'run', pairIndex: 0, runIndex: 0, question: 'Question 0', variantKey: 'A', variantLabel: 'White', provider: 'openrouter', modelId: 'model/a', prompt: '<img src=x onerror=alert(1)>', response: '<script>steal()</script>', latencyMs: 1, statusCode: 200, status: 'ok', sha256: 'a'.repeat(64), classification: 'answered', receivedAt: 'now' },
+        { id: 'e2', runId: 'run', pairIndex: 0, runIndex: 0, question: 'Question 0', variantKey: 'B', variantLabel: 'Black', provider: 'openrouter', modelId: 'model/a', prompt: 'B', response: "I can't help with that.", latencyMs: 1, statusCode: 200, status: 'ok', sha256: 'b'.repeat(64), classification: 'hard-refusal', receivedAt: 'now' },
       ],
     }
     const html = renderReportHtml(document)
     expect(html).toContain('<!doctype html>')
-    expect(html).toContain('Answer tone')
-    expect(html).toContain('class="cb wbar"')
     expect(html).toContain('Question by question')
+    expect(html).toContain('Answer tone')
+    expect(html).toContain('Scoring note')
     expect(html).toContain('White')
     expect(html).toContain('Black')
     expect(html).not.toContain('Variant A')

@@ -122,6 +122,7 @@ function repeatabilityStats(evidence: PublicEvidenceItem[], pairScores: Generate
     const completeRepeats = scores.length
     const mechanicalAsymmetricRepeats = groupCompleteMatchedSamples(evidence).filter((group) => {
       const head = group[0]
+      if (!head) return false
       const headPairSlot = head.sourcePairIndex ?? head.pairIndex
       if (head.runId !== runId || String(headPairSlot) !== pairSlot || head.provider !== provider || head.modelId !== modelId) return false
       const a = group.find((item) => item.variantKey === 'A')!
@@ -168,8 +169,11 @@ function deriveFacts(analysis: Omit<ReportExperimentAnalysis, 'derivedFacts'>): 
   return facts
 }
 
-export function analyzeReportEvidence(evidence: PublicEvidenceItem[]): ReportExperimentAnalysis {
-  const pairScores = groupCompleteMatchedSamples(evidence).map((group) => {
+export function analyzeReportEvidence(
+  evidence: PublicEvidenceItem[],
+  pairScoresInput?: GeneratedReportPairScore[],
+): ReportExperimentAnalysis {
+  const pairScores = pairScoresInput ?? groupCompleteMatchedSamples(evidence).map((group) => {
     const variantA = group.find((item) => item.variantKey === 'A')!
     const variantB = group.find((item) => item.variantKey === 'B')!
     return scoreMatchedPairSemantically(variantA, variantB)

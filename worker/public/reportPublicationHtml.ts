@@ -12,9 +12,8 @@ export function renderPublicationReportHtml(report: GeneratedReportDocument): st
   const refusalTotal = report.models.reduce((sum, model) => sum + model.refusals, 0)
   const sideLabels = summarizeVariantSideLabels(report.evidence)
   const { pooledTable, modelCards } = renderPublicationCharts(report.pairScores, sideLabels)
-  const { pooled } = aggregateDimensionScores(report.pairScores)
-  const legend = `${sideLabels.reference} vs ${sideLabels.comparison}`
   const pairSection = renderPairEvidenceSection(report.pairScores, report.evidence)
+  const legend = `${sideLabels.reference} vs ${sideLabels.comparison}`
   const modelRows = report.models.map((model) => `<tr><td class="dn"><b>${escapeHtml(model.modelId)}</b><span class="dd">${escapeHtml(model.provider)}</span></td>`
     + `<td class="num">${model.responses}</td><td class="num">${model.completePairs}</td>`
     + `<td class="num">${model.refusals} <small>${pct(model.refusals, model.responses)}</small></td>`
@@ -32,7 +31,7 @@ export function renderPublicationReportHtml(report: GeneratedReportDocument): st
     + `<div class="kpi"><b>${report.completePairs.toLocaleString()}</b><span>questions compared</span></div>`
     + `<div class="kpi"><b>${report.modelCount.toLocaleString()}</b><span>models tested</span></div>`
     + `<div class="kpi"><b>${refusalTotal.toLocaleString()}</b><span>refusals</span></div></div>`
-    + `<p class="sub" style="margin-top:22px">Each question was asked twice — same wording except for the group named. We rated both answers on seven traits (warmth, skepticism, and so on). Averages for ${escapeHtml(legend)}:</p>`
+    + `<p class="sub" style="margin-top:22px">Each question was asked twice — same wording except for the group named. A judge model scored both answers on seven traits (0–3). Averages for ${escapeHtml(legend)}:</p>`
     + `${pooledTable}`
     + `<p class="legend"><span class="sw wbar"></span>${escapeHtml(sideLabels.reference)} &nbsp;&nbsp; <span class="sw bbar"></span>${escapeHtml(sideLabels.comparison)}</p></section>`
     + `<section id="models"><div class="shead"><span class="tag">Models</span><h2>Who answered what</h2></div>`
@@ -43,9 +42,9 @@ export function renderPublicationReportHtml(report: GeneratedReportDocument): st
     + `<section id="findings"><div class="shead"><span class="tag">Findings</span><h2>What stood out</h2></div><ol>`
     + `${narrative.keyFindings.map((finding) => `<li>${escapeHtml(finding)}</li>`).join('')}</ol></section>`
     + `<section id="pairs"><div class="shead"><span class="tag">Examples</span><h2>Question by question</h2></div>`
-    + `<p class="sub">Biggest differences first. Open a row to read the actual answers.</p>${pairSection}</section>`
+    + `<p class="sub">Biggest differences first. Open a row for per-model scores, the judge note, and both answers.</p>${pairSection}</section>`
     + `<section id="method"><div class="shead"><span class="tag">How we tested</span><h2>Limits of this report</h2></div>`
     + `<div class="caveat"><p>${escapeHtml(narrative.methodology)}</p><ul>${narrative.limitations.map((limit) => `<li>${escapeHtml(limit)}</li>`).join('')}</ul></div>`
-    + `<p class="foot">Report text drafted with ${escapeHtml(report.synthesisModelId)}. Generated ${escapeHtml(report.generatedAt)}.</p></section>`
+    + `<p class="foot">Scores from ${escapeHtml(report.scoringModelId)}. Narrative from ${escapeHtml(report.synthesisModelId)}. Generated ${escapeHtml(report.generatedAt)}.</p></section>`
     + `</div></body></html>`
 }

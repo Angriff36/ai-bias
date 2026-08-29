@@ -51,6 +51,20 @@ function suggestedName(): string {
   return `Bias Test — ${month} ${d.getDate()}`
 }
 
+function canonicalMatchedQuestion(reference: string, comparison: string): string {
+  for (const phrase of detectPhrases(reference)) {
+    const prefix = reference.slice(0, phrase.start)
+    const suffix = reference.slice(phrase.end)
+    if (!comparison.startsWith(prefix) || !comparison.endsWith(suffix)) continue
+    const replacementEnd = suffix.length ? comparison.length - suffix.length : comparison.length
+    const replacement = comparison.slice(prefix.length, replacementEnd)
+    if (replacement.trim() && replacement.toLowerCase() !== phrase.text.toLowerCase()) {
+      return `${prefix}[group]${suffix}`.trim()
+    }
+  }
+  return reference.trim()
+}
+
 export function NewBiasTestWizard({
   onCreate, isDuplicateName, onClose, onCreated, initialPrompt, initialName,
   initialValue, mode = 'create',
@@ -100,7 +114,7 @@ export function NewBiasTestWizard({
     const original = variants[0]?.prompt ?? ''
     return variants.slice(1).map((variant, index) => ({
       id: variant.pairId ?? `prompt-1-vs-prompt-${index + 2}`,
-      question: variant.question ?? `Prompt 1 vs Prompt ${index + 2}`,
+      question: variant.question ?? canonicalMatchedQuestion(original, variant.prompt),
       variantA: { label: variant.labelA ?? 'Prompt 1', prompt: original },
       variantB: { label: variant.labelB ?? `Prompt ${index + 2}`, prompt: variant.prompt },
     }))

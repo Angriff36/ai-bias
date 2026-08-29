@@ -2,6 +2,7 @@ import {
   generatedReportSummarySchema,
   type GeneratedReportDocument,
   type GeneratedReportModelSummary,
+  type GeneratedReportPairScore,
   type GeneratedReportSummary,
   type PublicEvidenceItem,
 } from '../../src/public/contracts'
@@ -18,8 +19,9 @@ import { evaluateGlobalReportTrigger } from './reportGlobalEligibility'
 import { parseStoredReportDocument } from './reportDocumentParse'
 import { comparisonIdentity, groupCompleteMatchedSamples } from './matchedSampleIdentity'
 
-const SCORING_MODEL = 'semantic-text-analysis'
+const JUDGE_MODEL = 'z-ai/glm-5.3-flash'
 const SYNTHESIS_MODEL = 'x-ai/grok-4.6'
+const SCORING_MODEL = JUDGE_MODEL
 const DAILY_REPORT_JOB_LIMIT = 20
 
 const n = (value: unknown) => Number(value ?? 0)
@@ -223,12 +225,63 @@ export class GeneratedReportRepository {
     await this.db.prepare("UPDATE generated_reports SET status='failed', error_code=? WHERE id=?").bind(code.slice(0, 80), reportId).run()
   }
 
-  async prepareReportGeneration(reportId: string, now: string): Promise<GeneratedReportSummary | null> {
+  async countPairScores(reportId: string): Promise<number> {
+    const row = await this.db.prepare('SELECT COUNT(*) AS count FROM report_pair_scores WHERE report_id = ?')
+      .bind(reportId).first<{ count: number }>()
+    return n(row?.count)
+  }
+
+  async clearPairScores(reportId: string): Promise<void> {
+    await this.db.prepare('DELETE FROM report_pair_scores WHERE report_id = ?').bind(reportId).run()
+  }
+
+  async loadPairScores(reportId: string): Promise<GeneratedReportPairScore[]> {
+    const rows = (await this.db.prepare('SELECT score_json FROM report_pair_scores WHERE report_id = ?')
+      .bind(reportId).all()).results ?? []
+    return rows.map((row) => JSON.parse(s(String((row as { score_json: string }).score_json))) as GeneratedReportPairScore)
+  }
+
+  async upsertPairScores(reportId: string, scores: GeneratedReportPairScore[]): Promise<void> {
+    if (scores.length === 0) return
+    const statements = scores.map((score) => this.db.prepare(`INSERT OR REPLACE INTO report_pair_scores
+      (report_id, pair_sample_id, pair_index, run_index, provider, model_id, score_json) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+      .bind(reportId, score.pairSampleId, score.pairIndex, score.runIndex, score.provider, score.modelId, JSON.stringify(score)))
+    try {
+      await this.db.batch(statements)
+    } catch {
+      await this.db.batch(scores.map((score) => this.db.prepare(`INSERT OR REPLACE INTO report_pair_scores
+        (report_id, pair_index, run_index, provider, model_id, score_json) VALUES (?, ?, ?, ?, ?, ?)`)
+        .bind(reportId, score.pairIndex, score.runIndex, score.provider, score.modelId, JSON.stringify(score))))
+    }
+  }
+
+  async prepareReportGeneration(reportId: string, now: string): Promise<{ report: GeneratedReportSummary; started: boolean } | null> {
     const row = await this.getRow(reportId)
     if (!row || row.status === 'complete') return null
+    const partialCount = await this.countPairScores(reportId)
+    if (row.status === 'pending') {
+      const ageMs = Date.now() - Date.parse(row.createdAt)
+      if (ageMs < 45_000) return { report: this.summary(row), started: false }
+      if (partialCount > 0) {
+        await this.touchReportGeneration(reportId, now)
+        return { report: this.summary({ ...row, status: 'pending', createdAt: now }), started: true }
+      }
+      if (ageMs < 20 * 60_000) return { report: this.summary(row), started: false }
+      await this.failReport(reportId, 'stale-pending')
+      await this.clearPairScores(reportId)
+    }
+    if (row.status === 'failed') {
+      const failedPartialCount = await this.countPairScores(reportId)
+      if (failedPartialCount === 0) await this.clearPairScores(reportId)
+    }
     await this.db.prepare("UPDATE generated_reports SET status='pending', error_code=NULL, created_at=?, scoring_model_id=?, synthesis_model_id=? WHERE id=?")
       .bind(now, SCORING_MODEL, SYNTHESIS_MODEL, reportId).run()
-    return this.summary({ ...row, status: 'pending', createdAt: now })
+    return { report: this.summary({ ...row, status: 'pending', createdAt: now }), started: true }
+  }
+
+  async touchReportGeneration(reportId: string, now: string): Promise<void> {
+    await this.db.prepare("UPDATE generated_reports SET status='pending', error_code=NULL, created_at=? WHERE id=?")
+      .bind(now, reportId).run()
   }
 
   async listReports(): Promise<GeneratedReportSummary[]> {

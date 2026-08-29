@@ -1,9 +1,13 @@
 import { getPlatformProxy } from 'wrangler'
 import { GeneratedReportRepository } from '../worker/public/reportRepository.ts'
-import { scheduleReportGeneration } from '../worker/public/reportGeneration.ts'
+import { generateReport } from '../worker/public/reportGeneration.ts'
 import { createReportModelClient } from '../worker/public/reportModelClient.ts'
 
-const reportId = process.argv[2] ?? '3c4888a3-a41d-441a-84a0-ede450ee258c'
+const reportId = process.argv[2]
+if (!reportId) {
+  console.error('Usage: npx tsx tools/run-report-generation.mts <report-id>')
+  process.exit(1)
+}
 
 async function main() {
   const { env, dispose } = await getPlatformProxy({
@@ -15,20 +19,23 @@ async function main() {
   if (!apiKey?.trim()) throw new Error('OPENROUTER_API_KEY is not available locally or via remote bindings.')
 
   const repo = new GeneratedReportRepository(env.PUBLIC_DB)
+  const now = new Date().toISOString()
+  const prepared = await repo.prepareReportGeneration(reportId, now)
+  if (!prepared) throw new Error(`Report ${reportId} not found or already complete.`)
+
   const models = createReportModelClient(apiKey, 'https://ai-tests.com')
-  console.log(`Generating report ${reportId} via OpenRouter...`)
+  const source = await repo.getReportEvidence(reportId)
 
-  await new Promise<void>((resolve, reject) => {
-    scheduleReportGeneration(models, {
-      waitUntil: (promise) => {
-        promise.then(() => resolve()).catch(reject)
-      },
-    }, repo, reportId)
+  console.log(`Generating report ${reportId} (${source.evidence.length} evidence rows)...`)
+  const result = await generateReport(models, source, models)
+  if ('status' in result) throw new Error(`Report generation incomplete after ${result.pairScores.length} pair scores.`)
+  await repo.completeReport(reportId, result, new Date().toISOString())
+
+  console.log('Done:', {
+    title: result.narrative.title,
+    pairScores: result.pairScores.length,
+    url: `https://ai-tests.com/api/public/reports/${reportId}.html`,
   })
-
-  const row = await env.PUBLIC_DB.prepare('SELECT status, title, error_code FROM generated_reports WHERE id=?')
-    .bind(reportId).first<{ status: string; title: string | null; error_code: string | null }>()
-  console.log('Done:', row)
   await dispose()
 }
 

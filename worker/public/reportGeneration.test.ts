@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { generatedReportDocumentSchema, type PublicEvidenceItem } from '../../src/public/contracts'
+import { buildPairSampleId } from './matchedSampleIdentity'
 import { generateReport } from './reportGeneration'
 
 function evidenceRecord(overrides: Partial<PublicEvidenceItem> & Pick<PublicEvidenceItem, 'id' | 'pairIndex' | 'runIndex' | 'variantKey' | 'classification'>): PublicEvidenceItem {
@@ -38,48 +39,92 @@ function fixtureEvidence(pairCount: number): PublicEvidenceItem[] {
   return records
 }
 
+const zeroScores = {
+  dangerFraming: 0,
+  sympathy: 0,
+  skepticism: 0,
+  collectiveBlame: 0,
+  moralCondemnation: 0,
+  antiStereotyping: 0,
+  acknowledgesDiscrimination: 0,
+}
+
+function mockJudgeBatch(prompt: string) {
+  const cells = JSON.parse(prompt.split('CELLS:\n')[1] ?? '[]') as Array<{ pairSampleId: string }>
+  return JSON.stringify({
+    scores: cells.map((cell) => ({
+      pairSampleId: cell.pairSampleId,
+      variantA: zeroScores,
+      variantB: cell.pairSampleId.includes('\u00000\u0000') && cells.length
+        ? { ...zeroScores, sympathy: 2 }
+        : zeroScores,
+      note: 'Observed difference in tone.',
+    })),
+  })
+}
+
 describe('generated report pipeline', () => {
-  it('uses one synthesis call for many complete pairs and keeps deterministic statistics', async () => {
+  it('judges pairs in batches then synthesizes from aggregates only', async () => {
     const evidence = fixtureEvidence(24)
-    const analysisEvidence = evidence
-    const complete = vi.fn(async () => JSON.stringify({
+    const judge = vi.fn(async (_modelId: string, prompt: string) => mockJudgeBatch(prompt))
+    const synthesis = vi.fn(async () => JSON.stringify({
       title: 'Identity framing audit',
       subtitle: 'Twenty-four matched questions',
-      executiveSummary: 'Deterministic statistics show asymmetric refusals on one third of pairs.',
+      executiveSummary: 'Judge scores and refusal counts show uneven treatment.',
       keyFindings: ['Several matched pairs showed refusal on only one variant.'],
-      methodology: 'Evidence classifications and asymmetry metrics were computed deterministically before synthesis.',
+      methodology: 'A judge model scored each pair on seven fixed dimensions; this narrative used aggregates only.',
       limitations: ['Observed sample may not represent all deployment contexts.'],
     }))
-    const reportModels = { complete }
+    const judgeModels = { complete: judge }
+    const synthesisModels = { complete: synthesis }
 
-    const document = await generateReport(reportModels, {
+    const result = await generateReport(synthesisModels, {
       row: {
         id: 'report-many',
         scope: 'run',
-        scoringModelId: 'semantic-text-analysis',
+        scoringModelId: 'z-ai/glm-5.3-flash',
         synthesisModelId: 'x-ai/grok-4.6',
       },
-      evidence: analysisEvidence,
-    })
+      evidence,
+    }, judgeModels)
+    expect('status' in result).toBe(false)
+    const document = result as Exclude<typeof result, { status: 'partial' }>
 
-    expect(complete).toHaveBeenCalledTimes(1)
-    expect(complete).toHaveBeenCalledWith('x-ai/grok-4.6', expect.stringContaining('Plain English only'), 4096)
+    expect(judge.mock.calls.length).toBeGreaterThan(0)
+    expect(judge.mock.calls.every(([modelId, prompt]) => (
+      modelId === 'z-ai/glm-5.3-flash' && prompt.includes('SCORING TASK')
+    ))).toBe(true)
+    expect(synthesis).toHaveBeenCalledTimes(1)
+    expect(synthesis).toHaveBeenCalledWith('x-ai/grok-4.6', expect.stringContaining('DATA:'), 4096, { jsonObject: true })
     expect(document.pairScores).toHaveLength(24)
-    expect(document.models[0]?.completePairs).toBe(24)
-    expect(document.models[0]?.refusals).toBe(8)
-    expect(document.pairScores.filter((score) => score.magnitude > 0)).toHaveLength(8)
+    expect(document.pairScores.every((score) => score.note.length > 0)).toBe(true)
+    expect(document.scoringModelId).toBe('z-ai/glm-5.3-flash')
+    expect(document.synthesisModelId).toBe('x-ai/grok-4.6')
     expect(generatedReportDocumentSchema.safeParse(document).success).toBe(true)
+
+    const firstA = evidence.find((item) => item.variantKey === 'A')!
+    expect(document.pairScores.some((score) => score.pairSampleId === buildPairSampleId(firstA))).toBe(true)
   })
 
   it('marks invalid synthesis output as a generation failure path', async () => {
-    await expect(generateReport({ complete: vi.fn(async () => 'not json') }, {
-      row: {
-        id: 'report-bad',
-        scope: 'run',
-        scoringModelId: 'semantic-text-analysis',
-        synthesisModelId: 'writer',
+    const evidence = fixtureEvidence(1)
+    const judgeModels = {
+      complete: vi.fn(async (_modelId: string, prompt: string) => mockJudgeBatch(prompt)),
+    }
+    const synthesis = vi.fn(async () => 'not json')
+    await expect(generateReport(
+      { complete: synthesis },
+      {
+        row: {
+          id: 'report-bad',
+          scope: 'run',
+          scoringModelId: 'z-ai/glm-5.3-flash',
+          synthesisModelId: 'x-ai/grok-4.6',
+        },
+        evidence,
       },
-      evidence: fixtureEvidence(1),
-    })).rejects.toThrow('Report model returned invalid JSON.')
+      judgeModels,
+    )).rejects.toThrow('Report model returned invalid JSON.')
+    expect(synthesis).toHaveBeenCalledTimes(1)
   })
 })

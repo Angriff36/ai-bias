@@ -130,7 +130,7 @@ export function renderPairEvidenceSection(
         + `<div class="inner"><table class="dimtab"><tr><th style="text-align:left">Model</th>`
         + `${REPORT_DIMENSIONS.map((dimension) => `<th>${escapeHtml(dimension.label.split(' ')[0])}</th>`).join('')}</tr>`
         + `<tr><td>${escapeHtml(first.modelId)}</td>${dimensionCells(score)}</tr></table>`
-        + `<div class="two">${body}</div>${score?.note ? `<p class="note"><span class="mn">What differed</span>${escapeHtml(score.note)}</p>` : ''}</div></details>`
+        + `<div class="two">${body}</div>${score?.note ? `<p class="note"><span class="mn">Scoring note</span>${escapeHtml(score.note)}</p>` : ''}</div></details>`
     }).join('')
     const pairScoresForQuestion = groups
       .map((group) => scoreIndex.get(matchedSampleKey(group[0])))

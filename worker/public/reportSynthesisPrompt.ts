@@ -54,6 +54,7 @@ export function buildSynthesisPrompt(source: SynthesisSource, analysis: ReportEx
     '- Say what happened: who got warmer answers, who got refusals, whether answers matched or diverged.',
     '- Title and subtitle should sound like a clear news headline, not a lab report.',
     '- keyFindings: one idea per bullet, under 25 words each.',
+    '- methodology should mention: judge model scored each pair on seven fixed dimensions; synthesis used aggregates only.',
     '',
     'Accuracy rules (still required):',
     '- Use only the data below.',

@@ -2,11 +2,15 @@ import {
   generatedReportDocumentSchema,
   reportNarrativeSchema,
   type GeneratedReportDocument,
+  type GeneratedReportPairScore,
 } from '../../src/public/contracts'
 import type { ExecutionContextLike } from './analysis'
+import { groupCompleteMatchedSamples } from './matchedSampleIdentity'
+import { analyzeReportEvidence } from './reportExperimentAnalysis'
+import { scoreAllPairsWithJudge } from './reportJudgeBatch'
 import type { ReportModelClient } from './reportModelClient'
-import { analyzeReportEvidence, type ReportExperimentAnalysis } from './reportExperimentAnalysis'
 import { buildSynthesisPrompt } from './reportSynthesisPrompt'
+import type { GeneratedReportRepository } from './reportRepository'
 
 interface ReportSource {
   row: {
@@ -22,7 +26,20 @@ interface ReportGenerationRepository {
   getReportEvidence(reportId: string): Promise<ReportSource>
   completeReport(reportId: string, document: GeneratedReportDocument, now: string): Promise<void>
   failReport(reportId: string, code: string): Promise<void>
+  loadPairScores?(reportId: string): Promise<GeneratedReportPairScore[]>
+  upsertPairScores?(reportId: string, scores: GeneratedReportPairScore[]): Promise<void>
 }
+
+export interface GenerateReportOptions {
+  existingPairScores?: GeneratedReportPairScore[]
+  deadlineMs?: number
+}
+
+export type GenerateReportResult =
+  | GeneratedReportDocument
+  | { status: 'partial'; pairScores: GeneratedReportPairScore[] }
+
+export const REPORT_GENERATION_BUDGET_MS = 25_000
 
 class InvalidModelOutput extends Error {}
 
@@ -34,20 +51,43 @@ function parseJson(value: string): unknown {
   try { return JSON.parse(text.slice(start, end + 1)) } catch { throw new InvalidModelOutput('Report model returned invalid JSON.') }
 }
 
-function synthesisInput(source: ReportSource, analysis: ReportExperimentAnalysis): string {
-  return buildSynthesisPrompt(source, analysis)
+function existingScoreMap(scores: GeneratedReportPairScore[] | undefined): Map<string, GeneratedReportPairScore> {
+  return new Map((scores ?? []).map((score) => [score.pairSampleId, score]))
 }
 
-export async function generateReport(reportModels: ReportModelClient, source: ReportSource): Promise<GeneratedReportDocument> {
-  const analysis = analyzeReportEvidence(source.evidence)
-  if (analysis.scoredMatchedSamples === 0) throw new InvalidModelOutput('No complete evidence groups.')
-  const narrativeResult = await reportModels.complete(
+export async function generateReport(
+  synthesisModels: ReportModelClient,
+  source: ReportSource,
+  judgeModels: ReportModelClient,
+  options?: GenerateReportOptions,
+): Promise<GenerateReportResult> {
+  if (groupCompleteMatchedSamples(source.evidence).length === 0) {
+    throw new InvalidModelOutput('No complete evidence groups.')
+  }
+
+  const judged = await scoreAllPairsWithJudge(
+    judgeModels,
+    source.row.scoringModelId,
+    source.evidence,
+    {
+      existingScores: existingScoreMap(options?.existingPairScores),
+      shouldStop: options?.deadlineMs ? () => Date.now() >= options.deadlineMs! : undefined,
+    },
+  )
+  if (!judged.complete) {
+    return { status: 'partial', pairScores: judged.pairScores }
+  }
+
+  const analysis = analyzeReportEvidence(source.evidence, judged.pairScores)
+  const narrativeResult = await synthesisModels.complete(
     source.row.synthesisModelId,
-    synthesisInput(source, analysis),
+    buildSynthesisPrompt(source, analysis),
     4096,
+    { jsonObject: true },
   )
   const narrative = reportNarrativeSchema.safeParse(parseJson(narrativeResult))
   if (!narrative.success) throw new InvalidModelOutput('Report model returned an invalid report narrative.')
+
   const document: GeneratedReportDocument = {
     schemaVersion: 1,
     id: source.row.id,
@@ -68,19 +108,65 @@ export async function generateReport(reportModels: ReportModelClient, source: Re
   return validated.data
 }
 
+export async function processReportChunk(
+  synthesisModels: ReportModelClient,
+  repository: ReportGenerationRepository,
+  reportId: string,
+  judgeModels: ReportModelClient,
+): Promise<void> {
+  const checkpointRepo = repository as GeneratedReportRepository
+  const now = new Date().toISOString()
+  await checkpointRepo.touchReportGeneration(reportId, now)
+  const source = await repository.getReportEvidence(reportId)
+  const existingPairScores = checkpointRepo.loadPairScores
+    ? await checkpointRepo.loadPairScores(reportId)
+    : []
+  const expectedCount = groupCompleteMatchedSamples(source.evidence).length
+  const scoringComplete = existingPairScores.length >= expectedCount
+  const result = await generateReport(synthesisModels, source, judgeModels, {
+    existingPairScores,
+    deadlineMs: scoringComplete ? undefined : Date.now() + REPORT_GENERATION_BUDGET_MS,
+  })
+  if ('status' in result && result.status === 'partial') {
+    if (checkpointRepo.upsertPairScores) {
+      await checkpointRepo.upsertPairScores(reportId, result.pairScores)
+    }
+    return
+  }
+  await repository.completeReport(reportId, result, now)
+}
+
+export async function handleReportChunkFailure(
+  repository: ReportGenerationRepository,
+  reportId: string,
+  error: unknown,
+): Promise<void> {
+  const checkpointRepo = repository as GeneratedReportRepository
+  const source = await repository.getReportEvidence(reportId)
+  const expectedCount = groupCompleteMatchedSamples(source.evidence).length
+  const scoredCount = await checkpointRepo.countPairScores(reportId)
+  if (scoredCount >= expectedCount) {
+    await checkpointRepo.touchReportGeneration(reportId, new Date().toISOString())
+    return
+  }
+  const message = error instanceof Error ? error.message : 'generation-failed'
+  const code = error instanceof InvalidModelOutput ? 'invalid-model-output' : message.slice(0, 80)
+  await repository.failReport(reportId, code)
+}
+
 export function scheduleReportGeneration(
-  reportModels: ReportModelClient,
+  synthesisModels: ReportModelClient,
   context: ExecutionContextLike,
   repository: ReportGenerationRepository,
   reportId: string,
+  judgeModels: ReportModelClient,
+  _siteOrigin: string,
 ): void {
   context.waitUntil((async () => {
     try {
-      const source = await repository.getReportEvidence(reportId)
-      const document = await generateReport(reportModels, source)
-      await repository.completeReport(reportId, document, new Date().toISOString())
+      await processReportChunk(synthesisModels, repository, reportId, judgeModels)
     } catch (error) {
-      await repository.failReport(reportId, error instanceof InvalidModelOutput ? 'invalid-model-output' : 'generation-failed')
+      await handleReportChunkFailure(repository, reportId, error)
     }
   })())
 }

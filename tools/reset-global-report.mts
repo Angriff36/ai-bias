@@ -49,7 +49,31 @@ async function main() {
   console.log(response.status, body)
   if (!response.ok && response.status !== 202) process.exit(1)
 
-  console.log('Generation started on worker. Poll GET /api/public/reports for status.')
+  console.log('Generation running on worker. Polling status...')
+  const { env: pollEnv, dispose: pollDispose } = await getPlatformProxy({
+    configPath: 'wrangler.jsonc',
+    remoteBindings: true,
+  })
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 5000))
+    const row = await pollEnv.PUBLIC_DB.prepare('SELECT status, title, error_code FROM generated_reports WHERE id = ?')
+      .bind(reportId).first<{ status: string; title: string | null; error_code: string | null }>()
+    console.log(`poll ${attempt + 1}: ${row?.status ?? 'missing'}${row?.error_code ? ` (${row.error_code})` : ''}`)
+    if (row?.status === 'complete') {
+      console.log('Report ready:', `${baseUrl}/api/public/reports/${reportId}.html`)
+      console.log('Title:', row.title)
+      await pollDispose()
+      return
+    }
+    if (row?.status === 'failed') {
+      await pollDispose()
+      console.error('Report generation failed.', row.error_code)
+      process.exit(1)
+    }
+  }
+  await pollDispose()
+  console.error('Timed out waiting for report generation.')
+  process.exit(1)
 }
 
 main().catch((error: unknown) => {

@@ -116,10 +116,12 @@ describe('NewBiasTestWizard research flow', () => {
     expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({
       pairs: [
         expect.objectContaining({
+          question: "I'm proud to be [group]!",
           variantA: expect.objectContaining({ prompt: PROMPT }),
           variantB: expect.objectContaining({ prompt: MATCHED_PROMPT }),
         }),
         expect.objectContaining({
+          question: "I'm proud to be [group]!",
           variantA: expect.objectContaining({ prompt: PROMPT }),
           variantB: expect.objectContaining({ prompt: THIRD_PROMPT }),
         }),

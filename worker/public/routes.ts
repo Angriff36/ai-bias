@@ -3,7 +3,7 @@ import { scheduleAnalysis, type AiBindingLike, type ExecutionContextLike } from 
 import type { D1DatabaseLike } from './d1'
 import { quotaIdentity, runFreePair } from './freeRun'
 import { PublicRepository } from './repository'
-import { scheduleReportGeneration, generateReport } from './reportGeneration'
+import { scheduleReportGeneration } from './reportGeneration'
 import { renderReportHtml } from './reportHtml'
 import { GeneratedReportRepository } from './reportRepository'
 import { createReportModelClient } from './reportModelClient'
@@ -54,8 +54,8 @@ export async function handlePublicApi(
   const reportRepository = injected?.reportRepository ?? new GeneratedReportRepository(env.PUBLIC_DB)
   const quotaHash = injected?.quotaHash ?? quotaIdentity
   const reportSchedule = injected?.scheduleReport ?? ((reportId: string) => {
-    const models = createReportModelClient(env.OPENROUTER_API_KEY, url.origin)
-    scheduleReportGeneration(models, context, new GeneratedReportRepository(env.PUBLIC_DB), reportId)
+      const reportModels = createReportModelClient(env.OPENROUTER_API_KEY, url.origin)
+      scheduleReportGeneration(reportModels, context, new GeneratedReportRepository(env.PUBLIC_DB), reportId, reportModels, url.origin)
   })
 
   try {
@@ -103,19 +103,13 @@ export async function handlePublicApi(
     if (regenerate && request.method === 'POST') {
       const now = new Date().toISOString()
       const reportId = regenerate[1]
-      const report = await reportRepository.prepareReportGeneration(reportId, now)
-      if (!report) return json({ error: 'Report not found or already complete.' }, 404)
-      try {
-        const models = createReportModelClient(env.OPENROUTER_API_KEY, url.origin)
-        const source = await reportRepository.getReportEvidence(reportId)
-        const document = await generateReport(models, source)
-        await reportRepository.completeReport(reportId, document, now)
-        return json({ report: { ...report, status: 'complete', title: document.narrative.title, responseCount: document.responseCount, completePairs: document.completePairs, modelCount: document.modelCount, completedAt: now } }, 200)
-      } catch (error) {
-        const code = error instanceof Error && error.message.includes('invalid') ? 'invalid-model-output' : 'generation-failed'
-        await reportRepository.failReport(reportId, code)
-        return json({ error: 'Report generation failed.', code }, 500)
+      const prepared = await reportRepository.prepareReportGeneration(reportId, now)
+      if (!prepared) return json({ error: 'Report not found or already complete.' }, 404)
+      if (prepared.started) {
+        const synthesisModels = createReportModelClient(env.OPENROUTER_API_KEY, url.origin)
+        scheduleReportGeneration(synthesisModels, context, reportRepository as GeneratedReportRepository, reportId, synthesisModels, url.origin)
       }
+      return json({ report: { ...prepared.report, status: 'pending' } }, prepared.started ? 202 : 200)
     }
     const reportHtml = url.pathname.match(/^\/api\/public\/reports\/([A-Za-z0-9-]+)\.html$/)
     if (reportHtml && request.method === 'GET') {

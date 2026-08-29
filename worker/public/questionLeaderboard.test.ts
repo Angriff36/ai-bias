@@ -52,5 +52,6 @@ describe('question leaderboard aggregation', () => {
       }))
     expect(buildTopQuestionSummaries(evidence)[0]?.questionText).toBe('I am [group].')
     expect(buildQuestionDetail('prompt 1 vs prompt 2', evidence)?.questionText).toBe('I am [group].')
+
   })
 })

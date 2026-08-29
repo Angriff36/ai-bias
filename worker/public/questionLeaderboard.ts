@@ -26,7 +26,6 @@ function isPromptPlaceholder(value: string | undefined): boolean {
 /** Recover a meaningful question for legacy rows that stored variant names. */
 function questionText(records: PublicEvidenceItem[], fallback: string): string {
   const stored = records.find((item) => item.question?.trim())?.question?.trim() ?? ''
-  if (stored && !isPromptPlaceholder(stored)) return stored
   const byPair = new Map<string, PublicEvidenceItem[]>()
   for (const item of records) {
     const key = `${item.runId}\u0000${item.pairIndex}\u0000${item.runIndex}\u0000${item.provider}\u0000${item.modelId}`
@@ -36,6 +35,7 @@ function questionText(records: PublicEvidenceItem[], fallback: string): string {
     const a = pair.find((item) => item.variantKey === 'A')?.prompt ?? ''
     const b = pair.find((item) => item.variantKey === 'B')?.prompt ?? ''
     if (!a || !b || a === b) continue
+    if (stored && !isPromptPlaceholder(stored) && stored !== a.trim() && stored !== b.trim()) continue
     let prefix = 0
     while (prefix < a.length && prefix < b.length && a[prefix] === b[prefix]) prefix++
     let suffix = 0

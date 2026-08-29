@@ -462,6 +462,10 @@ dialog.confirm .actions { display: flex; gap: 8px; justify-content: flex-end; ma
 .inline-experiment-editor .wizard-body { padding-top: 0; }
 .inline-experiment-editor .wz-stage-header { margin-bottom: 28px; }
 .inline-experiment-editor .wz-stage-header h2 { font-size: clamp(30px, 4vw, 44px); }
+.openrouter-model-form { display: grid; gap: 12px; }
+.openrouter-model-form .openrouter-popular-dropdown { width: 100%; min-width: 0; }
+.openrouter-model-form label { display: grid; gap: 6px; }
+.openrouter-model-form .primary { justify-self: start; }
 .run-config-controls { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 24px; }
 .workload-readout { display: grid; justify-items: end; gap: 4px; margin-left: auto; text-align: right; }
 .workload-readout span, .workload-readout small { color: var(--muted); font-size: 12px; }

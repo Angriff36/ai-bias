@@ -1,15 +1,20 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   disconnectOpenRouter,
   getOpenRouterSession,
   prepareOpenRouterOAuth,
 } from '../openrouter/oauth'
 import {
+  fetchPopularOpenRouterModels,
+  type OpenRouterModelChoice,
+} from '../openrouter/popularModels'
+import {
   deleteTarget,
   loadTargets,
   saveTargets,
   type TargetConfig,
 } from '../store/targetStore'
+import { DropdownSelect } from './DropdownSelect'
 
 function openRouterTargets(): TargetConfig[] {
   return loadTargets().filter((target) => (
@@ -22,8 +27,48 @@ export function ProvidersPanel({ onTargetsChange }: { onTargetsChange?: (targets
   const [connected, setConnected] = useState(() => getOpenRouterSession() !== null)
   const [targets, setTargets] = useState<TargetConfig[]>(openRouterTargets)
   const [modelId, setModelId] = useState('')
+  const [popularModels, setPopularModels] = useState<OpenRouterModelChoice[]>([])
+  const [popularLoading, setPopularLoading] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!connected) {
+      setPopularModels([])
+      return
+    }
+
+    const controller = new AbortController()
+    setPopularLoading(true)
+    void fetchPopularOpenRouterModels(undefined, {
+      apiKey: getOpenRouterSession()?.key,
+      signal: controller.signal,
+    })
+      .then((models) => {
+        if (!controller.signal.aborted) setPopularModels(models)
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setPopularModels([])
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setPopularLoading(false)
+      })
+
+    return () => controller.abort()
+  }, [connected])
+
+  const popularModelOptions = useMemo(() => ([
+    {
+      value: '',
+      label: popularLoading ? 'Loading popular models…' : '— choose a popular model —',
+    },
+    ...popularModels.map((model) => ({
+      value: model.id,
+      label: model.name === model.id ? model.id : `${model.name} (${model.id})`,
+    })),
+  ]), [popularLoading, popularModels])
+
+  const popularSelection = popularModels.some((model) => model.id === modelId) ? modelId : ''
 
   const commit = (next: TargetConfig[]) => {
     const unrelated = loadTargets().filter((target) => (
@@ -126,7 +171,14 @@ export function ProvidersPanel({ onTargetsChange }: { onTargetsChange?: (targets
               <button className="secondary" type="button" onClick={disconnect}>Disconnect</button>
             </div>
 
-            <div className="form-grid">
+            <div className="form-grid openrouter-model-form">
+              <DropdownSelect
+                label="Popular OpenRouter models"
+                value={popularSelection}
+                options={popularModelOptions}
+                onChange={(next) => { if (next) setModelId(next) }}
+                className="openrouter-popular-dropdown"
+              />
               <label>
                 OpenRouter model ID
                 <input
@@ -138,7 +190,10 @@ export function ProvidersPanel({ onTargetsChange }: { onTargetsChange?: (targets
               </label>
               <button className="primary" type="button" onClick={addModel}>Add model</button>
             </div>
-            <p className="muted">Use the exact model ID shown in OpenRouter. Pricing is loaded from OpenRouter before a run when available.</p>
+            <p className="muted">
+              Pick one of the 20 most-used models on OpenRouter, or enter any model ID manually.
+              Pricing is loaded from OpenRouter before a run when available.
+            </p>
           </div>
 
           {targets.length > 0 && (

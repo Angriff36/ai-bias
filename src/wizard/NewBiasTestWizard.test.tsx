@@ -74,9 +74,10 @@ describe('NewBiasTestWizard research flow', () => {
     )
 
     await user.type(screen.getByRole('textbox', { name: 'Source prompt' }), PROMPT)
-    await user.click(screen.getByRole('button', { name: 'Next' }))
-    expect(await screen.findByText('NEW EXPERIMENT / STEP 2 OF 2')).toBeTruthy()
+    expect(screen.queryByLabelText('Experiment setup progress')).toBeNull()
+    await user.click(screen.getByRole('button', { name: 'Create matched prompts' }))
     expect(screen.getByRole('heading', { name: 'Create matched prompts' })).toBeTruthy()
+    expect((screen.getByRole('textbox', { name: 'Source prompt' }) as HTMLTextAreaElement).value).toBe(PROMPT)
     expect(screen.queryByText('Choose Replacement')).toBeNull()
     expect(screen.queryByText('Confirm')).toBeNull()
 

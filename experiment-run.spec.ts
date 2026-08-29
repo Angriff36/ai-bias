@@ -3,10 +3,6 @@ import { expect, test } from '@playwright/test'
 test('a draft experiment can be configured, run, and opened as results', async ({ page }) => {
   await page.goto('/')
 
-  await page.getByLabel('Email').fill('run-flow@example.com')
-  await page.getByLabel('Password').fill('local-test')
-  await page.getByRole('button', { name: 'Sign in' }).click()
-
   await page.getByRole('button', { name: 'Import JSON' }).click()
   await page.getByLabel('Experiment JSON').fill(JSON.stringify({
     schemaVersion: 1,
@@ -32,9 +28,9 @@ test('a draft experiment can be configured, run, and opened as results', async (
   await page.getByRole('button', { name: 'Create experiment' }).click()
 
   await page.getByRole('link', { name: 'Runnable integration experiment' }).click()
-  await page.getByRole('button', { name: 'Configure Run' }).click()
-
   await expect(page.getByRole('heading', { name: 'Run experiment' })).toBeVisible()
+
+  await page.getByRole('checkbox', { name: /Offline simulator/ }).click()
   await page.getByRole('button', { name: 'Start offline run' }).click()
   await expect(page.getByText('Run complete', { exact: true })).toBeVisible({ timeout: 15_000 })
   await page.getByRole('button', { name: 'View Results' }).click()

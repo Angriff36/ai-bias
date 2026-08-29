@@ -458,6 +458,10 @@ dialog.confirm .actions { display: flex; gap: 8px; justify-content: flex-end; ma
 .target-badges .badge { font-size: 11px; padding: 1px 8px; }
 .inline-provider-setup { margin-top: 12px; padding-top: 16px; border-top: 1px solid var(--border); }
 .inline-provider-setup .page-header h2 { font-size: 18px; }
+.inline-experiment-editor { padding: 28px; }
+.inline-experiment-editor .wizard-body { padding-top: 0; }
+.inline-experiment-editor .wz-stage-header { margin-bottom: 28px; }
+.inline-experiment-editor .wz-stage-header h2 { font-size: clamp(30px, 4vw, 44px); }
 .run-config-controls { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 24px; }
 .workload-readout { display: grid; justify-items: end; gap: 4px; margin-left: auto; text-align: right; }
 .workload-readout span, .workload-readout small { color: var(--muted); font-size: 12px; }
@@ -764,6 +768,8 @@ dialog.confirm .actions { display: flex; gap: 8px; justify-content: flex-end; ma
 .wz-source-textarea:focus { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
 .wz-source-tools { padding: 13px 2px; }
 .wz-source-tools p { margin: 0; color: #7f8897; font-size: 12px; }
+.wz-source-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.wz-stage-prompt + .wz-stage-match { margin-top: 72px; padding-top: 48px; border-top: 1px solid var(--border-strong); }
 
 .wz-prompt-list { max-width: 1180px; border-top: 1px solid var(--border-strong); }
 .wz-prompt-variant { padding: 24px 0 28px; border-bottom: 1px solid var(--border-strong); }

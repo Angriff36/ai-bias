@@ -24,14 +24,15 @@ import { createFreeTrialAdapter } from '../public/freeTrialAdapter'
 import { saveThenPublish } from '../public/publishCompletion'
 import { NewBiasTestWizard, type WizardResult } from '../wizard/NewBiasTestWizard'
 
-type WorkspaceView = 'overview' | 'run' | 'results' | 'capture' | 'edit'
+type WorkspaceView = 'run' | 'results' | 'capture'
 
 export function ExperimentEditor({ experimentId }: { experimentId: number }) {
   const [experiment, setExperiment] = useState<ExperimentDetail | null>(null)
   const [name, setName] = useState('')
   const [error, setError] = useState(false)
   const [cloneRetry, setCloneRetry] = useState<(() => void) | null>(null)
-  const [view, setView] = useState<WorkspaceView>('overview')
+  const [view, setView] = useState<WorkspaceView>('run')
+  const [editingPrompts, setEditingPrompts] = useState(false)
   const [repeats, setRepeats] = useState(1)
   const [runSummary, setRunSummary] = useState<ExperimentRunSummary | null>(null)
   const [runSaveError, setRunSaveError] = useState<string | null>(null)
@@ -281,7 +282,7 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
   const hasApiTarget = runTargets.some((target) => target.provider !== 'simulated')
   const freeSelected = runTargets.some((target) => target.provider === 'workers-ai')
 
-  if (view === 'edit') {
+  if (view === 'run') {
     const initialValue: WizardResult = {
       name: experiment.name,
       description: experiment.hypothesis ?? '',
@@ -294,46 +295,59 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
       })),
     }
     return (
-      <NewBiasTestWizard
-        mode="edit"
-        initialValue={initialValue}
-        isDuplicateName={() => false}
-        onClose={() => setView('run')}
-        onCreate={async (result) => {
-          const updated = await api.updateDraftExperiment(experiment.id, {
-            name: result.name,
-            ...(result.description ? { description: result.description } : {}),
-            samplingMode: result.samplingMode,
-            repeats,
-            pairs: result.pairs,
-          })
-          setExperiment(updated)
-          setName(updated.name)
-          setRepeats(updated.default_repeats)
-          return updated.id
-        }}
-        onCreated={() => setView('run')}
-      />
-    )
-  }
-
-  if (view === 'run') {
-    return (
       <section className="experiment-workspace" aria-labelledby="run-experiment-title">
-        <button className="link workspace-back" onClick={() => setView('overview')}>← Back to experiment</button>
+        {cloneRetry && <div className="banner error" role="alert">Clone failed. Try again. <button className="link" onClick={cloneRetry}>Retry</button></div>}
         <div className="page-header">
           <div>
-            <p className="eyebrow">{experiment.name}</p>
+            <p className="eyebrow">Experiment workspace</p>
             <h2 id="run-experiment-title">Run experiment</h2>
-            <p className="lead">Review the exact questions and prompts, choose a target, then run the experiment.</p>
+            <label className="experiment-name-label">
+              Experiment name
+              <input ref={nameRef} value={name} onChange={(event) => setName(event.target.value)} onBlur={saveName} />
+            </label>
+            {nameError && <p className="field-error" role="alert">{nameError}</p>}
+            {experiment.cloned_from_name && <p className="clone-origin">Cloned from: {experiment.cloned_from_name}</p>}
+            <p className="lead">Edit the matched prompts, choose models and repeats, then run—without leaving this page.</p>
           </div>
           <div className="page-actions">
             {experiment.run_count === 0 && importedPairs.length > 0 && (
-              <button type="button" className="secondary" onClick={() => setView('edit')}>Edit prompts</button>
+              <button type="button" className="secondary" aria-expanded={editingPrompts} onClick={() => setEditingPrompts((open) => !open)}>
+                {editingPrompts ? 'Hide prompt editor' : 'Edit prompts'}
+              </button>
             )}
+            {runSummary && <button className="secondary" onClick={() => setView('results')}>View latest results</button>}
+            {importedPairs.length > 0 && <button className="secondary" onClick={() => setView('capture')}>Capture by hand</button>}
+            <CloneExperimentButton source={experiment} onCloned={navigateToClone} onFailure={setCloneRetry} />
+            <button className="secondary" onClick={() => { window.location.hash = '#/experiments' }}>Back to experiments</button>
             <StatusBadge status={experiment.status} />
           </div>
         </div>
+
+        {editingPrompts && (
+          <section className="inline-experiment-editor panel" aria-label="Edit experiment setup">
+            <NewBiasTestWizard
+              embedded
+              mode="edit"
+              initialValue={initialValue}
+              isDuplicateName={() => false}
+              onClose={() => setEditingPrompts(false)}
+              onCreate={async (result) => {
+                const updated = await api.updateDraftExperiment(experiment.id, {
+                  name: result.name,
+                  ...(result.description ? { description: result.description } : {}),
+                  samplingMode: result.samplingMode,
+                  repeats,
+                  pairs: result.pairs,
+                })
+                setExperiment(updated)
+                setName(updated.name)
+                setRepeats(updated.default_repeats)
+                return updated.id
+              }}
+              onCreated={() => setEditingPrompts(false)}
+            />
+          </section>
+        )}
 
         <div className="run-config panel">
           <fieldset className="target-picker">
@@ -552,7 +566,7 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
     ])
     return (
       <section className="experiment-workspace" aria-labelledby="capture-title">
-        <button className="link workspace-back" onClick={() => setView('overview')}>← Back to experiment</button>
+        <button className="link workspace-back" onClick={() => setView('run')}>← Back to experiment</button>
         <div className="page-header">
           <div>
             <p className="eyebrow">{experiment.name}</p>
@@ -571,7 +585,7 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
   if (view === 'results') {
     return (
       <section className="experiment-workspace" aria-labelledby="experiment-results-title">
-        <button className="link workspace-back" onClick={() => setView('overview')}>← Back to experiment</button>
+        <button className="link workspace-back" onClick={() => setView('run')}>← Back to experiment</button>
         <div className="page-header">
           <div>
             <p className="eyebrow">{experiment.name}</p>
@@ -640,63 +654,5 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
     )
   }
 
-  return (
-    <section className="experiment-editor" aria-labelledby="experiment-editor-title">
-      {cloneRetry && <div className="banner error" role="alert">Clone failed. Try again. <button className="link" onClick={cloneRetry}>Retry</button></div>}
-      <header className="page-header">
-        <div>
-          <p className="eyebrow">Experiment</p>
-          <div className="title-row">
-            <h2 id="experiment-editor-title">Experiment editor</h2>
-            <StatusBadge status={experiment.status} />
-          </div>
-          <label className="experiment-name-label">
-            Experiment name
-            <input ref={nameRef} value={name} onChange={(event) => setName(event.target.value)} onBlur={saveName} />
-          </label>
-          {nameError && <p className="field-error" role="alert">{nameError}</p>}
-          {experiment.cloned_from_name && <p className="clone-origin">Cloned from: {experiment.cloned_from_name}</p>}
-        </div>
-        <CloneExperimentButton source={experiment} onCloned={navigateToClone} onFailure={setCloneRetry} />
-      </header>
-
-      <div className="workspace-actions experiment-primary-actions panel">
-        {runSummary && <button className="primary" onClick={() => setView('run')}>Configure another run</button>}
-        {runSummary && <button className="secondary" onClick={() => setView('results')}>View latest results</button>}
-        {importedPairs.length > 0 && <button className="secondary" onClick={() => setView('capture')}>Capture by hand</button>}
-        <button className="secondary" onClick={() => { window.location.hash = '#/experiments' }}>Back to experiments</button>
-      </div>
-
-      <div className="panel template-summary">
-        <h3>Template setup</h3>
-        {importedPairs.length > 0 ? (
-          <div className="question-summary">
-            <strong>{importedPairs.length} matched {importedPairs.length === 1 ? 'question' : 'questions'}</strong>
-            <span>{experiment.default_repeats} default {experiment.default_repeats === 1 ? 'repeat' : 'repeats'} · 2 complete prompts per question</span>
-          </div>
-        ) : experiment.templates.length === 0 ? <p className="muted">No template configured yet.</p> : experiment.templates.map((template) => (
-          <div key={template.id} className="template-row">
-            <strong>{template.name}</strong><span>{template.variables.length} variables · {template.variables.reduce((count, variable) => count + variable.variants.length, 0)} variants</span>
-          </div>
-        ))}
-      </div>
-
-      <section className="run-history panel" aria-labelledby="run-history-title">
-        <h3 id="run-history-title">Run history</h3>
-        {experiment.run_count === 0 ? (
-          <EmptyState
-            heading="No runs yet"
-            body="Choose the models to compare and start a run. Every reply is stored as evidence."
-            actionLabel="Configure Run"
-            onAction={() => setView('run')}
-          />
-        ) : (
-          <div className="run-history-summary">
-            <p>{experiment.run_count} run {experiment.run_count === 1 ? 'batch' : 'batches'} recorded.</p>
-            <button className="secondary" onClick={() => setView('results')}>View latest results</button>
-          </div>
-        )}
-      </section>
-    </section>
-  )
+  return null
 }

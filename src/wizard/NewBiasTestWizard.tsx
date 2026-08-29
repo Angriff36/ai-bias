@@ -10,8 +10,6 @@ import {
 } from './phraseDetection'
 import type { SamplingMode } from '../engine/samplingMode'
 
-const STEPS = ['Paste Prompt', 'Create matched prompts'] as const
-
 export interface WizardResult {
   name: string
   description: string
@@ -29,6 +27,7 @@ interface Props {
   initialName?: string
   initialValue?: WizardResult
   mode?: 'create' | 'edit'
+  embedded?: boolean
 }
 
 interface PromptVariant {
@@ -67,7 +66,7 @@ function canonicalMatchedQuestion(reference: string, comparison: string): string
 
 export function NewBiasTestWizard({
   onCreate, isDuplicateName, onClose, onCreated, initialPrompt, initialName,
-  initialValue, mode = 'create',
+  initialValue, mode = 'create', embedded = false,
 }: Props) {
   const initialVariants = useMemo<PromptVariant[]>(() => {
     if (!initialValue?.pairs.length) return []
@@ -83,7 +82,6 @@ export function NewBiasTestWizard({
       })),
     ]
   }, [initialValue])
-  const [step, setStep] = useState(mode === 'edit' ? 1 : 0)
   const [prompt, setPrompt] = useState(initialVariants[0]?.prompt ?? initialPrompt ?? '')
   const [variants, setVariants] = useState<PromptVariant[]>(initialVariants)
   const [detectFailed, setDetectFailed] = useState(false)
@@ -108,7 +106,7 @@ export function NewBiasTestWizard({
     return () => window.removeEventListener('beforeunload', handler)
   }, [dirty])
 
-  useEffect(() => { headingRef.current?.focus() }, [step])
+  useEffect(() => { headingRef.current?.focus() }, [])
 
   const pairs = useMemo<ComparisonPair[]>(() => {
     const original = variants[0]?.prompt ?? ''
@@ -141,13 +139,11 @@ export function NewBiasTestWizard({
     }
   }
 
-  function goNext() {
-    if (step === 0) runDetection()
-    setStep((current) => Math.min(STEPS.length - 1, current + 1))
-  }
-
-  function goBack() {
-    setStep((current) => Math.max(0, current - 1))
+  function updateSourcePrompt(value: string) {
+    setPrompt(value)
+    setVariants((current) => current.map((variant, index) => (
+      index === 0 ? { ...variant, prompt: value } : variant
+    )))
   }
 
   function updatePrompt(promptId: number, value: string) {
@@ -196,18 +192,19 @@ export function NewBiasTestWizard({
     }
   }
 
-  const canNext = step === 0 && prompt.trim().length >= 10
-
   return (
-    <div className="wizard" role="dialog" aria-modal="true" aria-label={mode === 'edit' ? 'Edit experiment prompts' : 'New bias test wizard'}>
-      <StepIndicator step={step} />
-
+    <div
+      className={embedded ? 'wizard wizard-embedded' : 'wizard'}
+      role={embedded ? undefined : 'dialog'}
+      aria-modal={embedded ? undefined : true}
+      aria-label={mode === 'edit' ? 'Edit experiment prompts' : 'New bias test wizard'}
+    >
       <div className="wizard-body">
-        {step === 0 && (
-          <section className="wz-stage wz-stage-prompt" aria-labelledby="wz-h">
+        {mode === 'create' && (
+          <section className="wz-stage wz-stage-prompt" aria-labelledby="wz-source-title">
             <header className="wz-stage-header">
-              <p className="wz-stage-eyebrow">NEW EXPERIMENT / STEP 1 OF 2</p>
-              <h2 id="wz-h" ref={headingRef} tabIndex={-1}>Paste your prompt</h2>
+              <p className="wz-stage-eyebrow">NEW EXPERIMENT / SETUP</p>
+              <h2 id="wz-source-title" ref={headingRef} tabIndex={-1}>Set up your experiment</h2>
               <p>Start with the exact source material you want to test. AI Bias Lab will detect useful replacement shortcuts.</p>
             </header>
 
@@ -220,31 +217,36 @@ export function NewBiasTestWizard({
                 id="wz-prompt"
                 className="wz-textarea wz-source-textarea"
                 value={prompt}
-                onChange={(event) => setPrompt(event.target.value)}
+                onChange={(event) => updateSourcePrompt(event.target.value)}
                 placeholder="Paste your prompt here."
                 aria-describedby="wz-prompt-help wz-count"
               />
               <div className="wz-source-tools">
                 <p id="wz-prompt-help">No API key needed to complete setup.</p>
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={async () => {
-                    try { setPrompt(await navigator.clipboard.readText()) } catch { /* clipboard blocked */ }
-                  }}
-                >
-                  Paste from clipboard
-                </button>
+                <div className="wz-source-actions">
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={async () => {
+                      try { updateSourcePrompt(await navigator.clipboard.readText()) } catch { /* clipboard blocked */ }
+                    }}
+                  >
+                    Paste from clipboard
+                  </button>
+                  <button type="button" className="primary" onClick={runDetection} disabled={prompt.trim().length < 10}>
+                    {variants.length >= 2 ? 'Reset matched prompts' : 'Create matched prompts'}
+                  </button>
+                </div>
               </div>
             </div>
           </section>
         )}
 
-        {step === 1 && (
-          <section className="wz-stage wz-stage-match" aria-labelledby="wz-h">
+        {variants.length >= 2 && (
+          <section className="wz-stage wz-stage-match" aria-labelledby="wz-match-title">
             <header className="wz-stage-header">
-              <p className="wz-stage-eyebrow">{mode === 'edit' ? 'EDIT EXPERIMENT / MATCHED PROMPTS' : 'NEW EXPERIMENT / STEP 2 OF 2'}</p>
-              <h2 id="wz-h" ref={headingRef} tabIndex={-1}>Create matched prompts</h2>
+              <p className="wz-stage-eyebrow">{mode === 'edit' ? 'EDIT EXPERIMENT / MATCHED PROMPTS' : 'NEW EXPERIMENT / MATCHED PROMPTS'}</p>
+              <h2 id="wz-match-title" ref={mode === 'edit' ? headingRef : undefined} tabIndex={-1}>Create matched prompts</h2>
               <p>Prompt 2 starts as an exact copy. Click any highlighted variable to replace it, or edit any prompt directly.</p>
             </header>
 
@@ -422,7 +424,7 @@ export function NewBiasTestWizard({
             </section>
 
             <div className="wz-create-actions">
-              <button type="button" className="secondary" onClick={mode === 'edit' ? onClose : goBack}>{mode === 'edit' ? 'Cancel' : 'Back'}</button>
+              <button type="button" className="secondary" onClick={onClose}>Cancel</button>
               <button type="button" className="primary wz-create" onClick={create} disabled={creating || !promptsReady}>
                 {creating ? (mode === 'edit' ? 'Saving…' : 'Creating…') : (mode === 'edit' ? 'Save changes' : 'Create Experiment')}
               </button>
@@ -430,36 +432,7 @@ export function NewBiasTestWizard({
           </section>
         )}
       </div>
-
-      {step < 1 && (
-        <div className="wizard-nav">
-          <button type="button" className="secondary wz-back" onClick={step === 0 ? onClose : goBack}>
-            {step === 0 ? 'Cancel' : 'Back'}
-          </button>
-          <button type="button" className="primary wz-next" onClick={goNext} disabled={!canNext}>Next</button>
-        </div>
-      )}
     </div>
-  )
-}
-
-function StepIndicator({ step }: { step: number }) {
-  return (
-    <nav className="wz-steps" aria-label="Experiment setup progress">
-      <ol className="wz-step-labels">
-        {STEPS.map((label, index) => (
-          <li
-            key={label}
-            className={index === step ? 'active' : index < step ? 'done' : ''}
-            aria-current={index === step ? 'step' : undefined}
-          >
-            <span className="wz-step-num">{String(index + 1).padStart(2, '0')}</span>
-            <span>{label}</span>
-          </li>
-        ))}
-      </ol>
-      <div className="wz-sr-only" aria-live="polite">Step {step + 1} of {STEPS.length}: {STEPS[step]}</div>
-    </nav>
   )
 }
 

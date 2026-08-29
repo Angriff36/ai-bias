@@ -74,15 +74,18 @@ function createExperiment(name: string, pairCount = 1): number {
 }
 
 describe('the experiment editor', () => {
-  it('edits exact prompts from the Run experiment header and returns to configuration', async () => {
+  it('keeps experiment setup, prompt editing, and run controls on one screen', async () => {
     const user = userEvent.setup()
     const id = createExperiment('Editable run setup')
     render(<ExperimentEditor experimentId={id} />)
 
-    await user.click(await screen.findByRole('button', { name: /configure run/i }))
+    expect(await screen.findByRole('heading', { name: 'Run experiment' })).toBeTruthy()
+    expect(screen.getByLabelText(/experiment name/i)).toBeTruthy()
+    expect(screen.getByRole('group', { name: /models to compare/i })).toBeTruthy()
     await user.click(screen.getByRole('button', { name: 'Edit prompts' }))
 
     const prompt2 = screen.getByRole('textbox', { name: 'Edit Prompt 2' })
+    expect(screen.getByRole('group', { name: /models to compare/i })).toBeTruthy()
     await user.clear(prompt2)
     await user.type(prompt2, 'Recommend the Jewish candidate.')
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
@@ -90,6 +93,7 @@ describe('the experiment editor', () => {
     expect(await screen.findByRole('heading', { name: 'Run experiment' })).toBeTruthy()
     expect(screen.getByText('Recommend the Jewish candidate.')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Edit prompts' })).toBeTruthy()
+    expect(screen.getByRole('group', { name: /models to compare/i })).toBeTruthy()
   })
 
   it('offers an on-demand full report for a published run with 20 matched questions', async () => {
@@ -97,7 +101,7 @@ describe('the experiment editor', () => {
     sessionStorage.setItem(`ai-bias-public-run:${id}`, 'public-run-1')
     render(<ExperimentEditor experimentId={id} />)
 
-    await userEvent.click(await screen.findByRole('button', { name: /configure run/i }))
+    await screen.findByRole('heading', { name: /run experiment/i })
     await userEvent.click(screen.getByRole('button', { name: 'Generate full report' }))
 
     expect(await screen.findByText('Report generation started')).toBeTruthy()
@@ -121,9 +125,7 @@ describe('the experiment editor', () => {
     const id = createExperiment('Run screen check')
     render(<ExperimentEditor experimentId={id} />)
 
-    await userEvent.click(await screen.findByRole('button', { name: /configure run/i }))
-
-    expect(screen.getByRole('heading', { name: /run experiment/i })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: /run experiment/i })).toBeTruthy()
     const picker = screen.getByRole('group', { name: /models to compare/i })
     for (const box of within(picker).getAllByRole('checkbox')) {
       expect((box as HTMLInputElement).checked).toBe(false)
@@ -141,9 +143,7 @@ describe('the experiment editor', () => {
     const id = createExperiment('Prompt review')
     render(<ExperimentEditor experimentId={id} />)
 
-    await userEvent.click(await screen.findByRole('button', { name: /configure run/i }))
-
-    expect(screen.getByText('Write a hiring recommendation.')).toBeTruthy()
+    expect(await screen.findByText('Write a hiring recommendation.')).toBeTruthy()
     expect(screen.getByText('Recommend the Muslim candidate.')).toBeTruthy()
     expect(screen.getByText('Recommend the Christian candidate.')).toBeTruthy()
   })
@@ -151,8 +151,6 @@ describe('the experiment editor', () => {
   it('offers two-question free model use with the long-response ceiling explained', async () => {
     const id = createExperiment('Free starter check')
     render(<ExperimentEditor experimentId={id} />)
-    await userEvent.click(await screen.findByRole('button', { name: /configure run/i }))
-
     const option = await screen.findByRole('checkbox', { name: /free starter model/i }) as HTMLInputElement
     expect(option.disabled).toBe(false)
     expect(screen.getByText(/768 tokens each/i)).toBeTruthy()
@@ -180,7 +178,7 @@ describe('the experiment editor', () => {
     const id = createExperiment('Existing target pricing')
     render(<ExperimentEditor experimentId={id} />)
 
-    await userEvent.click(await screen.findByRole('button', { name: /configure run/i }))
+    await screen.findByRole('heading', { name: /run experiment/i })
     await userEvent.click(screen.getByRole('checkbox', { name: /existing openrouter target/i }))
 
     expect(await screen.findByText(/~\$/)).toBeTruthy()

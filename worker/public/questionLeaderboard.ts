@@ -19,10 +19,38 @@ function lastSeenAt(records: PublicEvidenceItem[]): string {
   return records.reduce((latest, item) => (item.receivedAt > latest ? item.receivedAt : latest), '')
 }
 
+function isPromptPlaceholder(value: string | undefined): boolean {
+  return /^prompt\s+\d+\s+vs\s+prompt\s+\d+$/i.test(value?.trim() ?? '')
+}
+
+/** Recover a meaningful question for legacy rows that stored variant names. */
+function questionText(records: PublicEvidenceItem[], fallback: string): string {
+  const stored = records.find((item) => item.question?.trim())?.question?.trim() ?? ''
+  if (stored && !isPromptPlaceholder(stored)) return stored
+  const byPair = new Map<string, PublicEvidenceItem[]>()
+  for (const item of records) {
+    const key = `${item.runId}\u0000${item.pairIndex}\u0000${item.runIndex}\u0000${item.provider}\u0000${item.modelId}`
+    byPair.set(key, [...(byPair.get(key) ?? []), item])
+  }
+  for (const pair of byPair.values()) {
+    const a = pair.find((item) => item.variantKey === 'A')?.prompt ?? ''
+    const b = pair.find((item) => item.variantKey === 'B')?.prompt ?? ''
+    if (!a || !b || a === b) continue
+    let prefix = 0
+    while (prefix < a.length && prefix < b.length && a[prefix] === b[prefix]) prefix++
+    let suffix = 0
+    while (suffix < a.length - prefix && suffix < b.length - prefix
+      && a[a.length - suffix - 1] === b[b.length - suffix - 1]) suffix++
+    const middle = `${a.slice(0, prefix)}[group]${a.slice(a.length - suffix)}`.trim()
+    if (middle && middle !== '[group]') return middle
+  }
+  return stored || fallback
+}
+
 function toSummary(entry: QuestionCatalogEntry, records: PublicEvidenceItem[]): PublicQuestionSummary {
   return {
     questionKey: entry.questionKey,
-    questionText: entry.questionText,
+    questionText: questionText(records, entry.questionText),
     runCount: entry.completePairCount,
     modelCount: entry.modelIds.length,
     lastSeenAt: lastSeenAt(records),
@@ -76,7 +104,7 @@ export function buildQuestionDetail(questionKey: string, evidence: PublicEvidenc
     ))
   return {
     questionKey: catalog.questionKey,
-    questionText: catalog.questionText,
+    questionText: questionText(records, catalog.questionText),
     runCount: catalog.completePairCount,
     modelCount: catalog.modelIds.length,
     instances,

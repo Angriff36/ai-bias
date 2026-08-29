@@ -43,4 +43,14 @@ describe('question leaderboard aggregation', () => {
     expect(detail?.instances[0]?.variantLabelA).toBe('White')
     expect(detail?.instances[0]?.promptB).toBe('Prompt B')
   })
+
+  it('recovers the matched question when legacy rows stored prompt-number placeholders', () => {
+    const evidence = pair({ id: 'legacy', question: 'Prompt 1 vs Prompt 2' })
+      .map((record) => ({
+        ...record,
+        prompt: record.variantKey === 'A' ? 'I am white.' : 'I am black.',
+      }))
+    expect(buildTopQuestionSummaries(evidence)[0]?.questionText).toBe('I am [group].')
+    expect(buildQuestionDetail('prompt 1 vs prompt 2', evidence)?.questionText).toBe('I am [group].')
+  })
 })

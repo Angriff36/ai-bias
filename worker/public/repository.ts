@@ -203,8 +203,11 @@ export class PublicRepository {
     const cached = readCachedQuestionDetail(questionKey)
     if (cached) return cached
     await ensureQuestionKeys(this.db)
-    const rows = (await this.db.prepare(`${evidenceSelect} WHERE question_key = ? ORDER BY received_at DESC, run_id DESC, pair_index ASC, variant_key ASC`)
-      .bind(questionKey).all()).results ?? []
+    const legacyPromptKey = /^prompt\s+\d+\s+vs\s+prompt\s+\d+$/i.test(questionKey)
+    const statement = legacyPromptKey
+      ? this.db.prepare(`${evidenceSelect} ORDER BY received_at DESC, run_id DESC, pair_index ASC, variant_key ASC`)
+      : this.db.prepare(`${evidenceSelect} WHERE question_key = ? ORDER BY received_at DESC, run_id DESC, pair_index ASC, variant_key ASC`).bind(questionKey)
+    const rows = (await statement.all()).results ?? []
     const detail = buildQuestionDetail(questionKey, rows.map(mapEvidenceRow))
     if (detail) writeCachedQuestionDetail(questionKey, detail)
     return detail

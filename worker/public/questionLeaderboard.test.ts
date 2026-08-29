@@ -53,5 +53,12 @@ describe('question leaderboard aggregation', () => {
     expect(buildTopQuestionSummaries(evidence)[0]?.questionText).toBe('I am [group].')
     expect(buildQuestionDetail('prompt 1 vs prompt 2', evidence)?.questionText).toBe('I am [group].')
 
+    const sibling = pair({ id: 'legacy-2', question: 'Prompt 1 vs Prompt 3', runId: 'run-2' })
+      .map((record) => ({ ...record, prompt: record.variantKey === 'A' ? 'I am white.' : 'I am asian.' }))
+    const merged = buildTopQuestionSummaries([...evidence, ...sibling])
+    expect(merged).toHaveLength(1)
+    expect(merged[0]?.questionKey).toBe('i am [group].')
+    expect(merged[0]?.runCount).toBe(2)
+
   })
 })

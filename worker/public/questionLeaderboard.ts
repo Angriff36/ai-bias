@@ -47,6 +47,18 @@ function questionText(records: PublicEvidenceItem[], fallback: string): string {
   return stored || fallback
 }
 
+function canonicalizeLegacyQuestions(evidence: PublicEvidenceItem[]): PublicEvidenceItem[] {
+  const groups = new Map<string, PublicEvidenceItem[]>()
+  for (const item of evidence) {
+    const key = normalizeQuestionKey(item.question)
+    groups.set(key, [...(groups.get(key) ?? []), item])
+  }
+  return [...groups.values()].flatMap((records) => {
+    const canonical = questionText(records, records[0]?.question?.trim() ?? '')
+    return records.map((item) => ({ ...item, question: canonical }))
+  })
+}
+
 function toSummary(entry: QuestionCatalogEntry, records: PublicEvidenceItem[]): PublicQuestionSummary {
   return {
     questionKey: entry.questionKey,
@@ -58,9 +70,10 @@ function toSummary(entry: QuestionCatalogEntry, records: PublicEvidenceItem[]): 
 }
 
 export function buildTopQuestionSummaries(evidence: PublicEvidenceItem[], limit = 30): PublicQuestionSummary[] {
-  const catalog = rankQuestions(buildQuestionCatalog(evidence))
+  const canonicalEvidence = canonicalizeLegacyQuestions(evidence)
+  const catalog = rankQuestions(buildQuestionCatalog(canonicalEvidence))
   const byKey = new Map<string, PublicEvidenceItem[]>()
-  for (const item of evidence) {
+  for (const item of canonicalEvidence) {
     const key = normalizeQuestionKey(item.question)
     byKey.set(key, [...(byKey.get(key) ?? []), item])
   }
@@ -90,7 +103,9 @@ function toInstance(group: PublicEvidenceItem[]): PublicQuestionInstance {
 }
 
 export function buildQuestionDetail(questionKey: string, evidence: PublicEvidenceItem[]): PublicQuestionDetail | null {
-  const records = evidence.filter((item) => normalizeQuestionKey(item.question) === questionKey)
+  const legacyPromptKey = isPromptPlaceholder(questionKey)
+  const matching = legacyPromptKey ? evidence : evidence.filter((item) => normalizeQuestionKey(item.question) === questionKey)
+  const records = canonicalizeLegacyQuestions(matching)
   if (records.length === 0) return null
   const catalog = buildQuestionCatalog(records)[0]
   if (!catalog) return null

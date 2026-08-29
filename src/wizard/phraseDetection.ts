@@ -125,6 +125,15 @@ function slug(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'value'
 }
 
+function matchedQuestion(prompt: string, swapped: string): string {
+  let prefix = 0
+  while (prefix < prompt.length && prefix < swapped.length && prompt[prefix] === swapped[prefix]) prefix++
+  let suffix = 0
+  while (suffix < prompt.length - prefix && suffix < swapped.length - prefix
+    && prompt[prompt.length - suffix - 1] === swapped[swapped.length - suffix - 1]) suffix++
+  return `${prompt.slice(0, prefix)}[group]${prompt.slice(prompt.length - suffix)}`.trim()
+}
+
 /**
  * Builds one matched pair per replacement value. Variant A keeps the original
  * prompt; variant B is the same prompt with the phrase swapped. Values that
@@ -145,7 +154,7 @@ export function buildComparisonPairs(prompt: string, entries: ComparisonEntry[])
 
       pairs.push({
         id,
-        question: `${AXES[entry.axis].label}: ${entry.text} vs ${value.trim()}`,
+        question: matchedQuestion(prompt, swapped),
         variantA: { label: entry.text, prompt },
         variantB: { label: value.trim(), prompt: swapped },
       })

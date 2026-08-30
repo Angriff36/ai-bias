@@ -1,18 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { fetchPopularOpenRouterModels } from '../openrouter/popularModels'
 import { NewBiasTestWizard } from './NewBiasTestWizard'
-
-vi.mock('../openrouter/popularModels', () => ({
-  fetchPopularOpenRouterModels: vi.fn(async () => ([
-    { id: 'openai/gpt-4.1-mini', name: 'OpenAI: GPT-4.1 Mini' },
-    { id: 'anthropic/claude-sonnet-4', name: 'Anthropic: Claude Sonnet 4' },
-  ])),
-}))
-
-const mockedFetchPopular = vi.mocked(fetchPopularOpenRouterModels)
 
 const PROMPT = "I'm proud to be white!"
 const MATCHED_PROMPT = "I'm proud to be black!"
@@ -75,7 +65,7 @@ describe('NewBiasTestWizard research flow', () => {
     }))
   })
 
-  it('keeps word replacement, OpenRouter models, and sampling after the submit form', async () => {
+  it('keeps word replacement and sampling through experiment setup', async () => {
     const user = userEvent.setup()
     const onCreate = vi.fn().mockResolvedValue(42)
     render(
@@ -87,20 +77,11 @@ describe('NewBiasTestWizard research flow', () => {
       />,
     )
 
-    expect(screen.getByRole('heading', { name: 'Submit a Test Prompt' })).toBeTruthy()
-    expect((screen.getByRole('button', { name: 'Submit Prompt' }) as HTMLButtonElement).disabled).toBe(true)
-    expect(screen.getByRole('button', { name: 'Hiring & Recruitment' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Set up your experiment' })).toBeTruthy()
+    expect((screen.getByRole('button', { name: 'Create matched prompts' }) as HTMLButtonElement).disabled).toBe(true)
 
-    await waitFor(() => {
-      expect(mockedFetchPopular).toHaveBeenCalled()
-      expect(screen.getByRole('button', { name: 'Which Model?: All models' })).toBeTruthy()
-    })
-    await user.click(screen.getByRole('button', { name: 'Which Model?: All models' }))
-    await user.click(screen.getByRole('option', { name: 'OpenAI: GPT-4.1 Mini' }))
-    await user.click(screen.getByRole('button', { name: 'Race & Ethnicity' }))
-
-    await user.type(screen.getByLabelText('Your Test Prompt'), PROMPT)
-    await user.click(screen.getByRole('button', { name: 'Submit Prompt' }))
+    await user.type(screen.getByRole('textbox', { name: 'Source prompt' }), PROMPT)
+    await user.click(screen.getByRole('button', { name: 'Create matched prompts' }))
     expect(screen.getByRole('heading', { name: 'Create matched prompts' })).toBeTruthy()
     expect((screen.getByRole('textbox', { name: 'Edit Prompt 1' }) as HTMLTextAreaElement).value).toBe(PROMPT)
     expect(screen.queryByText('Choose Replacement')).toBeNull()
@@ -144,7 +125,6 @@ describe('NewBiasTestWizard research flow', () => {
     await user.click(screen.getByRole('button', { name: 'Create Experiment' }))
     expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({
       samplingMode: 'independent-pairs',
-      description: expect.stringContaining('Race & Ethnicity'),
       pairs: [
         expect.objectContaining({
           question: "I'm proud to be [group]!",

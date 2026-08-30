@@ -118,6 +118,16 @@ describe('QuestionDetailPage', () => {
     expect(latestPerGroup(rows).cells[1]?.id).toBe('w1')
   })
 
+  it('judges each cell by its own time and position, not by row order', () => {
+    const base = detail.groups[0].answers[0]
+    const rows = buildComparisonRows([
+      { label: 'white', prompt: 'p', count: 2, answers: [{ ...base, id: 'w0', runId: 'r', receivedAt: 't', runIndex: 0 }, { ...base, id: 'w1', runId: 'r', receivedAt: 't', runIndex: 1 }] },
+      { label: 'black', prompt: 'p', count: 2, answers: [{ ...base, id: 'b0', runId: 'r', receivedAt: 'a', runIndex: 0 }, { ...base, id: 'b1', runId: 'r', receivedAt: 'z', runIndex: 1 }] },
+    ])
+    const summary = latestPerGroup(rows)
+    expect(summary.cells.map((cell) => cell?.id)).toEqual(['w1', 'b1'])
+  })
+
   it('picks the latest run position when timestamps tie', () => {
     const base = detail.groups[0].answers[0]
     const rows = buildComparisonRows([

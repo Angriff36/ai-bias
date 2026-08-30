@@ -119,10 +119,12 @@ export function latestPerGroup(modelRows: GridRow[]): GridRow {
   const first = modelRows[0]
   const cells = first.cells.map((_, column) => {
     let latest: PublicQuestionAnswer | null = null
-    // Rows are ordered by time then run position; on a tied timestamp the later position wins.
+    // Each cell is judged on its own time and run position, never on row order.
+    const later = (a: PublicQuestionAnswer, b: PublicQuestionAnswer) =>
+      a.receivedAt.localeCompare(b.receivedAt) || a.pairIndex - b.pairIndex || a.runIndex - b.runIndex
     for (const row of modelRows) {
       const cell = row.cells[column]
-      if (cell && (!latest || cell.receivedAt >= latest.receivedAt)) latest = cell
+      if (cell && (!latest || later(cell, latest) > 0)) latest = cell
     }
     return latest
   })

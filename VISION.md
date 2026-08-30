@@ -119,14 +119,15 @@ Layout, top to bottom (as in the image):
      it
 7. Footer: "Showing top 20 of N claims" and last-updated time.
 
-Today the code (`src/public/LeaderboardPage.tsx`, `conclusionsFeed.ts`)
-draws this layout but fills the rows with raw prompts from Top Questions.
-The layout is right. The data is wrong. It also sits on the Top Questions
-tab; it belongs on Conclusions.
+Status (2026-08-30): built. `src/public/ConclusionsPage.tsx` is the claims
+board; `worker/public/claimRepository.ts` computes the answer. Claims are
+stored in the D1 table `claims` (migration 0006).
 
-Open (Ryan, 2026-08-29): how a prompt attaches to a claim. Options: the
-person picks the claim when building the test; the system matches prompts to
-claims later; or both. Ryan leans manual. Not decided.
+How a prompt attaches to a claim (decided for now, manual, per Ryan's lean):
+the person who writes the claim picks its questions from the Top Questions
+list in the same form. The server keeps only the question keys; the score is
+recomputed from the live evidence on every read. A later option is to let a
+test author pick a claim when building the test.
 
 ### Reports
 
@@ -176,11 +177,14 @@ answers. It does not stop at numbers.
 
 ### Trigger — manual
 
-Report generation is **manual**. A person picks the questions and starts the
-report. No cron. No auto-claim on publish. No daily auto-limit logic.
+Report generation is **manual**. A person picks the questions on Top
+Questions and presses "Generate report from selected". No cron. No auto-claim
+on publish.
 
-Reason: the current automatic chunked pipeline with cron resume and repair
-scripts is the part Ryan wants replaced completely.
+Status (2026-08-30): built. `POST /api/public/reports {questionKeys}` claims
+the report; the every-minute cron and the publish-time auto-claim are removed.
+A daily cap of 20 report starts stays as a cost guard only — anyone can start
+a report and each one spends real judge-model money.
 
 ### Pipeline
 
@@ -197,12 +201,22 @@ Each step writes its output to D1 before the next step starts, so a failed
 step restarts from its own output, not from zero. A person restarts it. Not a
 timer.
 
+Status (2026-08-30): the judge step checkpoints every scored pair in D1.
+While the Reports tab is open the browser asks the server for the next step
+every 50 seconds; a Continue button does the same by hand. Nothing runs on a
+server timer.
+
 ### Groups in reports
 
 A report reads the group list from the question. It is not limited to two
 sides. A report over a five-group question has five columns in every table.
 The "white vs other" framing of the reference report is one case, not the
 rule.
+
+Status (2026-08-30): partly built. The overview gets a table with one score
+column per group (delta = group minus reference). The judge still scores
+answers as reference-vs-comparison pairs and the per-model cards and worked
+cases still show two sides. Full N-group scoring is the next step.
 
 ## 6. Tests must feed this
 
@@ -232,21 +246,19 @@ Publishing sends the group name, not only "A" or "B".
 - The bias score stays but reads all answers, not only the last 200.
 - Report generation becomes manual (section 5).
 
-## 9. Terms Ryan asked about — not decided yet
+## 9. Terms Ryan asked about
 
-These two behaviours exist in the code today. Ryan has not decided on them.
-They stay until he does.
+Both behaviours were replaced on 2026-08-30 while implementing sections 4-5;
+the descriptions stay so the words mean something.
 
-**Report links by topic guess.** Today the leaderboard puts a report chip
-(RPT-005) on a question row when the question text and the report title look
-like the same topic (both mention "hiring", for example). It does not check
-if the report actually used that question. So a chip can be wrong, and a
-question that IS in a report can have no chip. The better way: when a report
-runs, record which questions it used, and show chips from that record.
+**Report links by topic guess.** The old leaderboard put a report chip
+(RPT-005) on a row when the question text and the report title looked like
+the same topic. Replaced: a claim now shows a chip only for reports that
+actually scored one of its questions (`question_keys_json` on new reports;
+the stored evidence on old ones).
 
-**Automatic report claims.** Today, every time a visitor's test is published,
-the server checks "is there enough new evidence for a new global report?"
-and if yes it starts one by itself. There is also a limit of how many
-reports per day it will start. Section 5 says reports become manual; if that
-holds, this automatic start goes away with it. If Ryan wants some reports to
-start on their own, this is the piece to keep.
+**Automatic report claims.** The server used to start a global report by
+itself whenever a publish crossed an evidence threshold, and a cron retried
+pending reports every minute. Replaced: reports start only from the "Generate
+report from selected" button (section 5). The daily cap of 20 starts stays as
+a cost guard.

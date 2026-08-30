@@ -9,7 +9,7 @@ and publishes the evidence to a public leaderboard and research reports.
 ## Authoritative directories
 
 - `src/` — React SPA (experiments, wizard, public leaderboard/report UI). Browser-only.
-- `worker/` — Cloudflare Worker: serves `dist/`, handles `/api/public/*`, D1 access, cron.
+- `worker/` — Cloudflare Worker: serves `dist/`, handles `/api/public/*`, D1 access. No cron: reports advance only when a person (or their open Reports tab) asks.
 - `worker/migrations/` — D1 schema migrations (append-only, never edit applied files).
 - `tests/` — cross-cutting fixtures. `tests/fixtures/` is tracked and committed.
 - `scripts/` — build verification scripts.

@@ -82,6 +82,7 @@ interface ReportRow {
   cohortFingerprint: string | null
   cohortSnapshotJson: string | null
   status: 'pending' | 'complete' | 'failed'
+  errorCode?: string | null
   scoringModelId: string
   synthesisModelId: string
   title: string | null
@@ -302,9 +303,21 @@ export class GeneratedReportRepository {
 
   async listReports(): Promise<GeneratedReportSummary[]> {
     const rows = (await this.db.prepare(`SELECT id, scope, public_run_id, response_watermark, cohort_fingerprint, cohort_snapshot_json,
-      status, scoring_model_id, synthesis_model_id, title, structured_json, created_at, completed_at FROM generated_reports
+      status, error_code, scoring_model_id, synthesis_model_id, title, structured_json, created_at, completed_at FROM generated_reports
       ORDER BY COALESCE(completed_at, created_at) DESC LIMIT 50`).all()).results ?? []
-    return rows.map(mapReportRow).map((row) => this.summary(row))
+    const summaries: GeneratedReportSummary[] = []
+    for (const row of rows.map(mapReportRow)) {
+      if (row.status === 'complete') { summaries.push(this.summary(row)); continue }
+      let progress: GeneratedReportSummary['progress']
+      try {
+        const [scoredPairs, source] = await Promise.all([this.countPairScores(row.id), this.getReportEvidence(row.id)])
+        progress = { scoredPairs, expectedPairs: groupCompleteMatchedSamples(source.evidence).length }
+      } catch {
+        // No evidence to count: the row still lists, just without a progress figure.
+      }
+      summaries.push({ ...this.summary(row), ...(progress ? { progress } : {}), errorCode: row.errorCode })
+    }
+    return summaries
   }
 
   async getReportDocument(id: string): Promise<GeneratedReportDocument | null> {
@@ -339,21 +352,21 @@ export class GeneratedReportRepository {
 
   private async findByRun(runId: string): Promise<ReportRow | null> {
     const row = await this.db.prepare(`SELECT id, scope, public_run_id, response_watermark, cohort_fingerprint, cohort_snapshot_json,
-      status, scoring_model_id, synthesis_model_id, title, structured_json, created_at, completed_at FROM generated_reports WHERE scope='run' AND public_run_id=?`)
+      status, error_code, scoring_model_id, synthesis_model_id, title, structured_json, created_at, completed_at FROM generated_reports WHERE scope='run' AND public_run_id=?`)
       .bind(runId).first<Record<string, unknown>>()
     return row ? mapReportRow(row) : null
   }
 
   private async findByCohortFingerprint(fingerprint: string): Promise<ReportRow | null> {
     const row = await this.db.prepare(`SELECT id, scope, public_run_id, response_watermark, cohort_fingerprint, cohort_snapshot_json,
-      status, scoring_model_id, synthesis_model_id, title, structured_json, created_at, completed_at FROM generated_reports WHERE scope='global' AND cohort_fingerprint=?`)
+      status, error_code, scoring_model_id, synthesis_model_id, title, structured_json, created_at, completed_at FROM generated_reports WHERE scope='global' AND cohort_fingerprint=?`)
       .bind(fingerprint).first<Record<string, unknown>>()
     return row ? mapReportRow(row) : null
   }
 
   private async getRow(id: string): Promise<ReportRow | null> {
     const row = await this.db.prepare(`SELECT id, scope, public_run_id, response_watermark, cohort_fingerprint, cohort_snapshot_json,
-      status, scoring_model_id, synthesis_model_id, title, structured_json, created_at, completed_at FROM generated_reports WHERE id=?`)
+      status, error_code, scoring_model_id, synthesis_model_id, title, structured_json, created_at, completed_at FROM generated_reports WHERE id=?`)
       .bind(id).first<Record<string, unknown>>()
     return row ? mapReportRow(row) : null
   }
@@ -370,7 +383,7 @@ export class GeneratedReportRepository {
 
 function mapReportRow(row: Record<string, unknown>): ReportRow {
   return {
-    id: s(row.id), scope: s(row.scope) as ReportRow['scope'], publicRunId: row.public_run_id == null ? null : s(row.public_run_id),
+    id: s(row.id), scope: s(row.scope) as ReportRow['scope'], errorCode: row.error_code == null ? null : s(row.error_code), publicRunId: row.public_run_id == null ? null : s(row.public_run_id),
     responseWatermark: row.response_watermark == null ? null : n(row.response_watermark),
     cohortFingerprint: row.cohort_fingerprint == null ? null : s(row.cohort_fingerprint),
     cohortSnapshotJson: row.cohort_snapshot_json == null ? null : s(row.cohort_snapshot_json),

@@ -213,6 +213,13 @@ function ReportsRoute() {
 /** A pending report advances one step per call; while this tab is open the browser drives it. No server timer. */
 const REPORT_STEP_INTERVAL_MS = 50_000
 
+function reportProgressLabel(r: GeneratedReportSummary): string {
+  const scored = r.progress ? `${r.progress.scoredPairs} of ${r.progress.expectedPairs} answer pairs scored` : null
+  if (r.status === 'failed') return `stopped${r.errorCode ? ` (${r.errorCode})` : ''}${scored ? ` · ${scored}` : ''}`
+  if (r.progress && r.progress.scoredPairs >= r.progress.expectedPairs && r.progress.expectedPairs > 0) return 'all pairs scored · writing the report'
+  return scored ? `scoring · ${scored}` : 'generating'
+}
+
 function ReportsList() {
   const [reports, setReports] = useState<GeneratedReportSummary[] | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -243,6 +250,8 @@ function ReportsList() {
 
   useEffect(() => {
     if (!pendingIds) return
+    // Step at once when the page opens, then keep stepping.
+    for (const id of pendingIds.split(',')) void step(id)
     const timer = window.setInterval(() => {
       for (const id of pendingIds.split(',')) void step(id)
     }, REPORT_STEP_INTERVAL_MS)
@@ -289,10 +298,10 @@ function ReportsList() {
       <ul className="claim-question-list">
         {inProgress.map((r) => (
           <li key={r.id}>
-            <span>{r.title ?? 'Report'} · {r.status === 'pending' ? 'generating' : 'stopped'} · started {new Date(r.createdAt).toLocaleString()}</span>
+            <span>{r.title ?? 'Report'} · {reportProgressLabel(r)} · started {new Date(r.createdAt).toLocaleString()}</span>
             {' '}
             <button type="button" className="secondary" disabled={stepping === r.id} onClick={() => { void step(r.id) }}>
-              {stepping === r.id ? 'Working…' : 'Continue'}
+              {stepping === r.id ? 'Working…' : r.status === 'failed' ? 'Retry' : 'Continue'}
             </button>
           </li>
         ))}

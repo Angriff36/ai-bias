@@ -14,46 +14,52 @@ import {
   type PublicQuestionDetail,
 } from './contracts'
 import { invalidatePublicCache, readPublicCache, writePublicCache } from './publicApiCache'
+import { PublicSubmissionChunks, truncateForPublication } from './publishChunks'
 
 type Fetcher = typeof fetch
 
+const PUBLIC_UNAVAILABLE = 'Public evidence could not be loaded. Refresh the page, or run the full local site with npm start.'
+
 async function responseJson(response: Response): Promise<unknown> {
-  const body = await response.json().catch(() => ({}))
+  const text = await response.text()
+  let body: unknown
+  try {
+    body = text ? JSON.parse(text) : {}
+  } catch {
+    throw Object.assign(new Error(response.ok ? PUBLIC_UNAVAILABLE : `Request failed (${response.status}).`), { statusCode: response.status })
+  }
   if (!response.ok) {
-    const message = body && typeof body === 'object' && 'error' in body ? String(body.error) : `Request failed (${response.status}).`
+    const message = body && typeof body === 'object' && 'error' in body ? String((body as { error: unknown }).error) : `Request failed (${response.status}).`
     throw Object.assign(new Error(message), { statusCode: response.status })
   }
   return body
 }
 
+function readPublicPayload<T>(schema: { safeParse(value: unknown): { success: true; data: T } | { success: false } }, body: unknown): T {
+  const parsed = schema.safeParse(body)
+  if (!parsed.success) throw new Error(PUBLIC_UNAVAILABLE)
+  return parsed.data
+}
+
 export async function publishRun(records: RawRecord[], fetcher: Fetcher = fetch): Promise<{ skipped: true } | { runId: string; duplicate: boolean }> {
-  const live = records.filter((record) => record.provider !== 'simulated' && record.provider !== 'workers-ai')
-  if (live.length === 0) return { skipped: true }
-  const body = {
-    source: 'visitor-provider' as const,
-    records: live.map((record) => ({
-      pairIndex: record.pairIndex,
-      runIndex: record.runIndex,
-      ...(record.question ? { question: record.question } : {}),
-      variantKey: record.variantKey ?? (record.variantLabel.toLowerCase().includes('b') ? 'B' as const : 'A' as const),
-      variantLabel: record.variantLabel,
-      provider: record.provider,
-      modelId: record.modelId,
-      prompt: record.prompt,
-      response: record.response,
-      latencyMs: record.latencyMs,
-      statusCode: record.statusCode,
-      status: record.status,
-      ...(record.errorMessage ? { errorMessage: record.errorMessage } : {}),
-      ...(record.truncated ? { truncated: true } : {}),
-      sha256: record.sha256,
-    })),
-  }
-  const response = await fetcher('/api/public/submissions', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), credentials: 'same-origin',
-  })
+  const chunks = PublicSubmissionChunks.split(await truncateForPublication(records))
+  if (chunks.length === 0) return { skipped: true }
   try {
-    return publishResultSchema.parse(await responseJson(response))
+    let last = { runId: '', duplicate: false }
+    for (const chunk of chunks) {
+      const response = await fetcher('/api/public/submissions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          source: 'visitor-provider',
+          records: PublicSubmissionChunks.payload(chunk),
+          ...(last.runId ? { continueRunId: last.runId } : {}),
+        }),
+        credentials: 'same-origin',
+      })
+      last = publishResultSchema.parse(await responseJson(response))
+    }
+    return last
   } finally {
     invalidatePublicCache('leaderboard')
     invalidatePublicCache('reports')
@@ -64,7 +70,7 @@ export async function publishRun(records: RawRecord[], fetcher: Fetcher = fetch)
 export async function getPublicLeaderboard(fetcher: Fetcher = fetch): Promise<PublicLeaderboard> {
   const cached = readPublicCache<PublicLeaderboard>('leaderboard')
   if (cached?.status === 'fresh') return cached.data
-  const data = publicLeaderboardSchema.parse(await responseJson(await fetcher('/api/public/leaderboard', { credentials: 'same-origin' })))
+  const data = readPublicPayload(publicLeaderboardSchema, await responseJson(await fetcher('/api/public/leaderboard', { credentials: 'same-origin' })))
   writePublicCache('leaderboard', data)
   return data
 }

@@ -9,7 +9,7 @@ import {
   type DetectedPhrase,
 } from './phraseDetection'
 import type { SamplingMode } from '../engine/samplingMode'
-import { deriveGroupLabels } from './groupLabel'
+import { deriveGroupLabels, groupFromTemplate } from './groupLabel'
 
 export interface WizardResult {
   name: string
@@ -49,6 +49,17 @@ function suggestedName(): string {
   const d = new Date()
   const month = d.toLocaleString('en-US', { month: 'short' })
   return `Bias Test — ${month} ${d.getDate()}`
+}
+
+/**
+ * A stored question stays only while the prompts still fit it. Editing the
+ * scenario wording after a run must not publish the next run under the old
+ * question. Hand-written pair questions (no [group] slot) are kept as typed.
+ */
+function keepStoredQuestion(question: string | undefined, original: string, comparison: string): boolean {
+  if (!question) return false
+  if (!question.includes('[group]')) return true
+  return groupFromTemplate(question, original) != null && groupFromTemplate(question, comparison) != null
 }
 
 function canonicalMatchedQuestion(reference: string, comparison: string): string {
@@ -116,9 +127,9 @@ export function NewBiasTestWizard({
       const derived = deriveGroupLabels(original, variant.prompt)
       return {
         id: variant.pairId ?? `prompt-1-vs-prompt-${index + 2}`,
-        question: variant.question ?? canonicalMatchedQuestion(original, variant.prompt),
-        variantA: { label: variant.labelA ?? derived?.a ?? 'Prompt 1', prompt: original },
-        variantB: { label: variant.labelB ?? derived?.b ?? `Prompt ${index + 2}`, prompt: variant.prompt },
+        question: keepStoredQuestion(variant.question, original, variant.prompt) ? variant.question! : canonicalMatchedQuestion(original, variant.prompt),
+        variantA: { label: derived?.a ?? variant.labelA ?? 'Prompt 1', prompt: original },
+        variantB: { label: derived?.b ?? variant.labelB ?? `Prompt ${index + 2}`, prompt: variant.prompt },
       }
     })
   }, [variants])

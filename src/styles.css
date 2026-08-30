@@ -1164,6 +1164,8 @@ dialog.confirm .actions { display: flex; gap: 8px; justify-content: flex-end; ma
 .qgrid-row > div:last-child { border-right: 0; }
 .qgrid-rowhead { display: flex; flex-direction: column; gap: 2px; background: var(--bg); font-size: 12px; overflow-wrap: anywhere; }
 .qgrid-rowhead small { color: var(--muted); font-size: 11px; }
+.qgrid-fold { margin-top: 6px; padding: 0; font-size: 12px; text-align: left; }
+.qgrid-hidden { color: var(--muted); font-size: 11px; }
 .qgrid-cell { min-width: 0; font-size: 13px; line-height: 1.55; }
 .qgrid-cell.class-soft-refusal, .qgrid-cell.class-hard-refusal { box-shadow: inset 3px 0 0 #d46a5b; }
 .qgrid-cell.class-empty, .qgrid-cell.class-error { box-shadow: inset 3px 0 0 var(--muted); }

@@ -104,6 +104,8 @@ function toAnswer(item: PublicEvidenceItem): PublicQuestionAnswer {
   return {
     id: item.id,
     runId: item.runId,
+    pairIndex: item.pairIndex,
+    runIndex: item.runIndex,
     provider: item.provider,
     modelId: item.modelId,
     prompt: item.prompt,
@@ -119,17 +121,23 @@ function toAnswer(item: PublicEvidenceItem): PublicQuestionAnswer {
  * in first-seen order. Columns never need equal counts.
  */
 function groupPools(pools: VariantPools): PublicQuestionGroup[] {
+  // "white" and "White" are one group; the first spelling seen is the one shown.
   const order: string[] = []
+  const display = new Map<string, string>()
   const byLabel = new Map<string, PublicEvidenceItem[]>()
   for (const item of [...pools.aRows, ...pools.bRows]) {
-    const label = groupLabelOf(item, pools.questionText)
-    if (!byLabel.has(label)) order.push(label)
-    byLabel.set(label, [...(byLabel.get(label) ?? []), item])
+    const shown = groupLabelOf(item, pools.questionText)
+    const key = shown.toLowerCase()
+    if (!byLabel.has(key)) {
+      order.push(key)
+      display.set(key, shown)
+    }
+    byLabel.set(key, [...(byLabel.get(key) ?? []), item])
   }
-  return order.map((label) => {
-    const rows = [...(byLabel.get(label) ?? [])].sort((left, right) => right.receivedAt.localeCompare(left.receivedAt))
+  return order.map((key) => {
+    const rows = [...(byLabel.get(key) ?? [])].sort((left, right) => right.receivedAt.localeCompare(left.receivedAt))
     return {
-      label,
+      label: display.get(key) ?? key,
       prompt: rows[0]?.prompt ?? '',
       count: rows.length,
       answers: rows.map(toAnswer),

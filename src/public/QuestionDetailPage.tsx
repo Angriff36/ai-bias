@@ -14,17 +14,31 @@ const CLASS_LABELS: Record<PublicQuestionAnswer['classification'], string> = {
 
 const PREVIEW_CHARS = 420
 
-/** Model answers arrive as markdown; show the words, not the markers. */
+/**
+ * Model answers arrive as markdown; show the words, not the markers. Code spans
+ * (any backtick run, matched to its closing run) and fenced blocks are copied
+ * exactly as written, so literal text is never altered.
+ */
 export function plainAnswer(text: string): string {
-  return text
-    .replace(/\r/g, '')
+  const stripProse = (chunk: string) => chunk
     .replace(/^\s{0,3}#{1,6}\s+/gm, '')
     .replace(/\*\*(.+?)\*\*/g, '$1')
-    .replace(/__(.+?)__/g, '$1')
-    .replace(/(^|[^*])\*(?!\s)([^*\n]+?)\*(?!\*)/g, '$1$2')
-    .replace(/^\s*[-*]\s+/gm, '\u2022 ')
+    // Emphasis only when the marker hugs the text; `5 * 3 * 2` is arithmetic and stays.
+    .replace(/(^|[\s(])\*(\S(?:[^*\n]*?\S)?)\*(?=[\s.,;:!?)]|$)/gm, '$1$2')
+    .replace(/^\s*[-*]\s+/gm, '• ')
     .replace(/\n{3,}/g, '\n\n')
-    .trim()
+  const source = text.replace(/\r/g, '')
+  // A fence cut off by truncation stays code to the end of the answer.
+  // (?!`) pins each delimiter to its full run, so a shorter inner run never closes a longer fence.
+  const code = /(`{3,})(?!`)[\s\S]*?(?<!`)\1(?!`)|`{3,}[\s\S]*$|(`+)(?!`)[^`\n][\s\S]*?(?<!`)\2(?!`)/g
+  let out = ''
+  let last = 0
+  for (const match of source.matchAll(code)) {
+    out += stripProse(source.slice(last, match.index)) + match[0]
+    last = match.index + match[0].length
+  }
+  out += stripProse(source.slice(last))
+  return out.trim()
 }
 
 function shortModel(modelId: string): string {
@@ -46,31 +60,44 @@ export function modelKeyOf(answer: Pick<PublicQuestionAnswer, 'provider' | 'mode
 }
 
 /**
- * Line answers up by model AND by the run they came from, so a row only ever
- * holds answers that were asked together. A group with no answer in that run
- * leaves a blank cell. Counts never need to match.
+ * Line answers up by model AND by where they sat in their run (run id, matched
+ * question, repeat), so a row only ever holds answers that were asked together.
+ * A group with no answer at that position leaves a blank cell. Counts never
+ * need to match.
  */
 export function buildComparisonRows(groups: PublicQuestionGroup[]): GridRow[] {
-  type Slot = { runId: string; occurrence: number }
   const models: string[] = []
   const modelIds = new Map<string, string>()
-  const slots = new Map<string, Map<string, { firstSeen: string; cells: Array<PublicQuestionAnswer | null> }>>()
+  const slots = new Map<string, Map<string, { firstSeen: string; position: [number, number]; cells: Array<PublicQuestionAnswer | null> }>>()
+  // Published positions are clamped (pairIndex <= 49, runIndex <= 20), so two
+  // answers can share a position. A position that holds more than one answer in
+  // any group is ambiguous: every answer there gets its own row, and nothing is
+  // shown as a pair that was not one.
+  const perPosition = new Map<string, number>()
   groups.forEach((group, column) => {
-    const seen = new Map<string, number>()
-    for (const answer of [...group.answers].sort((a, b) => a.receivedAt.localeCompare(b.receivedAt))) {
+    for (const answer of group.answers) {
+      const key = `${modelKeyOf(answer)} ${answer.runId} ${answer.pairIndex} ${answer.runIndex} ${column}`
+      perPosition.set(key, (perPosition.get(key) ?? 0) + 1)
+    }
+  })
+  const ambiguous = new Set<string>()
+  for (const [key, count] of perPosition) {
+    if (count > 1) ambiguous.add(key.slice(0, key.lastIndexOf(' ')))
+  }
+  groups.forEach((group, column) => {
+    for (const answer of [...group.answers].sort((a, b) => a.receivedAt.localeCompare(b.receivedAt) || a.runIndex - b.runIndex)) {
       const model = modelKeyOf(answer)
       if (!slots.has(model)) {
         models.push(model)
         modelIds.set(model, answer.modelId)
         slots.set(model, new Map())
       }
-      const occurrenceKey = `${model} ${answer.runId}`
-      const occurrence = seen.get(occurrenceKey) ?? 0
-      seen.set(occurrenceKey, occurrence + 1)
-      const slot: Slot = { runId: answer.runId, occurrence }
-      const slotKey = `${slot.runId} ${slot.occurrence}`
       const perModel = slots.get(model)!
-      const entry = perModel.get(slotKey) ?? { firstSeen: answer.receivedAt, cells: groups.map(() => null) }
+      const position = `${model} ${answer.runId} ${answer.pairIndex} ${answer.runIndex}`
+      const slotKey = ambiguous.has(position)
+        ? `${answer.runId} ${answer.pairIndex} ${answer.runIndex} ${answer.id}`
+        : `${answer.runId} ${answer.pairIndex} ${answer.runIndex}`
+      const entry = perModel.get(slotKey) ?? { firstSeen: answer.receivedAt, position: [answer.pairIndex, answer.runIndex] as [number, number], cells: groups.map(() => null) }
       entry.cells[column] = answer
       if (answer.receivedAt < entry.firstSeen) entry.firstSeen = answer.receivedAt
       perModel.set(slotKey, entry)
@@ -78,12 +105,30 @@ export function buildComparisonRows(groups: PublicQuestionGroup[]): GridRow[] {
   })
   const rows: GridRow[] = []
   for (const model of models) {
-    const ordered = [...slots.get(model)!.entries()].sort((a, b) => a[1].firstSeen.localeCompare(b[1].firstSeen))
+    // Time first; on a tie (one upload stamps every record alike) the run position decides.
+    const ordered = [...slots.get(model)!.entries()].sort((a, b) => a[1].firstSeen.localeCompare(b[1].firstSeen) || a[1].position[0] - b[1].position[0] || a[1].position[1] - b[1].position[1])
     ordered.forEach(([slotKey, entry], index) => {
       rows.push({ key: `${model}#${slotKey}`, modelKey: model, modelId: modelIds.get(model) ?? model, runId: slotKey.split(' ')[0], index, cells: entry.cells })
     })
   }
   return rows
+}
+
+/** The latest answer a model gave in each group, whatever run it came from. */
+export function latestPerGroup(modelRows: GridRow[]): GridRow {
+  const first = modelRows[0]
+  const cells = first.cells.map((_, column) => {
+    let latest: PublicQuestionAnswer | null = null
+    // Each cell is judged on its own time and run position, never on row order.
+    const later = (a: PublicQuestionAnswer, b: PublicQuestionAnswer) =>
+      a.receivedAt.localeCompare(b.receivedAt) || a.pairIndex - b.pairIndex || a.runIndex - b.runIndex
+    for (const row of modelRows) {
+      const cell = row.cells[column]
+      if (cell && (!latest || later(cell, latest) > 0)) latest = cell
+    }
+    return latest
+  })
+  return { ...first, key: `${first.modelKey}#summary`, index: -1, cells }
 }
 
 function AnswerCell({ answer, expanded, onToggle }: { answer: PublicQuestionAnswer | null; expanded: boolean; onToggle: () => void }) {
@@ -114,12 +159,33 @@ export function QuestionDetailPage({
   const [modelFilter, setModelFilter] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [allOpen, setAllOpen] = useState(false)
+  const [openModels, setOpenModels] = useState<Set<string>>(new Set())
 
   const groups = detail?.groups ?? []
   const rows = useMemo(() => buildComparisonRows(groups), [groups])
-  const models = useMemo(() => [...new Set(rows.map((row) => row.modelId))], [rows])
-  const visible = modelFilter ? rows.filter((row) => row.modelId === modelFilter) : rows
+  const models = useMemo(() => {
+    const seen = new Map<string, string>()
+    for (const row of rows) if (!seen.has(row.modelKey)) seen.set(row.modelKey, row.modelId)
+    return [...seen.entries()]
+  }, [rows])
+  const visible = modelFilter ? rows.filter((row) => row.modelKey === modelFilter) : rows
+  // One block per model. Folded: a summary row with the latest answer per group.
+  // Unfolded: every run position, so a row only holds answers asked together.
+  const byModel = useMemo(() => {
+    const blocks = new Map<string, GridRow[]>()
+    for (const row of visible) blocks.set(row.modelKey, [...(blocks.get(row.modelKey) ?? []), row])
+    return [...blocks.entries()].map(([key, modelRows]) => ({ key, modelRows, summary: latestPerGroup(modelRows) }))
+  }, [visible])
   const isPair = detail?.layout === 'pair'
+
+  function toggleModel(key: string) {
+    setOpenModels((current) => {
+      const next = new Set(current)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
 
   function toggle(id: string) {
     setExpanded((current) => {
@@ -172,8 +238,8 @@ export function QuestionDetailPage({
               <div className="qgrid-toolbar">
                 <div className="qgrid-filter" role="group" aria-label="Filter by model">
                   <button type="button" className={modelFilter === null ? 'is-active' : undefined} onClick={() => setModelFilter(null)}>All models</button>
-                  {models.map((modelId) => (
-                    <button key={modelId} type="button" className={modelFilter === modelId ? 'is-active' : undefined} title={modelId} onClick={() => setModelFilter(modelId)}>
+                  {models.map(([key, modelId]) => (
+                    <button key={key} type="button" className={modelFilter === key ? 'is-active' : undefined} title={key.replace('|', ' · ')} onClick={() => setModelFilter(key)}>
                       {shortModel(modelId)}
                     </button>
                   ))}
@@ -198,24 +264,38 @@ export function QuestionDetailPage({
                       </div>
                     ))}
                   </div>
-                  {visible.map((row) => {
-                    const when = row.cells.find((cell) => cell)?.receivedAt
-                    return (
-                      <div key={row.key} className="qgrid-row" role="row">
-                        <div className="qgrid-rowhead" role="rowheader">
-                          <strong title={row.modelKey.replace('|', ' · ')}>{shortModel(row.modelId)}</strong>
-                          <small>run {row.index + 1}{when ? ` · ${evidenceTime(when)}` : ''}</small>
+                  {byModel.map(({ key, modelRows, summary }) => {
+                    const open = openModels.has(key)
+                    const shown = open ? modelRows : [summary]
+                    const runs = modelRows.length
+                    return shown.map((row, position) => {
+                      const when = row.cells.find((cell) => cell)?.receivedAt
+                      const last = position === shown.length - 1
+                      const label = row.index < 0
+                        ? (runs > 1 ? `latest of ${runs} runs` : 'one run')
+                        : `run ${row.index + 1} of ${runs}`
+                      return (
+                        <div key={row.key} className="qgrid-row" role="row">
+                          <div className="qgrid-rowhead" role="rowheader">
+                            {position === 0 && <strong title={key.replace('|', ' · ')}>{shortModel(row.modelId)}</strong>}
+                            <small>{label}{when ? ` · ${evidenceTime(when)}` : ''}</small>
+                            {last && runs > 1 && (
+                              <button type="button" className="link qgrid-fold" aria-expanded={open} onClick={() => toggleModel(key)}>
+                                {open ? 'Show latest only' : `Show all ${runs} runs`}
+                              </button>
+                            )}
+                          </div>
+                          {row.cells.map((cell, column) => (
+                            <AnswerCell
+                              key={cell?.id ?? `${row.key}-${column}`}
+                              answer={cell}
+                              expanded={cell ? expanded.has(cell.id) : false}
+                              onToggle={() => cell && toggle(cell.id)}
+                            />
+                          ))}
                         </div>
-                        {row.cells.map((cell, column) => (
-                          <AnswerCell
-                            key={cell?.id ?? `${row.key}-${column}`}
-                            answer={cell}
-                            expanded={cell ? expanded.has(cell.id) : false}
-                            onToggle={() => cell && toggle(cell.id)}
-                          />
-                        ))}
-                      </div>
-                    )
+                      )
+                    })
                   })}
                 </div>
               </div>

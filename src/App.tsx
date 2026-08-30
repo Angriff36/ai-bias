@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { api } from './api'
-import { getPublicLeaderboard, listGeneratedReports } from './public/client'
+import { continueReportGeneration, getPublicLeaderboard, listGeneratedReports } from './public/client'
 import type { GeneratedReportSummary } from './public/contracts'
 import { readPublicCache } from './public/publicApiCache'
 import { EmptyState, SkeletonRows } from './components/EmptyState'
@@ -12,6 +12,7 @@ import { TemplateLibrary } from './components/TemplateLibrary'
 import { ObservationsPanel } from './components/ObservationsPanel'
 import { completeOpenRouterOAuth } from './openrouter/oauth'
 import { ConclusionsPage } from './public/ConclusionsPage'
+import { ClaimDetailPage } from './public/ClaimDetailPage'
 import { AboutPage } from './components/AboutPage'
 import { LeaderboardPage } from './public/LeaderboardPage'
 import { QuestionDetailPage } from './public/QuestionDetailPage'
@@ -170,7 +171,7 @@ function MainApp() {
       {toast && <div className="toast" role="status" aria-live="polite"><span>{toast}</span><button aria-label="Dismiss notification" onClick={() => setToast(null)}>×</button></div>}
       {tab === 'experiments' && <ExperimentRoute />}
       {tab === 'leaderboard' && <LeaderboardRoute />}
-      {tab === 'conclusions' && <ConclusionsPage />}
+      {tab === 'conclusions' && <ConclusionsRoute />}
       {tab === 'templates' && (
         <TemplateLibrary
           onUsePrompt={(prompt, name) => {
@@ -193,6 +194,12 @@ function LeaderboardRoute() {
   return <LeaderboardPage />
 }
 
+function ConclusionsRoute() {
+  const match = window.location.hash.match(/^#\/conclusions\/claims\/([^/]+)$/)
+  if (match) return <ClaimDetailPage claimId={decodeURIComponent(match[1])} />
+  return <ConclusionsPage />
+}
+
 function ExperimentRoute() {
   const match = window.location.hash.match(/^#\/experiments\/(\d+)$/)
   return match ? <ExperimentEditor experimentId={Number(match[1])} /> : <ExperimentHistoryList />
@@ -203,16 +210,42 @@ function ReportsRoute() {
   return match ? <ReportDetailView reportId={Number(match[1])} /> : <ReportsList />
 }
 
+/** A pending report advances one step per call; while this tab is open the browser drives it. No server timer. */
+const REPORT_STEP_INTERVAL_MS = 50_000
+
 function ReportsList() {
   const [reports, setReports] = useState<GeneratedReportSummary[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [stepping, setStepping] = useState<string | null>(null)
+
+  const reload = useCallback(() => listGeneratedReports()
+    .then((list) => setReports(list))
+    .catch((e: unknown) => setError(e instanceof Error ? e.message : 'The reports could not be loaded.')), [])
+
+  useEffect(() => { void reload() }, [reload])
+
+  const pending = (reports ?? []).filter((r) => r.status === 'pending')
+  const pendingIds = pending.map((r) => r.id).join(',')
+
+  const step = useCallback(async (reportId: string) => {
+    setStepping(reportId)
+    try {
+      await continueReportGeneration(reportId)
+      await reload()
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'The report could not continue.')
+    } finally {
+      setStepping(null)
+    }
+  }, [reload])
+
   useEffect(() => {
-    let cancelled = false
-    listGeneratedReports()
-      .then((list) => { if (!cancelled) setReports(list) })
-      .catch((e: unknown) => { if (!cancelled) setError(e instanceof Error ? e.message : 'The reports could not be loaded.') })
-    return () => { cancelled = true }
-  }, [])
+    if (!pendingIds) return
+    const timer = window.setInterval(() => {
+      for (const id of pendingIds.split(',')) void step(id)
+    }, REPORT_STEP_INTERVAL_MS)
+    return () => window.clearInterval(timer)
+  }, [pendingIds, step])
 
   const header = (
     <div className="page-header">
@@ -246,15 +279,34 @@ function ReportsList() {
   const published = reports
     .filter((r) => r.status === 'complete')
     .sort((a, b) => (b.completedAt ?? b.createdAt).localeCompare(a.completedAt ?? a.createdAt))
+  const inProgress = reports.filter((r) => r.status !== 'complete')
+  const progress = inProgress.length > 0 && (
+    <section className="report-progress" aria-labelledby="report-progress-title">
+      <h3 id="report-progress-title">In progress</h3>
+      <p className="muted">A report advances one step at a time while this page is open. You can also press Continue.</p>
+      <ul className="claim-question-list">
+        {inProgress.map((r) => (
+          <li key={r.id}>
+            <span>{r.title ?? 'Report'} · {r.status === 'pending' ? 'generating' : 'stopped'} · started {new Date(r.createdAt).toLocaleString()}</span>
+            {' '}
+            <button type="button" className="secondary" disabled={stepping === r.id} onClick={() => { void step(r.id) }}>
+              {stepping === r.id ? 'Working…' : 'Continue'}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
   if (published.length === 0) {
     return (
       <section className="report-list">
         {header}
+        {progress}
         <EmptyState
           heading="No reports published yet"
-          body="Run an experiment, then choose Analyze this experiment — its research report is published here for everyone."
-          actionLabel="Go to experiments"
-          onAction={() => { window.location.hash = '#/experiments' }}
+          body="Open Top Questions, select the questions to study, and choose Generate report from selected."
+          actionLabel="Go to Top Questions"
+          onAction={() => { window.location.hash = '#/leaderboard' }}
         />
       </section>
     )
@@ -262,6 +314,7 @@ function ReportsList() {
   return (
     <section className="report-list">
       {header}
+      {progress}
       <table>
         <caption>Reports</caption>
         <thead><tr><th scope="col">Title</th><th scope="col">Published</th></tr></thead>

@@ -8,19 +8,21 @@ import {
   type ConclusionsStats,
 } from './conclusionsFeed'
 
-export function TopQuestionsHeader({
+export function ConclusionsHeader({
   generating,
-  onSubmitPrompt,
+  writing,
+  onWriteClaim,
 }: {
   generating: boolean
-  onSubmitPrompt: () => void
+  writing: boolean
+  onWriteClaim: () => void
 }) {
   return (
     <div className="submitted-prompts-header">
       <div className="submitted-prompts-intro">
-        <h2>Top Questions</h2>
+        <h2>Question Leaderboard</h2>
         <p>
-          The most-tested bias questions across all ai-tests.com experiments. Updated continuously as new tests are completed.
+          Claims about the AI, answered by the evidence. Each row is a claim a person wrote; its score is computed from the answers on Top Questions. Updated continuously as new tests complete.
         </p>
       </div>
       <div className="submitted-prompts-actions">
@@ -29,7 +31,7 @@ export function TopQuestionsHeader({
             <span aria-hidden="true" />Report generating
           </p>
         )}
-        <button type="button" className="primary" onClick={onSubmitPrompt}>Submit a Prompt</button>
+        <button type="button" className="primary" aria-expanded={writing} onClick={onWriteClaim}>{writing ? 'Close' : 'Write a Claim'}</button>
       </div>
     </div>
   )
@@ -106,19 +108,19 @@ export function ConclusionsHowItWorks() {
         <div>
           <p>Data Collection</p>
           <p>
-            ai-tests.com collects anonymous test questions from every comparison run on the site. Each test asks a model the same question multiple ways. The two responses are then shown side by side.
+            ai-tests.com collects anonymous tests from every run on the site. Each test asks a model the same question with the group name swapped. Every answer is pooled by group on Top Questions.
           </p>
         </div>
         <div>
-          <p>Ranking Method</p>
+          <p>Claims and Scores</p>
           <p>
-            The leaderboard ranks questions by the number of completed matched tests. A test only counts when both versions were successfully answered by the same model. Open any question to see the individual results, including the exact prompts and variables used.
+            A person writes a claim and picks the questions that test it. The bias score is the share of matched pairs answered differently across groups; the match rate is the share of usable answers. Both are computed from the evidence, never typed.
           </p>
         </div>
         <div>
           <p>Research Reports</p>
           <p>
-            When enough results have been collected, ai-tests.com publishes research reports analyzing patterns across the dataset. Reports include the methods, findings, and underlying evidence, with downloadable HTML versions for independent review.
+            A person picks a set of questions on Top Questions and starts a report. A judge model scores every answer on seven traits, and the report explains the pattern with charts, quotes, and the underlying evidence.
           </p>
         </div>
       </div>
@@ -191,7 +193,7 @@ export function ConclusionsFooter({
 }) {
   return (
     <div className="conclusions-footer">
-      <p>Showing top {shown.toLocaleString()} of {total.toLocaleString()} tracked questions.</p>
+      <p>Showing top {shown.toLocaleString()} of {total.toLocaleString()} claims.</p>
       {updatedAt && <p>Last updated {evidenceTime(updatedAt)}</p>}
     </div>
   )
@@ -202,7 +204,7 @@ export function ConclusionsSkeleton() {
     <div className="conclusions-table" aria-hidden="true">
       <div className="conclusions-table-head">
         <span />
-        <span>Question</span>
+        <span>Claim</span>
         <span>Models</span>
         <span>Tests</span>
         <span>Match Rate</span>

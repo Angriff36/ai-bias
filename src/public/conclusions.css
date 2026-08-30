@@ -145,3 +145,37 @@
   .conclusions-row { grid-template-columns: 40px minmax(0, 1fr); }
   .conclusions-tests, .conclusions-chevron { display: none; }
 }
+
+/* Write-a-claim form */
+.claim-form { display: flex; flex-direction: column; gap: 12px; padding: 20px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); }
+.claim-form h3 { margin: 0; }
+.claim-form label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--muted); }
+.claim-form textarea, .claim-form input[type="search"] { width: 100%; }
+.claim-question-picker { display: flex; flex-direction: column; max-height: 320px; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); }
+.claim-question-option { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 10px; align-items: start; padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--text); cursor: pointer; }
+.claim-question-option:last-child { border-bottom: 0; }
+.claim-question-option input { margin-top: 2px; }
+.claim-question-option small { grid-column: 2; color: var(--muted); font-size: 11px; }
+.claim-form-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.claim-question-list { margin: 8px 0 0; padding-left: 20px; }
+.claim-question-list li { margin-bottom: 8px; line-height: 1.5; }
+.claim-question-list small { color: var(--muted); }
+
+/* Top Questions: the plain most-asked list */
+.top-questions-table { overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius); }
+.top-questions-head, .top-questions-row { display: grid; grid-template-columns: 28px 44px minmax(0, 1fr) minmax(120px, 220px) 80px 90px 110px; align-items: center; gap: 12px; padding: 12px 16px; }
+.top-questions-head { border-bottom: 1px solid var(--border); background: var(--panel); color: var(--muted); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
+.top-questions-row { border-bottom: 1px solid var(--border); font-size: 13px; }
+.top-questions-row:last-child { border-bottom: 0; }
+.top-questions-row:hover { background: var(--panel); }
+.top-questions-rank { color: var(--muted); font-variant-numeric: tabular-nums; }
+.top-questions-text { min-width: 0; overflow-wrap: anywhere; color: var(--text); text-decoration: none; }
+.top-questions-text:hover { color: var(--accent); }
+.top-questions-groups { display: flex; flex-wrap: wrap; gap: 4px; }
+.top-questions-row time { color: var(--muted); font-size: 12px; }
+.top-questions-report { display: flex; align-items: center; gap: 12px; }
+@media (max-width: 860px) {
+  .top-questions-head { display: none; }
+  .top-questions-row { grid-template-columns: 28px 44px minmax(0, 1fr); }
+  .top-questions-row > .top-questions-groups, .top-questions-row > strong, .top-questions-row > span:not(.top-questions-rank), .top-questions-row > time { grid-column: 3; }
+}

@@ -1,6 +1,4 @@
-import type { GeneratedReportSummary, PublicEvidenceItem, PublicLeaderboard, PublicModelAggregate, PublicQuestionSummary } from './contracts'
-import { normalizeQuestionKey } from './questionKeys'
-import { PromptTopicClassifier, type PromptTopicId } from './submittedPromptTopics'
+import type { GeneratedReportSummary, PublicClaim, PublicLeaderboard } from './contracts'
 import { PromptPageWindow, type PromptPageSize } from './submittedPromptFeed'
 
 export type ConclusionsSort = 'tests' | 'bias' | 'match' | 'newest'
@@ -25,10 +23,12 @@ export interface ConclusionsReportCard extends ConclusionsReportRef {
   testCount: number
 }
 
+/** One row of the claims board: a person-written claim and its computed answer. */
 export interface ConclusionsRowModel {
   rank: number
-  questionKey: string
-  questionText: string
+  id: string
+  text: string
+  questionKeys: string[]
   models: string[]
   testCount: number
   matchRate: number | null
@@ -70,11 +70,11 @@ export class ReportCodeBook {
     })
   }
 
-  refFor(report: GeneratedReportSummary): ConclusionsReportRef | null {
-    const code = this.codes.get(report.id)
-    const tone = this.tones.get(report.id)
+  refFor(reportId: string): ConclusionsReportRef | null {
+    const code = this.codes.get(reportId)
+    const tone = this.tones.get(reportId)
     if (!code || !tone) return null
-    return { id: report.id, code, tone, href: `/api/public/reports/${report.id}.html` }
+    return { id: reportId, code, tone, href: `/api/public/reports/${reportId}.html` }
   }
 }
 
@@ -88,26 +88,22 @@ export class BiasBandScale {
 }
 
 export class ConclusionsFeedBuilder {
-  constructor(
-    private readonly topics = new PromptTopicClassifier(),
-    private readonly now = () => Date.now(),
-  ) {}
+  constructor(private readonly now = () => Date.now()) {}
 
-  build(data: PublicLeaderboard, reports: GeneratedReportSummary[]): ConclusionsFeed {
+  build(data: PublicLeaderboard, reports: GeneratedReportSummary[], claims: PublicClaim[]): ConclusionsFeed {
     const complete = reports.filter((report) => report.status === 'complete')
     const codes = new ReportCodeBook(complete)
-    const cards = this.reportCards(complete, codes)
-    const rows = this.rows(data, complete, codes)
+    const rows = this.sort(claims.map((claim) => this.row(claim, codes)), 'tests')
     return {
       rows,
-      reports: cards,
+      reports: this.reportCards(complete, codes),
       stats: {
         questionsTracked: data.totals.questions,
         matchedTests: data.totals.completePairs,
         reportsPublished: complete.length,
         modelsCovered: data.totals.models,
       },
-      updatedAt: this.latestTimestamp(data, complete),
+      updatedAt: this.latestTimestamp(data, complete, claims),
     }
   }
 
@@ -126,11 +122,32 @@ export class ConclusionsFeedBuilder {
     return PromptPageWindow.take(rows, size)
   }
 
+  private row(claim: PublicClaim, codes: ReportCodeBook): ConclusionsRowModel {
+    const seen = Date.parse(claim.createdAt)
+    return {
+      rank: 0,
+      id: claim.id,
+      text: claim.text,
+      questionKeys: claim.questionKeys,
+      models: claim.models.slice(0, 3),
+      testCount: claim.testCount,
+      matchRate: claim.matchRate,
+      biasScore: claim.biasScore,
+      biasBand: BiasBandScale.from(claim.biasScore),
+      isNew: Number.isFinite(seen) && this.now() - seen <= NEW_WINDOW_MS,
+      reports: claim.reports.flatMap((report) => {
+        const ref = codes.refFor(report.id)
+        return ref ? [ref] : []
+      }),
+      lastSeenAt: claim.lastSeenAt ?? claim.createdAt,
+    }
+  }
+
   private reportCards(reports: GeneratedReportSummary[], codes: ReportCodeBook): ConclusionsReportCard[] {
     return [...reports]
       .sort((left, right) => (right.completedAt ?? right.createdAt).localeCompare(left.completedAt ?? left.createdAt))
       .flatMap((report) => {
-        const ref = codes.refFor(report)
+        const ref = codes.refFor(report.id)
         if (!ref) return []
         return [{
           ...ref,
@@ -141,117 +158,14 @@ export class ConclusionsFeedBuilder {
       })
   }
 
-  private rows(data: PublicLeaderboard, reports: GeneratedReportSummary[], codes: ReportCodeBook): ConclusionsRowModel[] {
-    const questions = data.topQuestions.length > 0 ? data.topQuestions : this.questionsFromEvidence(data.recentEvidence)
-    return questions.map((question, index) => this.rowFromQuestion(question, index + 1, data, reports, codes))
-  }
-
-  private rowFromQuestion(
-    question: PublicQuestionSummary,
-    rank: number,
-    data: PublicLeaderboard,
-    reports: GeneratedReportSummary[],
-    codes: ReportCodeBook,
-  ): ConclusionsRowModel {
-    const evidence = data.recentEvidence.filter((item) => this.matchesQuestion(item, question))
-    const models = this.modelsFor(question, evidence)
-    const matchRate = this.matchRate(evidence)
-    const biasScore = this.biasScore(evidence, data.models)
-    const seen = Date.parse(question.lastSeenAt)
-    return {
-      rank,
-      questionKey: question.questionKey,
-      questionText: question.questionText,
-      models,
-      testCount: question.runCount,
-      matchRate,
-      biasScore,
-      biasBand: BiasBandScale.from(biasScore),
-      isNew: Number.isFinite(seen) && this.now() - seen <= NEW_WINDOW_MS,
-      reports: this.reportsFor(question.questionText, reports, codes),
-      lastSeenAt: question.lastSeenAt,
-    }
-  }
-
-  private modelsFor(question: PublicQuestionSummary, evidence: PublicEvidenceItem[]): string[] {
-    const fromEvidence = unique(evidence.map((item) => shortModelLabel(item.modelId)))
-    if (fromEvidence.length > 0) return fromEvidence.slice(0, 3)
-    if (question.modelCount <= 0) return []
-    return [`${question.modelCount.toLocaleString()} ${question.modelCount === 1 ? 'model' : 'models'}`]
-  }
-
-  private matchRate(evidence: PublicEvidenceItem[]): number | null {
-    if (evidence.length < 2) return null
-    const answered = evidence.filter((item) => item.classification === 'answered').length
-    return Math.round((answered / evidence.length) * 100)
-  }
-
-  private biasScore(evidence: PublicEvidenceItem[], models: PublicModelAggregate[]): number | null {
-    const ids = new Set(evidence.map((item) => item.modelId))
-    const rates = models
-      .filter((model) => ids.has(model.modelId))
-      .map((model) => model.asymmetryRate)
-      .filter((rate): rate is number => rate != null)
-    if (rates.length === 0) return null
-    const mean = rates.reduce((sum, rate) => sum + rate, 0) / rates.length
-    return Math.round(mean * 100) / 100
-  }
-
-  private reportsFor(questionText: string, reports: GeneratedReportSummary[], codes: ReportCodeBook): ConclusionsReportRef[] {
-    const topic = this.topics.classify(questionText)
-    if (topic === 'other') return []
-    return reports.flatMap((report) => {
-      if (this.reportTopic(report) !== topic) return []
-      const ref = codes.refFor(report)
-      return ref ? [ref] : []
-    })
-  }
-
-  private reportTopic(report: GeneratedReportSummary): PromptTopicId {
-    return this.topics.classify(report.title ?? '')
-  }
-
-  private matchesQuestion(item: PublicEvidenceItem, question: PublicQuestionSummary): boolean {
-    const key = normalizeQuestionKey(item.question)
-    return key === question.questionKey || key === normalizeQuestionKey(question.questionText)
-  }
-
-  private questionsFromEvidence(evidence: PublicEvidenceItem[]): PublicQuestionSummary[] {
-    const grouped = new Map<string, PublicEvidenceItem[]>()
-    for (const item of evidence) {
-      const key = normalizeQuestionKey(item.question)
-      if (key === '__missing_question__') continue
-      grouped.set(key, [...(grouped.get(key) ?? []), item])
-    }
-    return [...grouped.entries()].map(([questionKey, items]) => ({
-      questionKey,
-      questionText: items.find((item) => item.question?.trim())?.question?.trim() ?? questionKey,
-      runCount: items.length,
-      modelCount: unique(items.map((item) => item.modelId)).length,
-      variantACount: items.filter((item) => item.variantKey === 'A').length,
-      variantBCount: items.filter((item) => item.variantKey === 'B').length,
-      answerCount: items.length,
-      groupLabels: unique(items.map((item) => item.variantLabel.trim())),
-      lastSeenAt: items.reduce((latest, item) => (item.receivedAt > latest ? item.receivedAt : latest), ''),
-    }))
-  }
-
-  private latestTimestamp(data: PublicLeaderboard, reports: GeneratedReportSummary[]): string | null {
+  private latestTimestamp(data: PublicLeaderboard, reports: GeneratedReportSummary[], claims: PublicClaim[]): string | null {
     const times = [
       ...data.topQuestions.map((question) => question.lastSeenAt),
-      ...data.recentEvidence.map((item) => item.receivedAt),
       ...reports.map((report) => report.completedAt ?? report.createdAt),
+      ...claims.map((claim) => claim.lastSeenAt ?? claim.createdAt),
     ].filter(Boolean)
     return times.sort((left, right) => right.localeCompare(left))[0] ?? null
   }
-}
-
-function shortModelLabel(modelId: string): string {
-  return modelId.split('/').pop()?.trim() || modelId
-}
-
-function unique(values: string[]): string[] {
-  return [...new Set(values.filter(Boolean))]
 }
 
 function monthLabel(iso: string): string {

@@ -37,7 +37,7 @@ describe('shared-anchor execution', () => {
       samplingMode: 'shared-anchor',
     })
     const adapter: ProviderAdapter = {
-      callModel: vi.fn(async () => ({ content: 'anchor-response', statusCode: 200, latencyMs: 10 })),
+      callModel: vi.fn(async () => ({ content: 'anchor-response', statusCode: 200, latencyMs: 10, provider: 'simulated' as const, modelId: 'sim-model-1' })),
     }
     const records: RawRecord[] = []
     await new Promise<void>((resolve) => {

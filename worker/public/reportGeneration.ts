@@ -127,7 +127,7 @@ export async function processReportChunk(
     existingPairScores,
     deadlineMs: scoringComplete ? undefined : Date.now() + REPORT_GENERATION_BUDGET_MS,
   })
-  if ('status' in result && result.status === 'partial') {
+  if ('status' in result) {
     if (checkpointRepo.upsertPairScores) {
       await checkpointRepo.upsertPairScores(reportId, result.pairScores)
     }
@@ -150,6 +150,10 @@ export async function handleReportChunkFailure(
     return
   }
   const message = error instanceof Error ? error.message : 'generation-failed'
+  if (/timed out|429|rate limit/i.test(message)) {
+    await checkpointRepo.touchReportGeneration(reportId, new Date().toISOString())
+    return
+  }
   const code = error instanceof InvalidModelOutput ? 'invalid-model-output' : message.slice(0, 80)
   await repository.failReport(reportId, code)
 }

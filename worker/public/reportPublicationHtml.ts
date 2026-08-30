@@ -1,5 +1,5 @@
 import type { GeneratedReportDocument } from '../../src/public/contracts'
-import { aggregateDimensionScores, escapeHtml, renderPairEvidenceSection, renderPublicationCharts } from './reportPublicationCharts'
+import { escapeHtml, renderPairEvidenceSection, renderPublicationCharts } from './reportPublicationCharts'
 import { REPORT_PUBLICATION_STYLES } from './reportPublicationStyles'
 import { summarizeVariantSideLabels } from './reportVariantLabels'
 

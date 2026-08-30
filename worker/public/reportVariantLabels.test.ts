@@ -8,8 +8,6 @@ function record(overrides: Partial<PublicEvidenceItem> & Pick<PublicEvidenceItem
     runId: 'run',
     pairIndex: 0,
     runIndex: 0,
-    variantKey: overrides.variantKey,
-    variantLabel: overrides.variantLabel,
     provider: 'anthropic',
     modelId: 'claude',
     prompt: 'prompt',

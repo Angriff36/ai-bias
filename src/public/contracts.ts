@@ -20,6 +20,7 @@ export const publicEvidenceInputSchema = z.object({
 
 export const publicSubmissionSchema = z.object({
   source: z.enum(['visitor-provider', 'free-trial']),
+  continueRunId: z.string().uuid().optional(),
   records: z.array(publicEvidenceInputSchema).min(1).max(100),
 })
 

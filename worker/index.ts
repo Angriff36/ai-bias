@@ -1,6 +1,7 @@
 import { routeWorkerRequest, type WorkerEnv } from './router'
 import { resumePendingReportChunks } from './public/reportCron'
 import type { PublicWorkerEnv } from './public/routes'
+import type { ScheduledEvent } from '@cloudflare/workers-types'
 
 export default {
   fetch(request: Request, env: WorkerEnv, context: { waitUntil(promise: Promise<unknown>): void }): Promise<Response> {

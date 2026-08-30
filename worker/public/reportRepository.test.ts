@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { PublicEvidenceItem } from '../../src/public/contracts'
-import type { D1DatabaseLike } from './d1'
+import type { D1DatabaseLike, D1Result, D1Statement } from './d1'
 import { GeneratedReportRepository, completeQuestionCount, summarizeReportModels } from './reportRepository'
 
 const record = (overrides: Partial<PublicEvidenceItem>): PublicEvidenceItem => ({
@@ -46,17 +46,20 @@ describe('generated report evidence preparation', () => {
     }))
     const db: D1DatabaseLike = {
       prepare(sql: string) {
-        return {
-          bind: (...args: unknown[]) => ({
-            first: async () => ({
-              id: 'legacy-global', scope: 'global', public_run_id: null, response_watermark: 2, cohort_fingerprint: null,
-              cohort_snapshot_json: null, status: 'pending', scoring_model_id: 'semantic-text-analysis', synthesis_model_id: 'x-ai/grok-4.6',
-              title: null, structured_json: null, created_at: '2026-08-27T00:00:00.000Z', completed_at: null,
-            }),
-            all: async () => ({ results: sql.includes('LIMIT') ? evidenceRows.slice(0, Number(args[0])) : evidenceRows }),
-            run: async () => ({ meta: { changes: 1 } }),
-          }),
+        const makeStatement = (limit?: unknown): D1Statement => {
+          const row = {
+            id: 'legacy-global', scope: 'global', public_run_id: null, response_watermark: 2, cohort_fingerprint: null,
+            cohort_snapshot_json: null, status: 'pending', scoring_model_id: 'semantic-text-analysis', synthesis_model_id: 'x-ai/grok-4.6',
+            title: null, structured_json: null, created_at: '2026-08-27T00:00:00.000Z', completed_at: null,
+          }
+          return {
+            bind: (...args: unknown[]) => makeStatement(args[0]),
+            first: async <T>() => row as T,
+            all: async <T>() => ({ results: (sql.includes('LIMIT') ? evidenceRows.slice(0, Number(limit)) : evidenceRows) as T[] }),
+            run: async <T>() => ({ meta: { changes: 1 } }) as D1Result<T>,
+          }
         }
+        return makeStatement()
       },
       batch: async (statements) => statements.map(() => ({ meta: { changes: 1 } })),
     }

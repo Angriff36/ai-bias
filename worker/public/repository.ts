@@ -1,58 +1,15 @@
 import type { PublicEvidenceItem, PublicLeaderboard, PublicModelAggregate, PublicQuestionDetail, PublicSubmission, GeneratedReportSummary } from '../../src/public/contracts'
 import { generatedReportSummarySchema } from '../../src/public/contracts'
-import { normalizeQuestionKey } from '../../src/public/questionKeys'
-import { classifyPublicEvidence, normalizeSubmission, pairContribution, submissionHashMaterial } from '../../src/public/normalize'
-import type { D1DatabaseLike, D1Statement } from './d1'
-import { thresholdsCrossed } from './analysis'
+import type { D1DatabaseLike } from './d1'
+import { PublicRunPublisher } from './publicRunPublisher'
 import { buildQuestionDetail, buildTopQuestionSummaries } from './questionLeaderboard'
 import { ensureQuestionKeys } from './questionKeyMaintenance'
 import { buildQuestionCatalog } from './reportGlobalCohort'
-import { invalidatePublicReadCache, readCachedLeaderboard, readCachedQuestionDetail, writeCachedLeaderboard, writeCachedQuestionDetail } from './readCache'
+import { readCachedLeaderboard, readCachedQuestionDetail, writeCachedLeaderboard, writeCachedQuestionDetail } from './readCache'
 
-export interface ModelContribution {
-  provider: string
-  modelId: string
-  responseCount: number
-  completePairs: number
-  asymmetricPairs: number
-  answeredCount: number
-  refusalCount: number
-  errorCount: number
-  truncatedCount: number
-  latencySumMs: number
-}
+export { aggregateSubmission, type ModelContribution } from './publicSubmissionStats'
 
 export interface FreeReservation { quotaHash: string; day: string }
-
-export function aggregateSubmission(submission: PublicSubmission): ModelContribution[] {
-  const grouped = new Map<string, PublicSubmission['records']>()
-  for (const record of submission.records) {
-    const key = `${record.provider}\u0000${record.modelId}`
-    grouped.set(key, [...(grouped.get(key) ?? []), record])
-  }
-  return [...grouped.entries()].map(([key, records]) => {
-    const [provider, modelId] = key.split('\u0000')
-    const pairs = pairContribution(records)
-    const classifications = records.map(classifyPublicEvidence)
-    return {
-      provider,
-      modelId,
-      responseCount: records.length,
-      completePairs: pairs.completePairs,
-      asymmetricPairs: pairs.asymmetricPairs,
-      answeredCount: classifications.filter((value) => value === 'answered').length,
-      refusalCount: classifications.filter((value) => value === 'hard-refusal' || value === 'soft-refusal').length,
-      errorCount: classifications.filter((value) => value === 'error').length,
-      truncatedCount: records.filter((record) => record.truncated).length,
-      latencySumMs: records.reduce((sum, record) => sum + record.latencyMs, 0),
-    }
-  }).sort((a, b) => a.provider.localeCompare(b.provider) || a.modelId.localeCompare(b.modelId))
-}
-
-async function sha256(value: string): Promise<string> {
-  const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))
-  return [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, '0')).join('')
-}
 
 const n = (value: unknown) => Number(value ?? 0)
 const s = (value: unknown) => String(value ?? '')
@@ -88,62 +45,11 @@ const catalogEvidenceSelect = `SELECT id, run_id, pair_index, run_index, questio
 export class PublicRepository {
   constructor(private readonly db: D1DatabaseLike) {}
 
-  async publish(raw: PublicSubmission, receivedAt: string): Promise<{
-    runId: string
-    duplicate: boolean
-    crossedThresholds: number[]
-  }> {
-    const submission = normalizeSubmission(raw)
-    const hash = await sha256(submissionHashMaterial(submission))
-    const existing = await this.db.prepare('SELECT id FROM public_runs WHERE submission_hash = ?').bind(hash).first<{ id: string }>()
-    if (existing) return { runId: existing.id, duplicate: true, crossedThresholds: [] }
-
-    const runId = crypto.randomUUID()
-    const contributions = aggregateSubmission(submission)
-    const completePairs = contributions.reduce((sum, item) => sum + item.completePairs, 0)
-    const beforeRow = await this.db.prepare('SELECT COALESCE(SUM(complete_pair_count), 0) AS total FROM model_aggregates')
-      .first<{ total: number }>()
-    const before = n(beforeRow?.total)
-    const statements: D1Statement[] = [
-      this.db.prepare('INSERT INTO public_runs (id, submission_hash, source, created_at, record_count, complete_pair_count) VALUES (?, ?, ?, ?, ?, ?)')
-        .bind(runId, hash, submission.source, receivedAt, submission.records.length, completePairs),
-    ]
-    for (const record of submission.records) {
-      statements.push(this.db.prepare(`INSERT INTO public_evidence
-        (id, run_id, pair_index, run_index, question, question_key, variant_key, variant_label, provider, model_id, prompt, response, latency_ms, status_code, status, error_message, truncated, evidence_sha256, classification, received_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-        .bind(crypto.randomUUID(), runId, record.pairIndex, record.runIndex, record.question ?? null,
-          normalizeQuestionKey(record.question), record.variantKey, record.variantLabel, record.provider, record.modelId,
-          record.prompt, record.response, record.latencyMs, record.statusCode, record.status, record.errorMessage ?? null,
-          record.truncated ? 1 : 0, record.sha256, classifyPublicEvidence(record), receivedAt))
-    }
-    for (const item of contributions) {
-      statements.push(this.db.prepare(`INSERT INTO model_aggregates
-        (provider, model_id, response_count, complete_pair_count, asymmetric_pair_count, answered_count, refusal_count, error_count, truncated_count, latency_sum_ms, first_seen_at, last_seen_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(provider, model_id) DO UPDATE SET
-          response_count=response_count+excluded.response_count,
-          complete_pair_count=complete_pair_count+excluded.complete_pair_count,
-          asymmetric_pair_count=asymmetric_pair_count+excluded.asymmetric_pair_count,
-          answered_count=answered_count+excluded.answered_count,
-          refusal_count=refusal_count+excluded.refusal_count,
-          error_count=error_count+excluded.error_count,
-          truncated_count=truncated_count+excluded.truncated_count,
-          latency_sum_ms=latency_sum_ms+excluded.latency_sum_ms,
-          last_seen_at=excluded.last_seen_at`)
-        .bind(item.provider, item.modelId, item.responseCount, item.completePairs, item.asymmetricPairs,
-          item.answeredCount, item.refusalCount, item.errorCount, item.truncatedCount, item.latencySumMs, receivedAt, receivedAt))
-    }
-    await this.db.batch(statements)
-    invalidatePublicReadCache()
-    return {
-      runId,
-      duplicate: false,
-      crossedThresholds: thresholdsCrossed(before, before + completePairs),
-    }
+  async publish(raw: PublicSubmission, receivedAt: string) {
+    return new PublicRunPublisher(this.db).publish(raw, receivedAt)
   }
 
-  async getLeaderboard(modelLimit = 50, recentLimit = 40, questionLimit = 30): Promise<PublicLeaderboard> {
+  async getLeaderboard(modelLimit = 50, recentLimit = 200, questionLimit = 100): Promise<PublicLeaderboard> {
     const cached = readCachedLeaderboard()
     if (cached) return cached
     await ensureQuestionKeys(this.db)
@@ -258,10 +164,12 @@ export class PublicRepository {
   }
 }
 
+type ReportStructuredCounts = { responseCount?: number; completePairs?: number; modelCount?: number }
+
 function parseReportSummary(row: Record<string, unknown>): GeneratedReportSummary | null {
-  let document: { responseCount?: number; completePairs?: number; modelCount?: number } | null = null
+  let document: ReportStructuredCounts | null = null
   try {
-    document = row.structured_json ? JSON.parse(s(row.structured_json)) as typeof document : null
+    document = row.structured_json ? JSON.parse(s(row.structured_json)) as ReportStructuredCounts : null
   } catch {
     document = null
   }

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { RawRecord } from '../engine/types'
-import { listGeneratedReports, publishRun, requestGeneratedReport } from './client'
+import { getPublicLeaderboard, listGeneratedReports, publishRun, requestGeneratedReport } from './client'
+import { invalidatePublicCache } from './publicApiCache'
 
 const record = (provider: RawRecord['provider']): RawRecord => ({
   requestId: 'private-request', batchId: 'private-batch', pairIndex: 0, runIndex: 0, pairId: 'local-pair',
@@ -23,6 +24,22 @@ describe('public evidence client', () => {
     expect(fetcher.mock.calls[1][1]?.body).toBe(JSON.stringify({ runId: 'public-run' }))
   })
 
+  it('keeps later upload chunks on the same public run', async () => {
+    const records = Array.from({ length: 101 }, (_, index) => ({
+      ...record('openrouter'),
+      pairIndex: index % 50,
+      sha256: index.toString(16).padStart(64, '0'),
+    }))
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({ runId: 'same-run', duplicate: false }), {
+      status: 201,
+      headers: { 'content-type': 'application/json' },
+    }))
+    await publishRun(records, fetcher)
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    expect(JSON.parse(String(fetcher.mock.calls[0][1]?.body)).continueRunId).toBeUndefined()
+    expect(JSON.parse(String(fetcher.mock.calls[1][1]?.body)).continueRunId).toBe('same-run')
+  })
+
   it('publishes live records without local browser identifiers', async () => {
     const fetcher = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({ runId: 'public', duplicate: false }), { status: 201, headers: { 'content-type': 'application/json' } }))
     await publishRun([record('openrouter')], fetcher)
@@ -38,5 +55,17 @@ describe('public evidence client', () => {
     expect(await publishRun([record('simulated')], fetcher)).toEqual({ skipped: true })
     expect(await publishRun([record('workers-ai')], fetcher)).toEqual({ skipped: true })
     expect(fetcher).not.toHaveBeenCalled()
+  })
+
+  it('explains when the leaderboard endpoint returns a page instead of evidence', async () => {
+    invalidatePublicCache()
+    const fetcher = vi.fn(async () => new Response('<!doctype html>', { status: 200, headers: { 'content-type': 'text/html' } }))
+    await expect(getPublicLeaderboard(fetcher)).rejects.toThrow(/Public evidence could not be loaded/)
+  })
+
+  it('explains when the leaderboard payload is empty', async () => {
+    invalidatePublicCache()
+    const fetcher = vi.fn(async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }))
+    await expect(getPublicLeaderboard(fetcher)).rejects.toThrow(/Public evidence could not be loaded/)
   })
 })

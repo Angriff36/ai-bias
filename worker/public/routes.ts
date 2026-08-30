@@ -26,10 +26,10 @@ const json = (body: unknown, status = 200, extraHeaders?: HeadersInit) => new Re
 
 async function readJson(request: Request): Promise<unknown> {
   const length = Number(request.headers.get('content-length') ?? 0)
-  if (length > 524_288) throw new Error('PAYLOAD_TOO_LARGE')
+  if (length > 1_048_576) throw new Error('PAYLOAD_TOO_LARGE')
   if (!(request.headers.get('content-type') ?? '').toLowerCase().startsWith('application/json')) throw new Error('JSON_REQUIRED')
   const text = await request.text()
-  if (new TextEncoder().encode(text).byteLength > 524_288) throw new Error('PAYLOAD_TOO_LARGE')
+  if (new TextEncoder().encode(text).byteLength > 1_048_576) throw new Error('PAYLOAD_TOO_LARGE')
   return JSON.parse(text)
 }
 
@@ -39,7 +39,7 @@ export async function handlePublicApi(
   context: ExecutionContextLike,
   injected?: {
     repository: Pick<PublicRepository, 'publish' | 'getLeaderboard' | 'getQuestionDetail' | 'getAllowance'>
-    reportRepository: Pick<GeneratedReportRepository, 'claimRunReport' | 'claimCurrentGlobalReport' | 'evaluateGlobalReportAfterPublish' | 'listReports' | 'getReportDocument'>
+    reportRepository: Pick<GeneratedReportRepository, 'claimRunReport' | 'claimCurrentGlobalReport' | 'evaluateGlobalReportAfterPublish' | 'listReports' | 'getReportDocument' | 'prepareReportGeneration'>
     quotaHash(request: Request, secret: string): Promise<{ hash: string; cookie?: string }>
     freeRunner: typeof runFreePair
     schedule(thresholds: number[]): void
@@ -87,9 +87,12 @@ export async function handlePublicApi(
         ? await reportRepository.claimCurrentGlobalReport(now)
         : await reportRepository.claimRunReport(parsed.runId!, now)
       if (claim.kind === 'ineligible') {
-        return json(parsed.globalCohort != null
-          ? { error: 'Global reports require at least 10 reportable matched questions.', reportableQuestions: claim.reportableQuestions }
-          : { error: 'A full report requires at least 20 complete matched questions.', completeQuestions: claim.completeQuestions }, 422)
+        if (parsed.globalCohort != null) {
+          const global = claim as Extract<typeof claim, { kind: 'ineligible'; reportableQuestions: number }>
+          return json({ error: 'Global reports require at least 10 reportable matched questions.', reportableQuestions: global.reportableQuestions }, 422)
+        }
+        const run = claim as Extract<typeof claim, { kind: 'ineligible'; completeQuestions: number }>
+        return json({ error: 'A full report requires at least 20 complete matched questions.', completeQuestions: run.completeQuestions }, 422)
       }
       if (claim.kind === 'not-due') {
         return json({ error: 'No material new evidence yet for another global report.', reportableQuestions: claim.reportableQuestions }, 200)

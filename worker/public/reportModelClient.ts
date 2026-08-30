@@ -15,7 +15,7 @@ function responseText(value: unknown): string {
 export class WorkersAiReportModel implements ReportModelClient {
   constructor(private readonly ai: AiBindingLike) {}
 
-  async complete(modelId: string, prompt: string, maxTokens: number, options?: { jsonObject?: boolean }): Promise<string> {
+  async complete(modelId: string, prompt: string, maxTokens: number, _options?: { jsonObject?: boolean }): Promise<string> {
     const result = await this.ai.run(modelId, {
       messages: [{ role: 'user', content: prompt }],
       max_tokens: maxTokens,

@@ -103,6 +103,7 @@ describe('QuestionDetailPage', () => {
     expect(plainAnswer('**a**\n```md\n**literal**')).toBe('a\n```md\n**literal**')
     expect(plainAnswer('Compute 5 * 3 * 2 and *this*')).toBe('Compute 5 * 3 * 2 and this')
     expect(plainAnswer('````\n```\n**inner**\n```\n````\n**out**')).toBe('````\n```\n**inner**\n```\n````\nout')
+    expect(plainAnswer('````\n```\n**still code**')).toBe('````\n```\n**still code**')
   })
 
   it('picks the latest run position when timestamps tie', () => {

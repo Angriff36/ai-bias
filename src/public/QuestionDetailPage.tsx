@@ -29,7 +29,8 @@ export function plainAnswer(text: string): string {
     .replace(/\n{3,}/g, '\n\n')
   const source = text.replace(/\r/g, '')
   // A fence cut off by truncation stays code to the end of the answer.
-  const code = /(`{3,})[\s\S]*?\1|`{3,}[\s\S]*$|(`+)[^`\n][\s\S]*?\2/g
+  // (?!`) pins each delimiter to its full run, so a shorter inner run never closes a longer fence.
+  const code = /(`{3,})(?!`)[\s\S]*?\1(?!`)|`{3,}[\s\S]*$|(`+)(?!`)[^`\n][\s\S]*?\2(?!`)/g
   let out = ''
   let last = 0
   for (const match of source.matchAll(code)) {

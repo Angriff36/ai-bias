@@ -16,7 +16,7 @@ describe('request deadline', () => {
       callModel: (_req, signal) => new Promise((_, reject) => {
         signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
       }),
-    }, { onCell: (cell) => cells.push(cell), onDone: () => {}, onRecord: () => {}, onFailureStreak: () => {} } as never)
+    }, { onCell: (cell: CellStatus) => cells.push(cell), onDone: () => {}, onRecord: () => {}, onFailureStreak: () => {} } as never)
     executor.start()
     await vi.advanceTimersByTimeAsync(REQUEST_DEADLINE_MS + 10)
     const last = cells.at(-1)

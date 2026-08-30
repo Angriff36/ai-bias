@@ -58,7 +58,17 @@ export function createBatchExecutor(
     while (inFlight < concurrency && cursor < queue.length) {
       const request = queue[cursor++]
       inFlight++
-      void execute(request)
+      execute(request).catch((error: unknown) => {
+        // A crash after the answer (a full browser store, a bad record) must not freeze the box.
+        callbacks.onCell({
+          requestId: request.id,
+          state: 'failed',
+          statusCode: 0,
+          errorMessage: error instanceof Error ? error.message : 'The answer could not be saved',
+        })
+        inFlight--
+        pump()
+      })
     }
     if (inFlight === 0 && cursor >= queue.length && !finished) {
       finished = true

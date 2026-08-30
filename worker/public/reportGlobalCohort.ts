@@ -49,7 +49,30 @@ export function modelKey(provider: string, modelId: string): string {
   return `${provider}\u0000${modelId}`
 }
 
-function completePairGroups(records: PublicEvidenceItem[]): PublicEvidenceItem[][] {
+export function isPromptPlaceholder(value: string | undefined): boolean {
+  return /^prompt\s+\d+\s+vs\s+prompt\s+\d+$/i.test(value?.trim() ?? '')
+}
+
+function hasRealQuestion(item: PublicEvidenceItem): boolean {
+  const question = item.question?.trim() ?? ''
+  return question !== '' && !isPromptPlaceholder(question)
+}
+
+/** True when two prompts share their scenario and differ only around a swapped phrase. */
+export function isMatchedSwapPair(promptA: string, promptB: string): boolean {
+  const a = promptA.trim().toLowerCase()
+  const b = promptB.trim().toLowerCase()
+  if (!a || !b || a === b) return false
+  let prefix = 0
+  while (prefix < a.length && prefix < b.length && a[prefix] === b[prefix]) prefix++
+  let suffix = 0
+  while (suffix < a.length - prefix && suffix < b.length - prefix
+    && a[a.length - suffix - 1] === b[b.length - suffix - 1]) suffix++
+  const shorter = Math.min(a.length, b.length)
+  return prefix + suffix >= shorter * 0.5
+}
+
+export function completePairGroups(records: PublicEvidenceItem[]): PublicEvidenceItem[][] {
   const grouped = new Map<string, PublicEvidenceItem[]>()
   for (const item of records) {
     const key = `${item.runId}\u0000${item.pairIndex}\u0000${item.runIndex}\u0000${item.provider}\u0000${item.modelId}`
@@ -58,7 +81,13 @@ function completePairGroups(records: PublicEvidenceItem[]): PublicEvidenceItem[]
   return [...grouped.values()].filter((group) => {
     const variantA = group.find((item) => item.variantKey === 'A')
     const variantB = group.find((item) => item.variantKey === 'B')
-    return Boolean(variantA && variantB && variantA.status === 'ok' && variantB.status === 'ok')
+    if (!variantA || !variantB || variantA.status !== 'ok' || variantB.status !== 'ok') return false
+    // Legacy rows recorded without a real question may hold two different
+    // scenarios in one pair slot (a recording defect). A pair only counts as
+    // matched evidence when the prompts are the same scenario with only the
+    // demographic phrase swapped.
+    if (hasRealQuestion(variantA) || hasRealQuestion(variantB)) return true
+    return isMatchedSwapPair(variantA.prompt, variantB.prompt)
   })
 }
 

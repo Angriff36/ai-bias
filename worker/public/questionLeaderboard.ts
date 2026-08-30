@@ -1,26 +1,11 @@
 import type { PublicEvidenceItem, PublicQuestionDetail, PublicQuestionInstance, PublicQuestionSummary } from '../../src/public/contracts'
 import { normalizeQuestionKey } from '../../src/public/questionKeys'
-import { buildQuestionCatalog, rankQuestions, type QuestionCatalogEntry } from './reportGlobalCohort'
+import { buildQuestionCatalog, completePairGroups, isMatchedSwapPair, isPromptPlaceholder, rankQuestions, type QuestionCatalogEntry } from './reportGlobalCohort'
 
-function completePairGroups(records: PublicEvidenceItem[]): PublicEvidenceItem[][] {
-  const grouped = new Map<string, PublicEvidenceItem[]>()
-  for (const item of records) {
-    const key = `${item.runId}\u0000${item.pairIndex}\u0000${item.runIndex}\u0000${item.provider}\u0000${item.modelId}`
-    grouped.set(key, [...(grouped.get(key) ?? []), item])
-  }
-  return [...grouped.values()].filter((group) => {
-    const variantA = group.find((item) => item.variantKey === 'A')
-    const variantB = group.find((item) => item.variantKey === 'B')
-    return Boolean(variantA && variantB && variantA.status === 'ok' && variantB.status === 'ok')
-  })
-}
+export { isMatchedSwapPair }
 
 function lastSeenAt(records: PublicEvidenceItem[]): string {
   return records.reduce((latest, item) => (item.receivedAt > latest ? item.receivedAt : latest), '')
-}
-
-function isPromptPlaceholder(value: string | undefined): boolean {
-  return /^prompt\s+\d+\s+vs\s+prompt\s+\d+$/i.test(value?.trim() ?? '')
 }
 
 /** Recover a meaningful question for legacy rows that stored variant names. */
@@ -54,8 +39,17 @@ function canonicalizeLegacyQuestions(evidence: PublicEvidenceItem[]): PublicEvid
     groups.set(key, [...(groups.get(key) ?? []), item])
   }
   return [...groups.values()].flatMap((records) => {
-    const canonical = questionText(records, records[0]?.question?.trim() ?? '')
-    return records.map((item) => ({ ...item, question: canonical }))
+    // Derive a question title only from pairs that are actually matched swaps;
+    // a corrupt pair must not fabricate a question for its rows.
+    const validPairRecords = completePairGroups(records).flat()
+    const canonical = validPairRecords.length > 0
+      ? questionText(validPairRecords, records[0]?.question?.trim() ?? '')
+      : records[0]?.question?.trim() ?? ''
+    const canonicalRows = new Set(validPairRecords)
+    return records.map((item) => ({
+      ...item,
+      question: canonicalRows.has(item) ? canonical : item.question?.trim() ?? '',
+    }))
   })
 }
 
@@ -71,7 +65,7 @@ function toSummary(entry: QuestionCatalogEntry, records: PublicEvidenceItem[]): 
 
 export function buildTopQuestionSummaries(evidence: PublicEvidenceItem[], limit = 100): PublicQuestionSummary[] {
   const canonicalEvidence = canonicalizeLegacyQuestions(evidence)
-  const catalog = rankQuestions(buildQuestionCatalog(canonicalEvidence))
+  const catalog = rankQuestions(buildQuestionCatalog(canonicalEvidence).filter((entry) => entry.completePairCount > 0))
   const byKey = new Map<string, PublicEvidenceItem[]>()
   for (const item of canonicalEvidence) {
     const key = normalizeQuestionKey(item.question)

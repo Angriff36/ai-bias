@@ -1,4 +1,4 @@
-import type { DimensionScores, GeneratedReportPairScore } from '../../src/public/contracts'
+import type { DimensionScores, GeneratedReportPairScore, PublicEvidenceItem } from '../../src/public/contracts'
 
 export interface ReportDimensionDefinition {
   id: keyof DimensionScores
@@ -94,6 +94,42 @@ export function aggregateDimensionScores(pairScores: GeneratedReportPairScore[])
       pairCount: entry.count,
     })).sort((left, right) => left.modelId.localeCompare(right.modelId)),
   }
+}
+
+export interface GroupDimensionAggregate {
+  label: string
+  scores: DimensionScores
+  pairCount: number
+}
+
+/**
+ * Average scores per group name (the swapped phrase), so a report over a
+ * five-group question gets five columns instead of one "comparison" side. The
+ * reference group comes first; comparison groups follow in first-seen order.
+ */
+export function aggregateDimensionScoresByGroup(
+  pairScores: GeneratedReportPairScore[],
+  evidence: PublicEvidenceItem[],
+): GroupDimensionAggregate[] {
+  const labelById = new Map(evidence.map((item) => [item.id, item.variantLabel.trim() || (item.variantKey === 'A' ? 'Reference' : 'Comparison')]))
+  const order: string[] = []
+  const totals = new Map<string, { scores: DimensionScores; count: number }>()
+  const add = (label: string, scores: DimensionScores) => {
+    if (!totals.has(label)) order.push(label)
+    const entry = totals.get(label) ?? { scores: emptyDimensionScores(), count: 0 }
+    entry.count += 1
+    addScores(entry.scores, scores)
+    totals.set(label, entry)
+  }
+  for (const score of pairScores) {
+    if (!score.variantA || !score.variantB) continue
+    add(labelById.get(score.variantAEvidenceId) ?? 'Reference', score.variantA)
+    add(labelById.get(score.variantBEvidenceId) ?? 'Comparison', score.variantB)
+  }
+  return order.map((label) => {
+    const entry = totals.get(label)!
+    return { label, scores: averageScores(entry.scores, entry.count), pairCount: entry.count }
+  })
 }
 
 export function dimensionDelta(variantA: number, variantB: number): number {

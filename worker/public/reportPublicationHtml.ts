@@ -1,5 +1,5 @@
 import type { GeneratedReportDocument } from '../../src/public/contracts'
-import { escapeHtml, renderPairEvidenceSection, renderPublicationCharts } from './reportPublicationCharts'
+import { aggregateDimensionScoresByGroup, escapeHtml, renderGroupDimensionTable, renderPairEvidenceSection, renderPublicationCharts } from './reportPublicationCharts'
 import { REPORT_PUBLICATION_STYLES } from './reportPublicationStyles'
 import { summarizeVariantSideLabels } from './reportVariantLabels'
 
@@ -13,6 +13,7 @@ export function renderPublicationReportHtml(report: GeneratedReportDocument): st
   const sideLabels = summarizeVariantSideLabels(report.evidence)
   const { pooledTable, modelCards } = renderPublicationCharts(report.pairScores, sideLabels)
   const pairSection = renderPairEvidenceSection(report.pairScores, report.evidence)
+  const groupTable = renderGroupDimensionTable(aggregateDimensionScoresByGroup(report.pairScores, report.evidence))
   const legend = `${sideLabels.reference} vs ${sideLabels.comparison}`
   const modelRows = report.models.map((model) => `<tr><td class="dn"><b>${escapeHtml(model.modelId)}</b><span class="dd">${escapeHtml(model.provider)}</span></td>`
     + `<td class="num">${model.responses}</td><td class="num">${model.completePairs}</td>`
@@ -33,7 +34,9 @@ export function renderPublicationReportHtml(report: GeneratedReportDocument): st
     + `<div class="kpi"><b>${refusalTotal.toLocaleString()}</b><span>refusals</span></div></div>`
     + `<p class="sub" style="margin-top:22px">Each question was asked twice — same wording except for the group named. A judge model scored both answers on seven traits (0–3). Averages for ${escapeHtml(legend)}:</p>`
     + `${pooledTable}`
-    + `<p class="legend"><span class="sw wbar"></span>${escapeHtml(sideLabels.reference)} &nbsp;&nbsp; <span class="sw bbar"></span>${escapeHtml(sideLabels.comparison)}</p></section>`
+    + `<p class="legend"><span class="sw wbar"></span>${escapeHtml(sideLabels.reference)} &nbsp;&nbsp; <span class="sw bbar"></span>${escapeHtml(sideLabels.comparison)}</p>`
+    + (groupTable ? `<h3>Every group, side by side</h3><p class="sub">The same seven traits, one column per group named in the questions.</p>${groupTable}` : '')
+    + `</section>`
     + `<section id="models"><div class="shead"><span class="tag">Models</span><h2>Who answered what</h2></div>`
     + `<table><tr><th>Model</th><th class="num">Answers</th><th class="num">Questions</th><th class="num">Refusals</th><th class="num">Errors</th><th class="num">Cut off</th></tr>${modelRows}</table></section>`
     + `<section id="dimensions"><div class="shead"><span class="tag">Answer tone</span><h2>How the two sides compared</h2></div>`

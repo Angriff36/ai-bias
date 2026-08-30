@@ -26,6 +26,13 @@ const JUDGE_MODEL = 'z-ai/glm-5.3-flash'
 const SYNTHESIS_MODEL = 'x-ai/grok-4.6'
 const SCORING_MODEL = JUDGE_MODEL
 const DAILY_REPORT_JOB_LIMIT = 20
+/**
+ * Every report insert is one atomic statement guarded by today's count, so
+ * concurrent starts on any path cannot exceed the cap and no over-cap row is
+ * ever visible. Bind: day start, then the cap.
+ */
+const UNDER_DAILY_CAP = '(SELECT COUNT(*) FROM generated_reports WHERE created_at >= ?) < ?'
+const dayStart = (now: string) => `${now.slice(0, 10)}T00:00:00.000Z`
 
 const n = (value: unknown) => Number(value ?? 0)
 const s = (value: unknown) => String(value ?? '')
@@ -131,15 +138,16 @@ export class GeneratedReportRepository {
   ): Promise<GlobalReportClaim> {
     const found = existing ?? await this.findByCohortFingerprint(snapshot.cohortFingerprint)
     if (found) return this.reclaimOrReturn(found, now)
-    if (await this.dailyLimitReached(now)) return { kind: 'limited' }
     const id = crypto.randomUUID()
     const evidenceHash = await sha256(`report-schema:1\nglobal-cohort:${snapshot.cohortFingerprint}`)
     await this.db.prepare(`INSERT INTO generated_reports
       (id, scope, cohort_fingerprint, cohort_snapshot_json, evidence_hash, status, scoring_model_id, synthesis_model_id, report_schema_version, created_at)
-      VALUES (?, 'global', ?, ?, ?, 'pending', ?, ?, 1, ?) ON CONFLICT DO NOTHING`)
-      .bind(id, snapshot.cohortFingerprint, JSON.stringify(snapshot), evidenceHash, SCORING_MODEL, SYNTHESIS_MODEL, now).run()
+      SELECT ?, 'global', ?, ?, ?, 'pending', ?, ?, 1, ?
+      WHERE ${UNDER_DAILY_CAP}
+      ON CONFLICT DO NOTHING`)
+      .bind(id, snapshot.cohortFingerprint, JSON.stringify(snapshot), evidenceHash, SCORING_MODEL, SYNTHESIS_MODEL, now, dayStart(now), DAILY_REPORT_JOB_LIMIT).run()
     const report = await this.findByCohortFingerprint(snapshot.cohortFingerprint)
-    if (!report) throw new Error('Could not claim global cohort report.')
+    if (!report) return { kind: 'limited' }
     return { kind: report.id === id ? 'claimed' : 'existing', report: this.summary(report) }
   }
 
@@ -153,15 +161,12 @@ export class GeneratedReportRepository {
     if (existing) return this.reclaimOrReturn(existing, now)
     const id = crypto.randomUUID()
     const evidenceHash = await sha256(`report-schema:1\nquestion-set:${snapshot.cohortFingerprint}`)
-    const start = `${now.slice(0, 10)}T00:00:00.000Z`
-    // One atomic statement: the row is written only while today's count is under the cap,
-    // so concurrent starts cannot exceed it and no over-cap row is ever visible.
     await this.db.prepare(`INSERT INTO generated_reports
       (id, scope, cohort_fingerprint, cohort_snapshot_json, question_keys_json, evidence_hash, status, scoring_model_id, synthesis_model_id, report_schema_version, created_at)
       SELECT ?, 'global', ?, ?, ?, ?, 'pending', ?, ?, 1, ?
-      WHERE (SELECT COUNT(*) FROM generated_reports WHERE created_at >= ?) < ?
+      WHERE ${UNDER_DAILY_CAP}
       ON CONFLICT DO NOTHING`)
-      .bind(id, snapshot.cohortFingerprint, JSON.stringify(snapshot), JSON.stringify(snapshot.questionKeys), evidenceHash, SCORING_MODEL, SYNTHESIS_MODEL, now, start, DAILY_REPORT_JOB_LIMIT).run()
+      .bind(id, snapshot.cohortFingerprint, JSON.stringify(snapshot), JSON.stringify(snapshot.questionKeys), evidenceHash, SCORING_MODEL, SYNTHESIS_MODEL, now, dayStart(now), DAILY_REPORT_JOB_LIMIT).run()
     const report = await this.findByCohortFingerprint(snapshot.cohortFingerprint)
     if (!report) return { kind: 'limited' }
     return { kind: report.id === id ? 'claimed' : 'existing', report: this.summary(report) }
@@ -178,15 +183,16 @@ export class GeneratedReportRepository {
     if (completeQuestions < 20) return { kind: 'ineligible', completeQuestions }
     const run = await this.db.prepare('SELECT id FROM public_runs WHERE id = ?').bind(runId).first<{ id: string }>()
     if (!run) return { kind: 'ineligible', completeQuestions: 0 }
-    if (await this.dailyLimitReached(now)) return { kind: 'limited' }
     const id = crypto.randomUUID()
     const evidenceHash = await sha256(`report-schema:1\nrun:${runId}`)
     await this.db.prepare(`INSERT INTO generated_reports
       (id, scope, public_run_id, evidence_hash, status, scoring_model_id, synthesis_model_id, report_schema_version, created_at)
-      VALUES (?, 'run', ?, ?, 'pending', ?, ?, 1, ?) ON CONFLICT DO NOTHING`)
-      .bind(id, runId, evidenceHash, SCORING_MODEL, SYNTHESIS_MODEL, now).run()
+      SELECT ?, 'run', ?, ?, 'pending', ?, ?, 1, ?
+      WHERE ${UNDER_DAILY_CAP}
+      ON CONFLICT DO NOTHING`)
+      .bind(id, runId, evidenceHash, SCORING_MODEL, SYNTHESIS_MODEL, now, dayStart(now), DAILY_REPORT_JOB_LIMIT).run()
     const report = await this.findByRun(runId)
-    if (!report) throw new Error('Could not claim run report.')
+    if (!report) return { kind: 'limited' }
     return { kind: report.id === id ? 'claimed' : 'existing', report: this.summary(report) }
   }
 
@@ -358,13 +364,6 @@ export class GeneratedReportRepository {
       responseCount: document?.responseCount ?? 0, completePairs: document?.completePairs ?? 0,
       modelCount: document?.modelCount ?? 0, createdAt: row.createdAt, completedAt: row.completedAt,
     })
-  }
-
-  private async dailyLimitReached(now: string): Promise<boolean> {
-    const start = `${now.slice(0, 10)}T00:00:00.000Z`
-    const row = await this.db.prepare('SELECT COUNT(*) AS count FROM generated_reports WHERE created_at >= ?')
-      .bind(start).first<{ count: number }>()
-    return n(row?.count) >= DAILY_REPORT_JOB_LIMIT
   }
 }
 

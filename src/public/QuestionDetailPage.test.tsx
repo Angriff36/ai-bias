@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { PublicQuestionDetail } from './contracts'
-import { QuestionDetailPage, buildComparisonRows, plainAnswer } from './QuestionDetailPage'
+import { QuestionDetailPage, buildComparisonRows, latestPerGroup, plainAnswer } from './QuestionDetailPage'
 
 const detail: PublicQuestionDetail = {
   questionKey: 'identity',
@@ -92,10 +92,23 @@ describe('QuestionDetailPage', () => {
       { label: 'black', prompt: 'p', count: 1, answers: [same('b1')] },
     ])
     expect(rows.flatMap((row) => row.cells.map((cell) => cell?.id)).filter(Boolean).sort()).toEqual(['b1', 'w1', 'w2', 'w3'])
+    // Ambiguous position: nothing is paired, each answer sits alone on its row.
+    expect(rows.every((row) => row.cells.filter(Boolean).length === 1)).toBe(true)
   })
 
   it('strips markdown markers from prose but leaves code exactly as written', () => {
     expect(plainAnswer('## Title\n**Bold** point\n- item\nUse `__init__` and **not** `**raw**`')).toBe('Title\nBold point\n• item\nUse `__init__` and not `**raw**`')
+    expect(plainAnswer('See `` a `tick` **b** `` here **c**')).toBe('See `` a `tick` **b** `` here c')
+    expect(plainAnswer('```\n**x**\n\n\n\ny\n```\n\n\n\n**z**')).toBe('```\n**x**\n\n\n\ny\n```\n\nz')
+    expect(plainAnswer('**a**\n```md\n**literal**')).toBe('a\n```md\n**literal**')
+  })
+
+  it('picks the latest run position when timestamps tie', () => {
+    const base = detail.groups[0].answers[0]
+    const rows = buildComparisonRows([
+      { label: 'white', prompt: 'p', count: 2, answers: [{ ...base, id: 'r0', receivedAt: 't', runIndex: 0 }, { ...base, id: 'r1', receivedAt: 't', runIndex: 1 }] },
+    ])
+    expect(latestPerGroup(rows).cells[0]?.id).toBe('r1')
   })
 
   it('keeps the same model id from two providers apart', () => {

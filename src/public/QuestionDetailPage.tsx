@@ -16,7 +16,8 @@ const PREVIEW_CHARS = 420
 
 /**
  * Model answers arrive as markdown; show the words, not the markers. Code spans
- * and fenced blocks are left exactly as written so literal text is never altered.
+ * (any backtick run, matched to its closing run) and fenced blocks are copied
+ * exactly as written, so literal text is never altered.
  */
 export function plainAnswer(text: string): string {
   const stripProse = (chunk: string) => chunk
@@ -24,12 +25,18 @@ export function plainAnswer(text: string): string {
     .replace(/\*\*(.+?)\*\*/g, '$1')
     .replace(/(^|[\s(])\*([^*\n]+?)\*(?=[\s.,;:!?)]|$)/gm, '$1$2')
     .replace(/^\s*[-*]\s+/gm, '• ')
-  const segments = text.replace(/\r/g, '').split(/(```[\s\S]*?```|`[^`\n]*`)/)
-  return segments
-    .map((segment, index) => (index % 2 === 1 ? segment : stripProse(segment)))
-    .join('')
     .replace(/\n{3,}/g, '\n\n')
-    .trim()
+  const source = text.replace(/\r/g, '')
+  // A fence cut off by truncation stays code to the end of the answer.
+  const code = /```[\s\S]*?```|```[\s\S]*$|(`+)[^`\n][\s\S]*?\1/g
+  let out = ''
+  let last = 0
+  for (const match of source.matchAll(code)) {
+    out += stripProse(source.slice(last, match.index)) + match[0]
+    last = match.index + match[0].length
+  }
+  out += stripProse(source.slice(last))
+  return out.trim()
 }
 
 function shortModel(modelId: string): string {
@@ -60,6 +67,21 @@ export function buildComparisonRows(groups: PublicQuestionGroup[]): GridRow[] {
   const models: string[] = []
   const modelIds = new Map<string, string>()
   const slots = new Map<string, Map<string, { firstSeen: string; cells: Array<PublicQuestionAnswer | null> }>>()
+  // Published positions are clamped (pairIndex <= 49, runIndex <= 20), so two
+  // answers can share a position. A position that holds more than one answer in
+  // any group is ambiguous: every answer there gets its own row, and nothing is
+  // shown as a pair that was not one.
+  const perPosition = new Map<string, number>()
+  groups.forEach((group, column) => {
+    for (const answer of group.answers) {
+      const key = `${modelKeyOf(answer)} ${answer.runId} ${answer.pairIndex} ${answer.runIndex} ${column}`
+      perPosition.set(key, (perPosition.get(key) ?? 0) + 1)
+    }
+  })
+  const ambiguous = new Set<string>()
+  for (const [key, count] of perPosition) {
+    if (count > 1) ambiguous.add(key.slice(0, key.lastIndexOf(' ')))
+  }
   groups.forEach((group, column) => {
     for (const answer of [...group.answers].sort((a, b) => a.receivedAt.localeCompare(b.receivedAt) || a.runIndex - b.runIndex)) {
       const model = modelKeyOf(answer)
@@ -69,13 +91,10 @@ export function buildComparisonRows(groups: PublicQuestionGroup[]): GridRow[] {
         slots.set(model, new Map())
       }
       const perModel = slots.get(model)!
-      // Published positions are clamped (pairIndex <= 49, runIndex <= 20), so two
-      // answers can share a position. Nothing is ever dropped: a taken cell moves
-      // the answer to the next free row at that position.
-      let slotKey = `${answer.runId} ${answer.pairIndex} ${answer.runIndex}`
-      for (let extra = 1; perModel.get(slotKey)?.cells[column]; extra += 1) {
-        slotKey = `${answer.runId} ${answer.pairIndex} ${answer.runIndex}#${extra}`
-      }
+      const position = `${model} ${answer.runId} ${answer.pairIndex} ${answer.runIndex}`
+      const slotKey = ambiguous.has(position)
+        ? `${answer.runId} ${answer.pairIndex} ${answer.runIndex} ${answer.id}`
+        : `${answer.runId} ${answer.pairIndex} ${answer.runIndex}`
       const entry = perModel.get(slotKey) ?? { firstSeen: answer.receivedAt, cells: groups.map(() => null) }
       entry.cells[column] = answer
       if (answer.receivedAt < entry.firstSeen) entry.firstSeen = answer.receivedAt
@@ -97,9 +116,10 @@ export function latestPerGroup(modelRows: GridRow[]): GridRow {
   const first = modelRows[0]
   const cells = first.cells.map((_, column) => {
     let latest: PublicQuestionAnswer | null = null
+    // Rows are ordered by time then run position; on a tied timestamp the later position wins.
     for (const row of modelRows) {
       const cell = row.cells[column]
-      if (cell && (!latest || cell.receivedAt > latest.receivedAt)) latest = cell
+      if (cell && (!latest || cell.receivedAt >= latest.receivedAt)) latest = cell
     }
     return latest
   })

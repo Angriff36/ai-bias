@@ -49,12 +49,14 @@ export function deriveGroupLabels(original: string, variant: string): { a: strin
   // all occurrences of one detected term reproduces the variant exactly.
   for (const candidate of phrases) {
     const term = lowerLeft.slice(candidate.start, candidate.end)
-    const occurrences = lowerLeft.split(term).length - 1
+    // Whole words only, the same way the wizard substitutes ("man" never touches "managing").
+    const wholeWord = new RegExp(`\\b${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g')
+    const occurrences = (lowerLeft.match(wholeWord) ?? []).length
     if (occurrences < 2) continue
     const replacementLength = term.length + (right.length - left.length) / occurrences
     if (!Number.isInteger(replacementLength) || replacementLength <= 0) continue
     const b = right.slice(candidate.start, candidate.start + replacementLength)
-    if (lowerLeft.split(term).join(b.toLowerCase()) !== lowerRight) continue
+    if (lowerLeft.replace(wholeWord, b.toLowerCase()) !== lowerRight) continue
     return finish(clean(left.slice(candidate.start, candidate.end)), clean(b))
   }
   return null

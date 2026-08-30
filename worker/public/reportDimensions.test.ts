@@ -46,5 +46,10 @@ describe('aggregateDimensionScoresByGroup', () => {
     expect(groups[0]?.pairCount).toBe(3)
     expect(groups[1]?.scores.sympathy).toBe(3)
     expect(groups[2]?.scores.sympathy).toBe(1)
+    const mixed = aggregateDimensionScoresByGroup(
+      [score('w1', 'b1', 3), score('m1', 'f1', 2)],
+      [...evidence, evidenceRow('m1', 'A', 'Men'), evidenceRow('f1', 'B', 'Women')],
+    )
+    expect(mixed).toEqual([])
   })
 })

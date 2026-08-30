@@ -18,7 +18,7 @@ function mapCatalogEvidenceRow(row: Record<string, unknown>): PublicEvidenceItem
   return {
     id: s(row.id), runId: s(row.run_id), pairIndex: n(row.pair_index), runIndex: n(row.run_index),
     question: row.question == null ? undefined : s(row.question), variantKey: s(row.variant_key) as 'A' | 'B',
-    variantLabel: s(row.variant_key), provider: s(row.provider), modelId: s(row.model_id),
+    variantLabel: s(row.variant_label), provider: s(row.provider), modelId: s(row.model_id),
     prompt: s(row.prompt), response: '', latencyMs: 0, statusCode: 0, status: s(row.status) as 'ok' | 'error',
     sha256: '', classification: 'answered', receivedAt: s(row.received_at),
   }
@@ -39,7 +39,7 @@ const evidenceSelect = `SELECT id, run_id, pair_index, run_index, question, vari
   provider, model_id, prompt, response, latency_ms, status_code, status, error_message, truncated, evidence_sha256, classification, received_at
   FROM public_evidence`
 
-const catalogEvidenceSelect = `SELECT id, run_id, pair_index, run_index, question, variant_key, provider, model_id, prompt, status, received_at
+const catalogEvidenceSelect = `SELECT id, run_id, pair_index, run_index, question, variant_key, variant_label, provider, model_id, prompt, status, received_at
   FROM public_evidence`
 
 export class PublicRepository {

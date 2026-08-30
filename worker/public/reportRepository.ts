@@ -160,6 +160,11 @@ question-set:${snapshot.cohortFingerprint}`)
       .bind(id, snapshot.cohortFingerprint, JSON.stringify(snapshot), JSON.stringify(snapshot.questionKeys), evidenceHash, SCORING_MODEL, SYNTHESIS_MODEL, now).run()
     const report = await this.findByCohortFingerprint(snapshot.cohortFingerprint)
     if (!report) throw new Error('Could not claim question-set report.')
+    if (report.id === id && await this.dailyLimitExceeded(now)) {
+      // Concurrent starts can all pass the pre-check; the row that pushed the day over the cap backs out.
+      await this.db.prepare('DELETE FROM generated_reports WHERE id=?').bind(id).run()
+      return { kind: 'limited' }
+    }
     return { kind: report.id === id ? 'claimed' : 'existing', report: this.summary(report) }
   }
 
@@ -352,6 +357,13 @@ question-set:${snapshot.cohortFingerprint}`)
       responseCount: document?.responseCount ?? 0, completePairs: document?.completePairs ?? 0,
       modelCount: document?.modelCount ?? 0, createdAt: row.createdAt, completedAt: row.completedAt,
     })
+  }
+
+  private async dailyLimitExceeded(now: string): Promise<boolean> {
+    const start = `${now.slice(0, 10)}T00:00:00.000Z`
+    const row = await this.db.prepare('SELECT COUNT(*) AS count FROM generated_reports WHERE created_at >= ?')
+      .bind(start).first<{ count: number }>()
+    return n(row?.count) > DAILY_REPORT_JOB_LIMIT
   }
 
   private async dailyLimitReached(now: string): Promise<boolean> {

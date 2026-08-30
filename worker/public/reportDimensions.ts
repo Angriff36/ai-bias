@@ -121,11 +121,18 @@ export function aggregateDimensionScoresByGroup(
     addScores(entry.scores, scores)
     totals.set(label, entry)
   }
+  const referenceLabels = new Set<string>()
   for (const score of pairScores) {
     if (!score.variantA || !score.variantB) continue
-    add(labelById.get(score.variantAEvidenceId) ?? 'Reference', score.variantA)
+    const reference = labelById.get(score.variantAEvidenceId) ?? 'Reference'
+    referenceLabels.add(reference)
+    add(reference, score.variantA)
     add(labelById.get(score.variantBEvidenceId) ?? 'Comparison', score.variantB)
   }
+  // Groups are only comparable against one shared reference. A report that mixes
+  // axes (White/Black and Men/Women) would put Women against White, which was
+  // never a matched comparison, so it gets no group table.
+  if (referenceLabels.size !== 1) return []
   return order.map((label) => {
     const entry = totals.get(label)!
     return { label, scores: averageScores(entry.scores, entry.count), pairCount: entry.count }

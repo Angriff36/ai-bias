@@ -8,7 +8,7 @@ import { renderReportHtml } from './reportHtml'
 import { GeneratedReportRepository } from './reportRepository'
 import { createReportModelClient } from './reportModelClient'
 import { CURATED_REPORTS } from './curatedReports'
-import { readCachedReports, writeCachedReports } from './readCache'
+import { invalidateCachedReports, readCachedReports, writeCachedReports } from './readCache'
 import { ClaimRepository } from './claimRepository'
 
 const PUBLIC_CACHE_CONTROL = 'public, max-age=60, stale-while-revalidate=300'
@@ -90,6 +90,7 @@ export async function handlePublicApi(
         const claim = await reportRepository.claimQuestionSetReport(parsed.questionKeys, now)
         if (claim.kind === 'ineligible') return json({ error: 'None of the chosen questions has a complete matched pair to report on yet.' }, 422)
         if (claim.kind === 'limited') return json({ error: 'The daily report-generation limit has been reached. Existing reports remain available.' }, 429)
+        invalidateCachedReports()
         if (claim.kind === 'claimed') reportSchedule(claim.report.id)
         return json({ report: claim.report }, claim.kind === 'claimed' ? 202 : 200)
       }
@@ -109,6 +110,7 @@ export async function handlePublicApi(
       }
       if (claim.kind === 'unchanged') return json({ report: claim.report }, 200)
       if (claim.kind === 'limited') return json({ error: 'The daily report-generation limit has been reached. Existing reports remain available.' }, 429)
+      invalidateCachedReports()
       if (claim.kind === 'claimed') reportSchedule(claim.report.id)
       return json({ report: claim.report }, claim.kind === 'claimed' ? 202 : 200)
     }
@@ -118,6 +120,7 @@ export async function handlePublicApi(
       const reportId = regenerate[1]
       const prepared = await reportRepository.prepareReportGeneration(reportId, now)
       if (!prepared) return json({ error: 'Report not found or already complete.' }, 404)
+      invalidateCachedReports()
       if (prepared.started) {
         const synthesisModels = createReportModelClient(env.OPENROUTER_API_KEY, url.origin)
         scheduleReportGeneration(synthesisModels, context, reportRepository as GeneratedReportRepository, reportId, synthesisModels, url.origin)
@@ -158,8 +161,9 @@ export async function handlePublicApi(
     }
     if (url.pathname === '/api/public/claims' && request.method === 'POST') {
       const parsed = publicClaimRequestSchema.parse(await readJson(request))
-      const claim = await claimRepository.create(parsed.text, parsed.questionKeys, new Date().toISOString())
-      return json({ claim }, 201)
+      const created = await claimRepository.create(parsed.text, parsed.questionKeys, new Date().toISOString())
+      if (created.kind === 'limited') return json({ error: 'The daily limit for new claims has been reached. Try again tomorrow.' }, 429)
+      return json({ claim: created.claim }, created.kind === 'duplicate' ? 200 : 201)
     }
     if (url.pathname === '/api/public/free-run' && request.method === 'GET') {
       const identity = await quotaHash(request, env.QUOTA_HMAC_SECRET)

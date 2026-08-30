@@ -165,6 +165,16 @@ export function filterEvidenceByQuestionKeys(evidence: PublicEvidenceItem[], que
   return canonicalizeLegacyQuestions(evidence).filter((item) => wanted.has(normalizeQuestionKey(item.question)))
 }
 
+/** Canonicalize once, then look rows up by leaderboard question key as many times as needed. */
+export function indexEvidenceByQuestionKey(evidence: PublicEvidenceItem[]): Map<string, PublicEvidenceItem[]> {
+  const index = new Map<string, PublicEvidenceItem[]>()
+  for (const item of canonicalizeLegacyQuestions(evidence)) {
+    const key = normalizeQuestionKey(item.question)
+    index.set(key, [...(index.get(key) ?? []), item])
+  }
+  return index
+}
+
 export function buildTopQuestionSummaries(evidence: PublicEvidenceItem[], limit = 100): PublicQuestionSummary[] {
   const canonicalEvidence = canonicalizeLegacyQuestions(evidence)
   const groups = new Map<string, PublicEvidenceItem[]>()

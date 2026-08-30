@@ -45,6 +45,10 @@ export function writeCachedQuestionDetail(questionKey: string, value: PublicQues
   questionEntries.set(questionKey, writeEntry(value))
 }
 
+export function invalidateCachedReports(): void {
+  reportsEntry = null
+}
+
 export function readCachedClaims(): PublicClaim[] | null {
   return readEntry(claimsEntry)
 }

@@ -23,7 +23,7 @@ function dependencies() {
     },
     claimRepository: {
       list: vi.fn(async () => [{ id: 'claim-1', text: 'Does the model hedge more for white people?', questionKeys: ['identity'], createdAt: 'now', testCount: 4, matchRate: 75, biasScore: 0.5, models: ['m'], lastSeenAt: 'now', reports: [] }]),
-      create: vi.fn(async (text: string, questionKeys: string[]) => ({ id: 'claim-2', text, questionKeys, createdAt: 'now', testCount: 0, matchRate: null, biasScore: null, models: [], lastSeenAt: null, reports: [] })),
+      create: vi.fn(async (text: string, questionKeys: string[]) => ({ kind: 'created', claim: { id: 'claim-2', text, questionKeys, createdAt: 'now', testCount: 0, matchRate: null, biasScore: null, models: [], lastSeenAt: null, reports: [] } })),
     },
     quotaHash: vi.fn(async () => ({ hash: 'quota-hash', cookie: 'quota=signed; HttpOnly' })),
     freeRunner: vi.fn(),

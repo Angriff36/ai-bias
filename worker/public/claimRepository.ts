@@ -1,16 +1,19 @@
 import type { PublicClaim, PublicEvidenceItem } from '../../src/public/contracts'
 import { normalizeQuestionKey } from '../../src/public/questionKeys'
 import type { D1DatabaseLike } from './d1'
-import { filterEvidenceByQuestionKeys } from './questionLeaderboard'
+import { indexEvidenceByQuestionKey } from './questionLeaderboard'
 import { readCachedClaims, writeCachedClaims } from './readCache'
 import { completePairGroups } from './reportGlobalCohort'
 
 const n = (value: unknown) => Number(value ?? 0)
 const s = (value: unknown) => String(value ?? '')
 
+// No response text: the claim answer needs only prompts, classes, and pair identity.
 const evidenceSelect = `SELECT id, run_id, pair_index, run_index, question, variant_key, variant_label,
-  provider, model_id, prompt, response, latency_ms, status_code, status, error_message, truncated, evidence_sha256, classification, received_at
+  provider, model_id, prompt, status, classification, received_at
   FROM public_evidence`
+
+const DAILY_CLAIM_LIMIT = 200
 
 function mapEvidenceRow(row: Record<string, unknown>): PublicEvidenceItem {
   return {
@@ -58,6 +61,10 @@ export function computeClaimAnswer(evidence: PublicEvidenceItem[]): Pick<PublicC
 
 interface ReportKeyRow { id: string; title: string | null; keys: Set<string> }
 
+export type ClaimCreateResult =
+  | { kind: 'created' | 'duplicate'; claim: PublicClaim }
+  | { kind: 'limited' }
+
 export class ClaimRepository {
   constructor(private readonly db: D1DatabaseLike) {}
 
@@ -70,10 +77,11 @@ export class ClaimRepository {
       return []
     }
     const evidence = ((await this.db.prepare(`${evidenceSelect} ORDER BY received_at, id`).all()).results ?? []).map(mapEvidenceRow)
+    const byKey = indexEvidenceByQuestionKey(evidence)
     const reports = await this.completeReportKeys()
     const claims = rows.map((row) => {
       const questionKeys = parseKeys(s(row.question_keys_json))
-      const scoped = filterEvidenceByQuestionKeys(evidence, questionKeys)
+      const scoped = questionKeys.flatMap((key) => byKey.get(key) ?? [])
       const wanted = new Set(questionKeys)
       return {
         id: s(row.id),
@@ -90,15 +98,24 @@ export class ClaimRepository {
     return claims
   }
 
-  async create(text: string, questionKeys: string[], now: string): Promise<PublicClaim> {
+  async create(text: string, questionKeys: string[], now: string): Promise<ClaimCreateResult> {
+    const cleanText = text.trim().replace(/\s+/g, ' ')
+    const existing = await this.db.prepare('SELECT id FROM claims WHERE lower(text) = lower(?) LIMIT 1').bind(cleanText).first<{ id: string }>()
+    if (existing) {
+      const claim = (await this.list()).find((item) => item.id === existing.id)
+      if (claim) return { kind: 'duplicate', claim }
+    }
+    const start = `${now.slice(0, 10)}T00:00:00.000Z`
+    const today = await this.db.prepare('SELECT COUNT(*) AS count FROM claims WHERE created_at >= ?').bind(start).first<{ count: number }>()
+    if (n(today?.count) >= DAILY_CLAIM_LIMIT) return { kind: 'limited' }
     const id = crypto.randomUUID()
     const keys = [...new Set(questionKeys.map((key) => normalizeQuestionKey(key)))]
     await this.db.prepare('INSERT INTO claims (id, text, question_keys_json, created_at) VALUES (?, ?, ?, ?)')
-      .bind(id, text.trim(), JSON.stringify(keys), now).run()
+      .bind(id, cleanText, JSON.stringify(keys), now).run()
     writeCachedClaims(null)
     const created = (await this.list()).find((claim) => claim.id === id)
     if (!created) throw new Error('Could not read the claim back.')
-    return created
+    return { kind: 'created', claim: created }
   }
 
   /** Which leaderboard questions each complete report actually used — a real link, not a topic guess. */
@@ -108,9 +125,9 @@ export class ClaimRepository {
       const keys = new Set(parseKeys(s(row.question_keys_json)))
       if (keys.size === 0 && row.structured_json) {
         try {
-          const document = JSON.parse(s(row.structured_json)) as { evidence?: Array<{ question?: string }> }
-          for (const item of document.evidence ?? []) {
-            const key = normalizeQuestionKey(item.question)
+          // Legacy reports stored placeholder questions; derive keys the same way the leaderboard does.
+          const document = JSON.parse(s(row.structured_json)) as { evidence?: PublicEvidenceItem[] }
+          for (const key of indexEvidenceByQuestionKey(document.evidence ?? []).keys()) {
             if (key !== '__missing_question__') keys.add(key)
           }
         } catch {

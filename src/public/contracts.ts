@@ -286,7 +286,7 @@ export const generatedReportRequestSchema = z.object({
   runId: z.string().min(1).max(100).optional(),
   globalCohort: z.literal('current').optional(),
   /** A person-chosen set of leaderboard question keys to report on. */
-  questionKeys: z.array(z.string().trim().min(1).max(1_000)).min(1).max(50).optional(),
+  questionKeys: z.array(z.string().trim().min(1).max(1_000)).min(1).max(100).optional(),
 }).strict().refine((value) => [value.runId, value.globalCohort, value.questionKeys].filter(Boolean).length === 1, {
   message: 'Provide exactly one of runId, globalCohort, or questionKeys.',
 })
@@ -330,7 +330,7 @@ export const publicClaimListSchema = z.object({ claims: z.array(publicClaimSchem
 
 export const publicClaimRequestSchema = z.object({
   text: z.string().trim().min(12).max(300),
-  questionKeys: z.array(z.string().trim().min(1).max(1_000)).min(1).max(50),
+  questionKeys: z.array(z.string().trim().min(1).max(1_000)).min(1).max(100),
 }).strict()
 
 export type PublicClaimRequest = z.infer<typeof publicClaimRequestSchema>

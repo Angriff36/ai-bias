@@ -29,8 +29,5 @@
   },
   "observability": {
     "enabled": false
-  },
-  "triggers": {
-    "crons": ["* * * * *"]
   }
 }

@@ -176,15 +176,12 @@ function buildModelStats(cohort: QuestionCatalogEntry[], evidence: PublicEvidenc
   return { perModelPairCounts, perModelQuestionCounts }
 }
 
-export async function buildGlobalCohortSnapshot(
+async function snapshotFromCohort(
+  cohort: QuestionCatalogEntry[],
+  reportableKeys: string[],
   evidence: PublicEvidenceItem[],
   generatedAt: string,
-  options?: { minReportableQuestions?: number },
-): Promise<GlobalReportCohortSnapshot | null> {
-  const reportable = selectReportableQuestions(buildQuestionCatalog(evidence))
-  const minReportable = options?.minReportableQuestions ?? MIN_REPORTABLE_QUESTIONS
-  if (reportable.length < minReportable) return null
-  const cohort = selectTopCohort(reportable)
+): Promise<GlobalReportCohortSnapshot> {
   const pairIndexByQuestionKey: Record<string, number> = {}
   const rankings: QuestionRankingEntry[] = cohort.map((entry, index) => {
     pairIndexByQuestionKey[entry.questionKey] = index
@@ -215,8 +212,34 @@ export async function buildGlobalCohortSnapshot(
     evidenceIds,
     cohortFingerprint: fingerprint,
     pairIndexByQuestionKey,
-    reportableQuestionKeys: reportable.map((entry) => entry.questionKey).sort(),
+    reportableQuestionKeys: [...reportableKeys].sort(),
   }
+}
+
+export async function buildGlobalCohortSnapshot(
+  evidence: PublicEvidenceItem[],
+  generatedAt: string,
+  options?: { minReportableQuestions?: number },
+): Promise<GlobalReportCohortSnapshot | null> {
+  const reportable = selectReportableQuestions(buildQuestionCatalog(evidence))
+  const minReportable = options?.minReportableQuestions ?? MIN_REPORTABLE_QUESTIONS
+  if (reportable.length < minReportable) return null
+  const cohort = selectTopCohort(reportable)
+  return snapshotFromCohort(cohort, reportable.map((entry) => entry.questionKey), evidence, generatedAt)
+}
+
+/**
+ * A person-chosen set of questions. `evidence` must already be filtered to
+ * those questions. Every question with at least one complete matched pair is
+ * included, ranked by pair count; there is no minimum question count.
+ */
+export async function buildQuestionSetSnapshot(
+  evidence: PublicEvidenceItem[],
+  generatedAt: string,
+): Promise<GlobalReportCohortSnapshot | null> {
+  const cohort = rankQuestions(buildQuestionCatalog(evidence).filter((entry) => entry.completePairCount > 0))
+  if (cohort.length === 0) return null
+  return snapshotFromCohort(cohort, cohort.map((entry) => entry.questionKey), evidence, generatedAt)
 }
 
 export function remapEvidenceToCohort(

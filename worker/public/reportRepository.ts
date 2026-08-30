@@ -10,14 +10,16 @@ import type { D1DatabaseLike } from './d1'
 import {
   buildGlobalCohortSnapshot,
   buildQuestionCatalog,
+  buildQuestionSetSnapshot,
   remapEvidenceToCohort,
   selectReportableQuestions,
   snapshotFromStoredJson,
   type GlobalReportCohortSnapshot,
 } from './reportGlobalCohort'
-import { evaluateGlobalReportTrigger } from './reportGlobalEligibility'
 import { parseStoredReportDocument } from './reportDocumentParse'
 import { comparisonIdentity, groupCompleteMatchedSamples } from './matchedSampleIdentity'
+import { filterEvidenceByQuestionKeys } from './questionLeaderboard'
+import { normalizeQuestionKey } from '../../src/public/questionKeys'
 
 const JUDGE_MODEL = 'z-ai/glm-5.3-flash'
 const SYNTHESIS_MODEL = 'x-ai/grok-4.6'
@@ -85,6 +87,11 @@ export type RunReportClaim =
   | { kind: 'limited' }
   | { kind: 'claimed' | 'existing'; report: GeneratedReportSummary }
 
+export type QuestionSetReportClaim =
+  | { kind: 'ineligible'; reportableQuestions: number }
+  | { kind: 'limited' }
+  | { kind: 'claimed' | 'existing'; report: GeneratedReportSummary }
+
 export type GlobalReportClaim =
   | { kind: 'ineligible'; reportableQuestions: number }
   | { kind: 'unchanged'; report: GeneratedReportSummary }
@@ -100,31 +107,6 @@ export class GeneratedReportRepository {
       prompt, response, latency_ms, status_code, status, error_message, truncated, evidence_sha256, classification, received_at
       FROM public_evidence ORDER BY received_at, id`).all()).results ?? []
     return results.map(mapEvidenceRow)
-  }
-
-  async evaluateGlobalReportAfterPublish(now: string): Promise<GlobalReportClaim> {
-    const evidence = await this.loadAllPublicEvidence()
-    const catalog = buildQuestionCatalog(evidence)
-    const snapshot = await buildGlobalCohortSnapshot(evidence, now)
-    if (!snapshot) {
-      return { kind: 'ineligible', reportableQuestions: selectReportableQuestions(catalog).length }
-    }
-    const existing = await this.findByCohortFingerprint(snapshot.cohortFingerprint)
-    if (existing && existing.status !== 'failed') {
-      return { kind: 'unchanged', report: this.summary(existing) }
-    }
-    const previous = await this.latestGlobalSnapshotRow()
-    const previousSnapshot = previous?.cohortSnapshotJson ? snapshotFromStoredJson(previous.cohortSnapshotJson) : null
-    const trigger = evaluateGlobalReportTrigger(
-      snapshot,
-      catalog,
-      previousSnapshot,
-      previousSnapshot ? new Set(previousSnapshot.reportableQuestionKeys) : null,
-    )
-    if (!trigger.shouldGenerate) {
-      return { kind: 'not-due', reportableQuestions: selectReportableQuestions(catalog).length }
-    }
-    return this.claimGlobalCohortReport(snapshot, now, existing)
   }
 
   async claimCurrentGlobalReport(now: string): Promise<GlobalReportClaim> {
@@ -157,6 +139,27 @@ export class GeneratedReportRepository {
       .bind(id, snapshot.cohortFingerprint, JSON.stringify(snapshot), evidenceHash, SCORING_MODEL, SYNTHESIS_MODEL, now).run()
     const report = await this.findByCohortFingerprint(snapshot.cohortFingerprint)
     if (!report) throw new Error('Could not claim global cohort report.')
+    return { kind: report.id === id ? 'claimed' : 'existing', report: this.summary(report) }
+  }
+
+  /** A person picks the questions and starts the report. Same questions + same evidence = the same report. */
+  async claimQuestionSetReport(questionKeys: string[], now: string): Promise<QuestionSetReportClaim> {
+    const keys = [...new Set(questionKeys.map((key) => normalizeQuestionKey(key)))].sort()
+    const evidence = filterEvidenceByQuestionKeys(await this.loadAllPublicEvidence(), keys)
+    const snapshot = await buildQuestionSetSnapshot(evidence, now)
+    if (!snapshot) return { kind: 'ineligible', reportableQuestions: 0 }
+    const existing = await this.findByCohortFingerprint(snapshot.cohortFingerprint)
+    if (existing) return this.reclaimOrReturn(existing, now)
+    if (await this.dailyLimitReached(now)) return { kind: 'limited' }
+    const id = crypto.randomUUID()
+    const evidenceHash = await sha256(`report-schema:1
+question-set:${snapshot.cohortFingerprint}`)
+    await this.db.prepare(`INSERT INTO generated_reports
+      (id, scope, cohort_fingerprint, cohort_snapshot_json, question_keys_json, evidence_hash, status, scoring_model_id, synthesis_model_id, report_schema_version, created_at)
+      VALUES (?, 'global', ?, ?, ?, ?, 'pending', ?, ?, 1, ?) ON CONFLICT DO NOTHING`)
+      .bind(id, snapshot.cohortFingerprint, JSON.stringify(snapshot), JSON.stringify(snapshot.questionKeys), evidenceHash, SCORING_MODEL, SYNTHESIS_MODEL, now).run()
+    const report = await this.findByCohortFingerprint(snapshot.cohortFingerprint)
+    if (!report) throw new Error('Could not claim question-set report.')
     return { kind: report.id === id ? 'claimed' : 'existing', report: this.summary(report) }
   }
 
@@ -332,14 +335,6 @@ export class GeneratedReportRepository {
     const row = await this.db.prepare(`SELECT id, scope, public_run_id, response_watermark, cohort_fingerprint, cohort_snapshot_json,
       status, scoring_model_id, synthesis_model_id, title, structured_json, created_at, completed_at FROM generated_reports WHERE scope='global' AND cohort_fingerprint=?`)
       .bind(fingerprint).first<Record<string, unknown>>()
-    return row ? mapReportRow(row) : null
-  }
-
-  private async latestGlobalSnapshotRow(): Promise<ReportRow | null> {
-    const row = await this.db.prepare(`SELECT id, scope, public_run_id, response_watermark, cohort_fingerprint, cohort_snapshot_json,
-      status, scoring_model_id, synthesis_model_id, title, structured_json, created_at, completed_at FROM generated_reports
-      WHERE scope='global' AND cohort_snapshot_json IS NOT NULL
-      ORDER BY COALESCE(completed_at, created_at) DESC LIMIT 1`).first<Record<string, unknown>>()
     return row ? mapReportRow(row) : null
   }
 

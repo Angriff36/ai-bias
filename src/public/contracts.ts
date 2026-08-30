@@ -285,9 +285,55 @@ export const generatedReportStateSchema = z.object({ report: generatedReportSumm
 export const generatedReportRequestSchema = z.object({
   runId: z.string().min(1).max(100).optional(),
   globalCohort: z.literal('current').optional(),
-}).strict().refine((value) => Boolean(value.runId) !== Boolean(value.globalCohort), {
-  message: 'Provide either runId or globalCohort.',
+  /** A person-chosen set of leaderboard question keys to report on. */
+  questionKeys: z.array(z.string().trim().min(1).max(1_000)).min(1).max(50).optional(),
+}).strict().refine((value) => [value.runId, value.globalCohort, value.questionKeys].filter(Boolean).length === 1, {
+  message: 'Provide exactly one of runId, globalCohort, or questionKeys.',
 })
+
+export interface PublicClaimReportRef {
+  id: string
+  title: string | null
+}
+
+/** A person-written claim about the AI, with its answer computed from the evidence. */
+export interface PublicClaim {
+  id: string
+  text: string
+  questionKeys: string[]
+  createdAt: string
+  /** Answers studied across the attached questions. */
+  testCount: number
+  /** Share of studied answers that were real answers (not refusals, errors, or empty). 0-100. */
+  matchRate: number | null
+  /** Share of complete matched pairs whose two sides were classified differently. 0-1. */
+  biasScore: number | null
+  models: string[]
+  lastSeenAt: string | null
+  reports: PublicClaimReportRef[]
+}
+
+export const publicClaimSchema: z.ZodType<PublicClaim> = z.object({
+  id: z.string(),
+  text: z.string(),
+  questionKeys: z.array(z.string()),
+  createdAt: z.string(),
+  testCount: z.number().int().min(0),
+  matchRate: z.number().min(0).max(100).nullable(),
+  biasScore: z.number().min(0).max(1).nullable(),
+  models: z.array(z.string()),
+  lastSeenAt: z.string().nullable(),
+  reports: z.array(z.object({ id: z.string(), title: z.string().nullable() })),
+})
+
+export const publicClaimListSchema = z.object({ claims: z.array(publicClaimSchema) })
+
+export const publicClaimRequestSchema = z.object({
+  text: z.string().trim().min(12).max(300),
+  questionKeys: z.array(z.string().trim().min(1).max(1_000)).min(1).max(50),
+}).strict()
+
+export type PublicClaimRequest = z.infer<typeof publicClaimRequestSchema>
 
 export const freeAllowanceSchema = z.object({
   remaining: z.number().int().min(0).max(2),

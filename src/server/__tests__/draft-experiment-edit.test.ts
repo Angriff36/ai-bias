@@ -92,12 +92,15 @@ describe('draft experiment editing', () => {
     ]
     completeOfflineRun(session.token, created.id, records)
 
-    expect(() => updateDraftExperiment(session.token, created.id, {
+    const updated = updateDraftExperiment(session.token, created.id, {
       ...original,
-      name: 'Must not replace evidence source',
+      name: 'Edited after a run',
       pairs: [{ ...original.pairs[0], variantB: { label: 'Prompt 2', prompt: 'Changed after run' } }],
-    })).toThrowError('This experiment cannot be edited after a run has been created.')
+    })
 
-    expect(getExperiment(session.token, created.id).pairs[0].variantB.prompt).toBe("I'm proud to be black!")
+    // The questions change for the next run; the finished run keeps its own count and evidence.
+    expect(updated.pairs[0].variantB.prompt).toBe('Changed after run')
+    expect(updated.run_count).toBe(1)
+    expect(getExperiment(session.token, created.id).name).toBe('Edited after a run')
   })
 })

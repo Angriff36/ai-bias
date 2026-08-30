@@ -59,7 +59,7 @@ the type and picks the layout. Nothing guesses the type later.
 
 - A ranked list of the most-asked questions. Rank = number of times asked.
 - Each row: rank, question text, times asked, number of groups, number of
-  models, last seen. No bias score. No match rate.
+  models, last seen.
 - Click a row to open the question page.
 
 ### Question page
@@ -67,19 +67,46 @@ the type and picks the layout. Nothing guesses the type later.
 - Header: question text, type, total answers, counts per group, models.
 - Body: the Type 1 table or the Type 2 pair view, per section 3.
 - Each answer cell shows model, time, class, and the full text on open.
-- Reports that used this question are listed by real link, not by topic guess.
+- Reports that used this question are listed.
+
+### Conclusions — the Question Leaderboard
+
+Reference: `Leaderboard.png` (Ryan, 2026-08-29). This design is ALREADY
+BUILT in the code (`src/public/LeaderboardPage.tsx`, `conclusionsFeed.ts`)
+but it was wired to the Top Questions tab by mistake. The Conclusions tab
+shows an empty placeholder. Fix: move this design to the Conclusions tab.
+
+Layout, top to bottom:
+
+1. Title "Question Leaderboard" and one line: ranks the most-tested
+   questions, updated continuously as new tests complete.
+2. Four stat tiles: questions tracked, matched tests run, reports published,
+   models covered.
+3. **Published Reports** row: one card per complete report. Card shows the
+   report code (RPT-007), month, title, question count, and HTML / PDF links.
+   "View all reports" opens the Reports tab.
+4. **How this works** panel with three columns: Data collection, Ranking
+   method, Research reports.
+5. Controls: show top 20 / 50 / 100. Sort by Tests, Bias Score, Match Rate,
+   Newest.
+6. The table. One row per question:
+   - rank, NEW badge if seen in the last 7 days
+   - question text
+   - model chips (up to three)
+   - tests count with the change since last update (+38)
+   - match rate as a bar with a percent
+   - bias score 0–1 with a band (low / med / high)
+   - report chips (RPT-005) that link to the reports that cover the question
+   - chevron to open the question page
+7. Footer: "Showing top 20 of 4,812 tracked questions" and last-updated time.
+
+The bias score STAYS. It must be computed from all answers for the question,
+not from the last 200 answers only (today's limit).
 
 ### Reports
 
 - A list of every complete report, newest first. Each links to the report
-  HTML.
-
-### Conclusions — ASSUMPTION
-
-Ryan has not defined this page yet. Working assumption: it shows the
-"What holds across studies" findings from every complete report as short
-numbered statements, each linked to its report. It stays empty until a
-report exists.
+  HTML and PDF.
 
 ## 5. Reports
 
@@ -170,10 +197,30 @@ Publishing sends the group name, not only "A" or "B".
 - Cloudflare Worker + D1 for the public side.
 - The five README rules on prompts, simulation, cut-off replies, and errors.
 
-## 8. What goes
+## 8. What changes
 
-- A/B pair as the display unit on the public site.
-- Match rate and bias score on the Top Questions rows.
-- Topic-guess links between reports and questions.
-- Cron-driven report resume and the tools/ repair scripts as a pipeline.
-- Automatic global-report claims on publish.
+- The A/B pair stops being the display unit on the public site. Group
+  columns replace it (section 3).
+- The leaderboard design moves from the Top Questions tab to the Conclusions
+  tab. Top Questions becomes the plain most-asked list.
+- The bias score stays but reads all answers, not only the last 200.
+- Report generation becomes manual (section 5).
+
+## 9. Terms Ryan asked about — not decided yet
+
+These two behaviours exist in the code today. Ryan has not decided on them.
+They stay until he does.
+
+**Report links by topic guess.** Today the leaderboard puts a report chip
+(RPT-005) on a question row when the question text and the report title look
+like the same topic (both mention "hiring", for example). It does not check
+if the report actually used that question. So a chip can be wrong, and a
+question that IS in a report can have no chip. The better way: when a report
+runs, record which questions it used, and show chips from that record.
+
+**Automatic report claims.** Today, every time a visitor's test is published,
+the server checks "is there enough new evidence for a new global report?"
+and if yes it starts one by itself. There is also a limit of how many
+reports per day it will start. Section 5 says reports become manual; if that
+holds, this automatic start goes away with it. If Ryan wants some reports to
+start on their own, this is the piece to keep.

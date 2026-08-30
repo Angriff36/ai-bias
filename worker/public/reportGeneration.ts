@@ -33,13 +33,15 @@ interface ReportGenerationRepository {
 export interface GenerateReportOptions {
   existingPairScores?: GeneratedReportPairScore[]
   deadlineMs?: number
+  /** Persist scores as each judge cell lands, so a later failure keeps earlier work. */
+  onCheckpoint?: (pairScores: GeneratedReportPairScore[]) => Promise<void> | void
 }
 
 export type GenerateReportResult =
   | GeneratedReportDocument
   | { status: 'partial'; pairScores: GeneratedReportPairScore[] }
 
-export const REPORT_GENERATION_BUDGET_MS = 25_000
+export const REPORT_GENERATION_BUDGET_MS = 110_000
 
 class InvalidModelOutput extends Error {}
 
@@ -72,6 +74,7 @@ export async function generateReport(
     {
       existingScores: existingScoreMap(options?.existingPairScores),
       shouldStop: options?.deadlineMs ? () => Date.now() >= options.deadlineMs! : undefined,
+      onCheckpoint: options?.onCheckpoint,
     },
   )
   if (!judged.complete) {
@@ -126,6 +129,9 @@ export async function processReportChunk(
   const result = await generateReport(synthesisModels, source, judgeModels, {
     existingPairScores,
     deadlineMs: scoringComplete ? undefined : Date.now() + REPORT_GENERATION_BUDGET_MS,
+    onCheckpoint: checkpointRepo.upsertPairScores
+      ? (scores) => checkpointRepo.upsertPairScores!(reportId, scores)
+      : undefined,
   })
   if ('status' in result) {
     if (checkpointRepo.upsertPairScores) {

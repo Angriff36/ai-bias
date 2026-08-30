@@ -7,7 +7,7 @@ import { pairScoreMagnitude } from './reportSemanticScoring'
 import { REPORT_DIMENSIONS } from './reportDimensions'
 
 export const JUDGE_BATCH_SIZE = 3
-export const JUDGE_BATCH_CONCURRENCY = 2
+export const JUDGE_BATCH_CONCURRENCY = 6
 export const JUDGE_BATCH_MAX_TOKENS = 8192
 
 const dimensionScore = z.coerce.number().int().min(0).max(3)
@@ -194,6 +194,13 @@ export function groupPolarJudgeCells(evidence: PublicEvidenceItem[]): PolarJudge
 export interface JudgeProgressOptions {
   existingScores?: Map<string, GeneratedReportPairScore>
   shouldStop?: () => boolean
+  /** Judge calls to keep in flight at once. Defaults to JUDGE_BATCH_CONCURRENCY. */
+  concurrency?: number
+  /**
+   * Called after each cell finishes so scored work survives a later failure in the
+   * same chunk. Receives every pair scored so far; persist with an upsert.
+   */
+  onCheckpoint?: (pairScores: GeneratedReportPairScore[]) => Promise<void> | void
 }
 
 export async function scoreAllPairsWithJudge(
@@ -213,24 +220,46 @@ export async function scoreAllPairsWithJudge(
     })
   }
 
-  const cells = groupPolarJudgeCells(evidence)
-  for (const cell of cells) {
-    const complete = cell.groups.every((group) => {
-      const variantA = group.find((item) => item.variantKey === 'A')!
-      return judgedById.has(buildPairSampleId(variantA))
-    })
-    if (complete) continue
-    if (options?.shouldStop?.()) break
-    const scores = await scoreJudgeBatch(client, modelId, cell.groups)
-    for (const score of scores) judgedById.set(score.pairSampleId, score)
-  }
-
-  const pairScores = groups.flatMap((group) => {
+  const collect = (): GeneratedReportPairScore[] => groups.flatMap((group) => {
     const variantA = group.find((item) => item.variantKey === 'A')!
     const variantB = group.find((item) => item.variantKey === 'B')!
     const judged = judgedById.get(buildPairSampleId(variantA))
     if (!judged) return []
     return [buildPairScoreFromJudge(variantA, variantB, judged)]
   })
-  return { pairScores, complete: pairScores.length === groups.length }
+
+  const pending = groupPolarJudgeCells(evidence).filter((cell) => !cell.groups.every((group) => {
+    const variantA = group.find((item) => item.variantKey === 'A')!
+    return judgedById.has(buildPairSampleId(variantA))
+  }))
+
+  // Judge cells are independent, so run several at once. A cell that fails is left
+  // unscored and retried on the next chunk rather than aborting the whole batch.
+  const concurrency = Math.max(1, options?.concurrency ?? JUDGE_BATCH_CONCURRENCY)
+  let cursor = 0
+  let lastError: unknown
+  const worker = async (): Promise<void> => {
+    while (true) {
+      if (options?.shouldStop?.()) return
+      const index = cursor++
+      const cell = pending[index]
+      if (!cell) return
+      try {
+        const scores = await scoreJudgeBatch(client, modelId, cell.groups)
+        for (const score of scores) judgedById.set(score.pairSampleId, score)
+      } catch (error) {
+        lastError = error
+        continue
+      }
+      if (options?.onCheckpoint) await options.onCheckpoint(collect())
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, pending.length) }, worker))
+
+  const pairScores = collect()
+  const complete = pairScores.length === groups.length
+  // Surface a persistent judge failure only when nothing at all could be scored,
+  // so a single malformed cell never discards a chunk's worth of good work.
+  if (!complete && pairScores.length === (options?.existingScores?.size ?? 0) && lastError) throw lastError
+  return { pairScores, complete }
 }

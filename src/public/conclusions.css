@@ -152,7 +152,7 @@
 .claim-form label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--muted); }
 .claim-form textarea, .claim-form input[type="search"] { width: 100%; }
 .claim-question-picker { display: flex; flex-direction: column; max-height: 320px; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); }
-.claim-question-option { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 10px; align-items: start; padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--text); cursor: pointer; }
+.claim-form .claim-question-option { display: grid; flex-direction: unset; grid-template-columns: auto minmax(0, 1fr); gap: 4px 10px; align-items: start; padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--text); cursor: pointer; }
 .claim-question-option:last-child { border-bottom: 0; }
 .claim-question-option input { margin-top: 2px; }
 .claim-question-option small { grid-column: 2; color: var(--muted); font-size: 11px; }

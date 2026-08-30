@@ -37,6 +37,8 @@ export const openrouterAdapter: ProviderAdapter = {
       body: JSON.stringify({
         model: config.modelId,
         messages: [{ role: 'user', content: prompt }],
+        // Room for reasoning plus a full answer; the executor's 90 s deadline is the real stop.
+        max_tokens: 4000,
       }),
     }).catch(() => { throw { kind: 'timeout', message: 'fetch failed' } })
 

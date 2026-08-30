@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { CellStatus, RunRequest } from '../engine/types'
 
 interface Props {
@@ -20,8 +20,25 @@ function cellLabel(req: RunRequest, cell: CellStatus | undefined): string {
  * Keyboard-navigable progress grid (roving tabindex, arrow keys).
  * Cell state is shown with color + icon + text, never color alone.
  */
+function shortModel(modelId: string): string {
+  return modelId.split('/').pop()?.replace(/:free$/, '') ?? modelId
+}
+
 export function ProgressGrid({ queue, cells, selectedId, onSelect }: Props) {
   const gridRef = useRef<HTMLDivElement>(null)
+  // When each request went out, so a waiting box shows how long it has waited.
+  const startedAt = useRef<Record<string, number>>({})
+  const [, tick] = useState(0)
+  const anyInFlight = Object.values(cells).some((cell) => cell.state === 'in-flight')
+  for (const cell of Object.values(cells)) {
+    if (cell.state === 'in-flight') startedAt.current[cell.requestId] ??= Date.now()
+    else delete startedAt.current[cell.requestId]
+  }
+  useEffect(() => {
+    if (!anyInFlight) return
+    const timer = setInterval(() => tick((n) => n + 1), 1000)
+    return () => clearInterval(timer)
+  }, [anyInFlight])
   const columns = Math.min(12, Math.max(4, Math.ceil(Math.sqrt(queue.length))))
 
   const focusIndex = (index: number) => {
@@ -69,12 +86,13 @@ export function ProgressGrid({ queue, cells, selectedId, onSelect }: Props) {
             onClick={() => onSelect(req.id)}
             onKeyDown={(e) => onKeyDown(e, i)}
           >
-            {state === 'failed' && (
-              <span className="cell-icon" aria-hidden="true">
-                ⚠
-              </span>
+            <span className="cell-model">{shortModel(req.modelId)}</span>
+            <span className="cell-group">{req.variantLabel}</span>
+            {state === 'in-flight' && (
+              <span className="cell-latency">{Math.round((Date.now() - (startedAt.current[req.id] ?? Date.now())) / 1000)}s…</span>
             )}
-            {state === 'complete' && <span className="cell-latency">{cell?.latencyMs}ms</span>}
+            {state === 'failed' && <span className="cell-latency">⚠ {cell?.errorMessage ?? 'failed'}</span>}
+            {state === 'complete' && <span className="cell-latency">{((cell?.latencyMs ?? 0) / 1000).toFixed(1)}s</span>}
           </button>
         )
       })}

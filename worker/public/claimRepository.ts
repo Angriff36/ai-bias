@@ -135,10 +135,10 @@ export class ClaimRepository {
     return { kind: stored.id === id ? 'created' : 'duplicate', claim }
   }
 
-  /** Every judge verdict from a finished report; the claim score is built from these, not from refusal counts. */
+  /** Every judge verdict from a finished report, oldest report first so a newer verdict for the same pair wins. */
   private async completeReportPairScores(): Promise<GeneratedReportPairScore[]> {
     const rows = (await this.db.prepare(`SELECT p.score_json FROM report_pair_scores p
-      JOIN generated_reports r ON r.id = p.report_id WHERE r.status='complete'`).all()).results ?? []
+      JOIN generated_reports r ON r.id = p.report_id WHERE r.status='complete' ORDER BY r.completed_at, r.id`).all()).results ?? []
     const scores: GeneratedReportPairScore[] = []
     for (const row of rows) {
       try { scores.push(JSON.parse(s(row.score_json)) as GeneratedReportPairScore) } catch { /* an unreadable score adds nothing */ }

@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import { generatedReportDocumentSchema, type PublicEvidenceItem } from '../../src/public/contracts'
+import { generatedReportDocumentSchema, type GeneratedReportPairScore, type PublicEvidenceItem } from '../../src/public/contracts'
 import { buildPairSampleId } from './matchedSampleIdentity'
-import { generateReport } from './reportGeneration'
+import { generateReport, handleReportChunkFailure, processReportChunk } from './reportGeneration'
+import { RetryableReportCheckpointError } from './reportJudgeBatch'
 
 function evidenceRecord(overrides: Partial<PublicEvidenceItem> & Pick<PublicEvidenceItem, 'id' | 'pairIndex' | 'runIndex' | 'variantKey' | 'classification'>): PublicEvidenceItem {
   return {
@@ -64,6 +65,85 @@ function mockJudgeBatch(prompt: string) {
 }
 
 describe('generated report pipeline', () => {
+  it('includes repository work in the deadline, checkpoints once, then synthesizes in the next chunk', async () => {
+    const evidence = fixtureEvidence(1)
+    let elapsedMs = 0
+    const dateNow = vi.spyOn(Date, 'now').mockImplementation(() => elapsedMs)
+    let savedScores: GeneratedReportPairScore[] = []
+    const judge = vi.fn(async (_modelId: string, prompt: string) => mockJudgeBatch(prompt))
+    const synthesis = vi.fn(async () => JSON.stringify({
+      title: 'Identity framing audit',
+      subtitle: 'One matched question',
+      executiveSummary: 'The matched answers were compared.',
+      keyFindings: ['The judge found a measurable difference.'],
+      methodology: 'A judge model scored the matched pair before synthesis.',
+      limitations: ['One question is not representative of every context.'],
+    }))
+    const repository = {
+      touchReportGeneration: vi.fn(async () => { elapsedMs += 1_000 }),
+      getReportEvidence: vi.fn(async () => {
+        elapsedMs += 2_000
+        return {
+          row: {
+            id: 'report-timebox',
+            scope: 'run' as const,
+            scoringModelId: 'z-ai/glm-5.3-flash',
+            synthesisModelId: 'x-ai/grok-4.6',
+          },
+          evidence,
+        }
+      }),
+      loadPairScores: vi.fn(async () => {
+        elapsedMs += 3_000
+        return savedScores
+      }),
+      upsertPairScores: vi.fn(async (_reportId: string, scores: typeof savedScores) => {
+        savedScores = [...savedScores, ...scores]
+      }),
+      completeReport: vi.fn(async () => undefined),
+      failReport: vi.fn(async () => undefined),
+    }
+
+    try {
+      await processReportChunk(
+        { complete: synthesis },
+        repository,
+        'report-timebox',
+        { complete: judge },
+      )
+
+      expect(judge).toHaveBeenCalledWith(
+        'z-ai/glm-5.3-flash',
+        expect.stringContaining('SCORING TASK'),
+        8192,
+        { jsonObject: true, timeoutMs: 17_000 },
+      )
+      expect(synthesis).not.toHaveBeenCalled()
+      expect(repository.completeReport).not.toHaveBeenCalled()
+      expect(repository.upsertPairScores).toHaveBeenCalledTimes(1)
+      expect(savedScores).toHaveLength(1)
+
+      await processReportChunk(
+        { complete: synthesis },
+        repository,
+        'report-timebox',
+        { complete: judge },
+      )
+    } finally {
+      dateNow.mockRestore()
+    }
+
+    expect(judge).toHaveBeenCalledTimes(1)
+    expect(synthesis).toHaveBeenCalledWith(
+      'x-ai/grok-4.6',
+      expect.stringContaining('DATA:'),
+      4096,
+      { jsonObject: true, timeoutMs: 17_000 },
+    )
+    expect(repository.upsertPairScores).toHaveBeenCalledTimes(1)
+    expect(repository.completeReport).toHaveBeenCalledTimes(1)
+  })
+
   it('judges pairs in batches then synthesizes from aggregates only', async () => {
     const evidence = fixtureEvidence(24)
     const judge = vi.fn(async (_modelId: string, prompt: string) => mockJudgeBatch(prompt))
@@ -126,5 +206,29 @@ describe('generated report pipeline', () => {
       judgeModels,
     )).rejects.toThrow('Report model returned invalid JSON.')
     expect(synthesis).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps a checkpoint outage pending so the open Reports tab can retry it', async () => {
+    const repository = {
+      getReportEvidence: vi.fn(async () => ({
+        row: {
+          id: 'report-checkpoint-retry', scope: 'global' as const,
+          scoringModelId: 'z-ai/glm-5.3-flash', synthesisModelId: 'x-ai/grok-4.6',
+        },
+        evidence: fixtureEvidence(1),
+      })),
+      countPairScores: vi.fn(async () => 0),
+      touchReportGeneration: vi.fn(async () => undefined),
+      failReport: vi.fn(async () => undefined),
+    }
+
+    await handleReportChunkFailure(
+      repository as never,
+      'report-checkpoint-retry',
+      new RetryableReportCheckpointError(new Error('D1 checkpoint unavailable')),
+    )
+
+    expect(repository.touchReportGeneration).toHaveBeenCalledTimes(1)
+    expect(repository.failReport).not.toHaveBeenCalled()
   })
 })

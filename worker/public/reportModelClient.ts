@@ -1,7 +1,12 @@
 import type { AiBindingLike } from './analysis'
 
+export interface ReportModelOptions {
+  jsonObject?: boolean
+  timeoutMs?: number
+}
+
 export interface ReportModelClient {
-  complete(modelId: string, prompt: string, maxTokens: number, options?: { jsonObject?: boolean }): Promise<string>
+  complete(modelId: string, prompt: string, maxTokens: number, options?: ReportModelOptions): Promise<string>
 }
 
 function responseText(value: unknown): string {
@@ -15,7 +20,7 @@ function responseText(value: unknown): string {
 export class WorkersAiReportModel implements ReportModelClient {
   constructor(private readonly ai: AiBindingLike) {}
 
-  async complete(modelId: string, prompt: string, maxTokens: number, _options?: { jsonObject?: boolean }): Promise<string> {
+  async complete(modelId: string, prompt: string, maxTokens: number, _options?: ReportModelOptions): Promise<string> {
     const result = await this.ai.run(modelId, {
       messages: [{ role: 'user', content: prompt }],
       max_tokens: maxTokens,
@@ -30,9 +35,13 @@ export class OpenRouterReportModel implements ReportModelClient {
     private readonly siteOrigin: string,
   ) {}
 
-  async complete(modelId: string, prompt: string, maxTokens: number, options?: { jsonObject?: boolean }): Promise<string> {
+  async complete(modelId: string, prompt: string, maxTokens: number, options?: ReportModelOptions): Promise<string> {
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 120_000)
+    const requestedTimeoutMs = options?.timeoutMs ?? 120_000
+    const timeoutMs = Number.isFinite(requestedTimeoutMs)
+      ? Math.max(1, Math.min(120_000, requestedTimeoutMs))
+      : 120_000
+    const timeout = setTimeout(() => controller.abort(), timeoutMs)
     try {
       const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',

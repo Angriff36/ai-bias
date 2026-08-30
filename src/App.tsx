@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from './api'
 import { continueReportGeneration, getPublicLeaderboard, listGeneratedReports } from './public/client'
 import type { GeneratedReportSummary } from './public/contracts'
@@ -210,7 +210,7 @@ function ReportsRoute() {
   return match ? <ReportDetailView reportId={Number(match[1])} /> : <ReportsList />
 }
 
-/** A pending report advances one step per call; while this tab is open the browser drives it. No server timer. */
+/** A pending report advances one step per call; while this tab is open the browser drives it. */
 const REPORT_STEP_INTERVAL_MS = 50_000
 
 function reportProgressLabel(r: GeneratedReportSummary): string {
@@ -224,6 +224,8 @@ function ReportsList() {
   const [reports, setReports] = useState<GeneratedReportSummary[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [stepping, setStepping] = useState<string | null>(null)
+  const lastStepAt = useRef(new Map<string, number>())
+  const stepsInFlight = useRef(new Set<string>())
 
   const reload = useCallback(() => listGeneratedReports()
     .then((list) => setReports(list))
@@ -248,15 +250,29 @@ function ReportsList() {
     }
   }, [reload])
 
+  const attemptStep = useCallback(async (reportId: string, force = false) => {
+    if (stepsInFlight.current.has(reportId)) return
+    const now = Date.now()
+    const lastAttempt = lastStepAt.current.get(reportId)
+    if (!force && lastAttempt != null && now - lastAttempt < REPORT_STEP_INTERVAL_MS) return
+    lastStepAt.current.set(reportId, now)
+    stepsInFlight.current.add(reportId)
+    try {
+      await step(reportId)
+    } finally {
+      stepsInFlight.current.delete(reportId)
+    }
+  }, [step])
+
   useEffect(() => {
     if (!pendingIds) return
-    // Step at once when the page opens, then keep stepping.
-    for (const id of pendingIds.split(',')) void step(id)
+    // Step at once when the page opens, then wait beyond the worker's 45-second lease.
+    for (const id of pendingIds.split(',')) void attemptStep(id)
     const timer = window.setInterval(() => {
-      for (const id of pendingIds.split(',')) void step(id)
+      for (const id of pendingIds.split(',')) void attemptStep(id)
     }, REPORT_STEP_INTERVAL_MS)
     return () => window.clearInterval(timer)
-  }, [pendingIds, step])
+  }, [attemptStep, pendingIds])
 
   const header = (
     <div className="page-header">
@@ -300,7 +316,7 @@ function ReportsList() {
           <li key={r.id}>
             <span>{r.title ?? 'Report'} · {reportProgressLabel(r)} · started {new Date(r.createdAt).toLocaleString()}</span>
             {' '}
-            <button type="button" className="secondary" disabled={stepping === r.id} onClick={() => { void step(r.id) }}>
+            <button type="button" className="secondary" disabled={stepping === r.id} onClick={() => { void attemptStep(r.id, true) }}>
               {stepping === r.id ? 'Working…' : r.status === 'failed' ? 'Retry' : 'Continue'}
             </button>
           </li>

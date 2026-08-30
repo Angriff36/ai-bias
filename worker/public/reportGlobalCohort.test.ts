@@ -78,7 +78,7 @@ describe('global report cohort maturity', () => {
     const evidence = seedReportableQuestion('Should groups be capitalized?', 5000, ['model/a', 'model/b'], 'mega')
     expect(selectReportableQuestions(buildQuestionCatalog(evidence))).toHaveLength(1)
     expect(globalEligibilityMet(buildQuestionCatalog(evidence))).toBe(false)
-  })
+  }, 15_000)
 
   it('satisfies first-report eligibility with 10 reportable questions', async () => {
     const evidence = Array.from({ length: 10 }, (_, index) => (

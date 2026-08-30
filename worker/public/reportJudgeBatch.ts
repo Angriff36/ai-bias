@@ -7,7 +7,7 @@ import { pairScoreMagnitude } from './reportSemanticScoring'
 import { REPORT_DIMENSIONS } from './reportDimensions'
 
 export const JUDGE_BATCH_SIZE = 3
-export const JUDGE_BATCH_CONCURRENCY = 2
+export const JUDGE_BATCH_CONCURRENCY = 6
 export const JUDGE_BATCH_MAX_TOKENS = 8192
 
 const dimensionScore = z.coerce.number().int().min(0).max(3)
@@ -137,6 +137,7 @@ export async function scoreJudgeBatch(
   client: ReportModelClient,
   modelId: string,
   groups: PublicEvidenceItem[][],
+  options?: { timeoutMs?: number },
 ): Promise<JudgeCellScore[]> {
   const cells = groups.map((group) => {
     const variantA = group.find((item) => item.variantKey === 'A')!
@@ -144,7 +145,10 @@ export async function scoreJudgeBatch(
     return judgePairPayload(variantA, variantB)
   })
   const prompt = buildJudgeBatchPrompt(cells)
-  const raw = await client.complete(modelId, prompt, JUDGE_BATCH_MAX_TOKENS, { jsonObject: true })
+  const raw = await client.complete(modelId, prompt, JUDGE_BATCH_MAX_TOKENS, {
+    jsonObject: true,
+    ...(options?.timeoutMs != null ? { timeoutMs: options.timeoutMs } : {}),
+  })
   const parsed = judgeBatchSchema.safeParse(parseJsonObject(raw))
   if (!parsed.success) {
     throw new Error(`Judge batch invalid: ${parsed.error.issues.map((issue) => issue.message).join('; ')}`)
@@ -194,6 +198,26 @@ export function groupPolarJudgeCells(evidence: PublicEvidenceItem[]): PolarJudge
 export interface JudgeProgressOptions {
   existingScores?: Map<string, GeneratedReportPairScore>
   shouldStop?: () => boolean
+  /** Absolute deadline for an in-flight model request. */
+  deadlineMs?: number
+  /** Judge calls to keep in flight at once. Defaults to JUDGE_BATCH_CONCURRENCY. */
+  concurrency?: number
+  /**
+   * Called after each cell finishes so scored work survives a later failure in the
+   * same chunk. Receives only the pairs from that cell; persist with an upsert.
+   */
+  onCheckpoint?: (pairScores: GeneratedReportPairScore[]) => Promise<void> | void
+}
+
+export class RetryableReportCheckpointError extends Error {
+  readonly cause: unknown
+
+  constructor(cause: unknown) {
+    const detail = cause instanceof Error ? cause.message : 'unknown persistence error'
+    super(`Report checkpoint failed: ${detail}`)
+    this.name = 'RetryableReportCheckpointError'
+    this.cause = cause
+  }
 }
 
 export async function scoreAllPairsWithJudge(
@@ -213,24 +237,68 @@ export async function scoreAllPairsWithJudge(
     })
   }
 
-  const cells = groupPolarJudgeCells(evidence)
-  for (const cell of cells) {
-    const complete = cell.groups.every((group) => {
-      const variantA = group.find((item) => item.variantKey === 'A')!
-      return judgedById.has(buildPairSampleId(variantA))
-    })
-    if (complete) continue
-    if (options?.shouldStop?.()) break
-    const scores = await scoreJudgeBatch(client, modelId, cell.groups)
-    for (const score of scores) judgedById.set(score.pairSampleId, score)
-  }
-
-  const pairScores = groups.flatMap((group) => {
+  const collectGroups = (sourceGroups: PublicEvidenceItem[][]): GeneratedReportPairScore[] => sourceGroups.flatMap((group) => {
     const variantA = group.find((item) => item.variantKey === 'A')!
     const variantB = group.find((item) => item.variantKey === 'B')!
     const judged = judgedById.get(buildPairSampleId(variantA))
     if (!judged) return []
     return [buildPairScoreFromJudge(variantA, variantB, judged)]
   })
-  return { pairScores, complete: pairScores.length === groups.length }
+  const collect = (): GeneratedReportPairScore[] => collectGroups(groups)
+
+  const pending = groupPolarJudgeCells(evidence).filter((cell) => !cell.groups.every((group) => {
+    const variantA = group.find((item) => item.variantKey === 'A')!
+    return judgedById.has(buildPairSampleId(variantA))
+  }))
+
+  // Judge cells are independent, so run several at once. A cell that fails is left
+  // unscored and retried on the next chunk rather than aborting the whole batch.
+  const concurrency = Math.max(1, options?.concurrency ?? JUDGE_BATCH_CONCURRENCY)
+  let cursor = 0
+  let lastError: unknown
+  let checkpointSuccesses = 0
+  let lastCheckpointError: unknown
+  const worker = async (): Promise<void> => {
+    while (true) {
+      if (options?.shouldStop?.()) return
+      const index = cursor++
+      const cell = pending[index]
+      if (!cell) return
+      try {
+        const timeoutMs = options?.deadlineMs == null
+          ? undefined
+          : Math.max(1, options.deadlineMs - Date.now())
+        const scores = await scoreJudgeBatch(client, modelId, cell.groups, { timeoutMs })
+        for (const score of scores) judgedById.set(score.pairSampleId, score)
+      } catch (error) {
+        lastError = error
+        continue
+      }
+      if (options?.onCheckpoint) {
+        try {
+          await options.onCheckpoint(collectGroups(cell.groups))
+          checkpointSuccesses += 1
+        } catch (error) {
+          // Keep this cell in the in-memory partial result and let every worker
+          // settle. A later chunk reloads D1 and retries any score not persisted.
+          lastError = error
+          lastCheckpointError = error
+        }
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, pending.length) }, worker))
+
+  // With no prior or newly persisted scores, returning a normal partial result
+  // would leave the report leased despite D1 having no progress to resume.
+  if ((options?.existingScores?.size ?? 0) === 0 && checkpointSuccesses === 0 && lastCheckpointError) {
+    throw new RetryableReportCheckpointError(lastCheckpointError)
+  }
+
+  const pairScores = collect()
+  const complete = pairScores.length === groups.length
+  // Surface a persistent judge failure only when nothing at all could be scored,
+  // so a single malformed cell never discards a chunk's worth of good work.
+  if (!complete && pairScores.length === (options?.existingScores?.size ?? 0) && lastError) throw lastError
+  return { pairScores, complete }
 }

@@ -275,17 +275,13 @@ export class GeneratedReportRepository {
   async prepareReportGeneration(reportId: string, now: string): Promise<{ report: GeneratedReportSummary; started: boolean } | null> {
     const row = await this.getRow(reportId)
     if (!row || row.status === 'complete') return null
-    const partialCount = await this.countPairScores(reportId)
     if (row.status === 'pending') {
       const ageMs = Date.now() - Date.parse(row.createdAt)
       if (ageMs < 45_000) return { report: this.summary(row), started: false }
-      if (partialCount > 0) {
-        await this.touchReportGeneration(reportId, now)
-        return { report: this.summary({ ...row, status: 'pending', createdAt: now }), started: true }
-      }
-      if (ageMs < 20 * 60_000) return { report: this.summary(row), started: false }
-      await this.failReport(reportId, 'stale-pending')
-      await this.clearPairScores(reportId)
+      // The worker chunk is bounded to 25 seconds. Once its 45-second lease is
+      // gone, retry even if the first checkpoint never reached D1.
+      await this.touchReportGeneration(reportId, now)
+      return { report: this.summary({ ...row, status: 'pending', createdAt: now }), started: true }
     }
     if (row.status === 'failed') {
       const failedPartialCount = await this.countPairScores(reportId)

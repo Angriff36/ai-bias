@@ -26,6 +26,7 @@ const JUDGE_MODEL = 'z-ai/glm-5.3-flash'
 const SYNTHESIS_MODEL = 'x-ai/grok-4.6'
 const SCORING_MODEL = JUDGE_MODEL
 const DAILY_REPORT_JOB_LIMIT = 20
+const REPORT_GENERATION_LEASE_MS = 130_000
 /**
  * Every report insert is one atomic statement guarded by today's count, so
  * concurrent starts on any path cannot exceed the cap and no over-cap row is
@@ -81,6 +82,8 @@ interface ReportRow {
   responseWatermark: number | null
   cohortFingerprint: string | null
   cohortSnapshotJson: string | null
+  generationLeaseUntil: string | null
+  generationLeaseOwner: string | null
   status: 'pending' | 'complete' | 'failed'
   errorCode?: string | null
   scoringModelId: string
@@ -219,26 +222,21 @@ export class GeneratedReportRepository {
     throw new Error('GLOBAL_REPORT_SCOPE_MISSING')
   }
 
-  async completeReport(reportId: string, document: GeneratedReportDocument, now: string): Promise<void> {
-    const scoreStatements = document.pairScores.map((score) => this.db.prepare(`INSERT OR REPLACE INTO report_pair_scores
-      (report_id, pair_sample_id, pair_index, run_index, provider, model_id, score_json) VALUES (?, ?, ?, ?, ?, ?, ?)`)
-      .bind(reportId, score.pairSampleId, score.pairIndex, score.runIndex, score.provider, score.modelId, JSON.stringify(score)))
-    const legacyScoreStatements = document.pairScores.map((score) => this.db.prepare(`INSERT OR REPLACE INTO report_pair_scores
-      (report_id, pair_index, run_index, provider, model_id, score_json) VALUES (?, ?, ?, ?, ?, ?)`)
-      .bind(reportId, score.pairIndex, score.runIndex, score.provider, score.modelId, JSON.stringify(score)))
-    const update = this.db.prepare(`UPDATE generated_reports SET status='complete', title=?, structured_json=?, error_code=NULL, completed_at=? WHERE id=?`)
-      .bind(document.narrative.title, JSON.stringify(document), now, reportId)
-    try {
-      await this.db.batch([...scoreStatements, update])
-    } catch {
-      await this.db.batch([...legacyScoreStatements, update])
-    }
+  async completeReport(reportId: string, document: GeneratedReportDocument, now: string, leaseOwner: string): Promise<void> {
+    await this.db.prepare(`UPDATE generated_reports
+      SET status='complete', title=?, structured_json=?, error_code=NULL,
+          generation_lease_until=NULL, generation_lease_owner=NULL, completed_at=?
+      WHERE id=? AND status='pending' AND generation_lease_owner=?`)
+      .bind(document.narrative.title, JSON.stringify(document), now, reportId, leaseOwner).run()
     invalidateCachedReports()
     writeCachedClaims(null)
   }
 
-  async failReport(reportId: string, code: string): Promise<void> {
-    await this.db.prepare("UPDATE generated_reports SET status='failed', error_code=? WHERE id=?").bind(code.slice(0, 80), reportId).run()
+  async failReport(reportId: string, code: string, leaseOwner: string): Promise<void> {
+    await this.db.prepare(`UPDATE generated_reports
+      SET status='failed', error_code=?, generation_lease_until=NULL, generation_lease_owner=NULL
+      WHERE id=? AND status='pending' AND generation_lease_owner=?`)
+      .bind(code.slice(0, 80), reportId, leaseOwner).run()
     invalidateCachedReports()
   }
 
@@ -258,47 +256,65 @@ export class GeneratedReportRepository {
     return rows.map((row) => JSON.parse(s(String((row as { score_json: string }).score_json))) as GeneratedReportPairScore)
   }
 
-  async upsertPairScores(reportId: string, scores: GeneratedReportPairScore[]): Promise<void> {
+  async upsertPairScores(reportId: string, scores: GeneratedReportPairScore[], leaseOwner: string): Promise<void> {
     if (scores.length === 0) return
     const statements = scores.map((score) => this.db.prepare(`INSERT OR REPLACE INTO report_pair_scores
-      (report_id, pair_sample_id, pair_index, run_index, provider, model_id, score_json) VALUES (?, ?, ?, ?, ?, ?, ?)`)
-      .bind(reportId, score.pairSampleId, score.pairIndex, score.runIndex, score.provider, score.modelId, JSON.stringify(score)))
+      (report_id, pair_sample_id, pair_index, run_index, provider, model_id, score_json)
+      SELECT ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (
+        SELECT 1 FROM generated_reports WHERE id=? AND status='pending' AND generation_lease_owner=?
+      )`)
+      .bind(reportId, score.pairSampleId, score.pairIndex, score.runIndex, score.provider, score.modelId, JSON.stringify(score), reportId, leaseOwner))
     try {
       await this.db.batch(statements)
     } catch {
       await this.db.batch(scores.map((score) => this.db.prepare(`INSERT OR REPLACE INTO report_pair_scores
-        (report_id, pair_index, run_index, provider, model_id, score_json) VALUES (?, ?, ?, ?, ?, ?)`)
-        .bind(reportId, score.pairIndex, score.runIndex, score.provider, score.modelId, JSON.stringify(score))))
+        (report_id, pair_index, run_index, provider, model_id, score_json)
+        SELECT ?, ?, ?, ?, ?, ? WHERE EXISTS (
+          SELECT 1 FROM generated_reports WHERE id=? AND status='pending' AND generation_lease_owner=?
+        )`)
+        .bind(reportId, score.pairIndex, score.runIndex, score.provider, score.modelId, JSON.stringify(score), reportId, leaseOwner)))
     }
   }
 
-  async prepareReportGeneration(reportId: string, now: string): Promise<{ report: GeneratedReportSummary; started: boolean } | null> {
+  async prepareReportGeneration(reportId: string, now: string): Promise<{ report: GeneratedReportSummary; started: boolean; leaseOwner?: string } | null> {
     const row = await this.getRow(reportId)
     if (!row || row.status === 'complete') return null
-    if (row.status === 'pending') {
-      const ageMs = Date.now() - Date.parse(row.createdAt)
-      if (ageMs < 45_000) return { report: this.summary(row), started: false }
-      // The worker chunk is bounded to 25 seconds. Once its 45-second lease is
-      // gone, retry even if the first checkpoint never reached D1.
-      await this.touchReportGeneration(reportId, now)
-      return { report: this.summary({ ...row, status: 'pending', createdAt: now }), started: true }
+    if (row.generationLeaseOwner && row.generationLeaseUntil && Date.parse(row.generationLeaseUntil) > Date.parse(now)) {
+      return { report: this.summary(row), started: false }
     }
-    if (row.status === 'failed') {
-      const failedPartialCount = await this.countPairScores(reportId)
-      if (failedPartialCount === 0) await this.clearPairScores(reportId)
+    const leaseUntil = new Date(Date.parse(now) + REPORT_GENERATION_LEASE_MS).toISOString()
+    const leaseOwner = crypto.randomUUID()
+    const claim = await this.db.prepare(`UPDATE generated_reports
+      SET status='pending', error_code=NULL, generation_lease_until=?, generation_lease_owner=?,
+          scoring_model_id=?, synthesis_model_id=?
+      WHERE id=? AND status IN ('pending','failed')
+        AND (generation_lease_owner IS NULL OR generation_lease_until IS NULL OR generation_lease_until<=?)`)
+      .bind(leaseUntil, leaseOwner, SCORING_MODEL, SYNTHESIS_MODEL, reportId, now).run()
+    if ((claim.meta?.changes ?? 0) === 0) {
+      const current = await this.getRow(reportId)
+      return current ? { report: this.summary(current), started: false } : null
     }
-    await this.db.prepare("UPDATE generated_reports SET status='pending', error_code=NULL, created_at=?, scoring_model_id=?, synthesis_model_id=? WHERE id=?")
-      .bind(now, SCORING_MODEL, SYNTHESIS_MODEL, reportId).run()
-    return { report: this.summary({ ...row, status: 'pending', createdAt: now }), started: true }
+    return {
+      report: this.summary({ ...row, status: 'pending', generationLeaseUntil: leaseUntil, generationLeaseOwner: leaseOwner }),
+      started: true,
+      leaseOwner,
+    }
   }
 
-  async touchReportGeneration(reportId: string, now: string): Promise<void> {
-    await this.db.prepare("UPDATE generated_reports SET status='pending', error_code=NULL, created_at=? WHERE id=?")
-      .bind(now, reportId).run()
+  async touchReportGeneration(reportId: string, now: string, leaseOwner: string): Promise<void> {
+    const leaseUntil = new Date(Date.parse(now) + REPORT_GENERATION_LEASE_MS).toISOString()
+    await this.db.prepare(`UPDATE generated_reports SET generation_lease_until=?
+      WHERE id=? AND status='pending' AND generation_lease_owner=?`)
+      .bind(leaseUntil, reportId, leaseOwner).run()
+  }
+
+  async releaseReportGeneration(reportId: string, leaseOwner: string): Promise<void> {
+    await this.db.prepare(`UPDATE generated_reports SET generation_lease_until=NULL, generation_lease_owner=NULL
+      WHERE id=? AND status='pending' AND generation_lease_owner=?`).bind(reportId, leaseOwner).run()
   }
 
   async listReports(): Promise<GeneratedReportSummary[]> {
-    const rows = (await this.db.prepare(`SELECT id, scope, public_run_id, response_watermark, cohort_fingerprint, cohort_snapshot_json,
+    const rows = (await this.db.prepare(`SELECT id, scope, public_run_id, response_watermark, cohort_fingerprint, cohort_snapshot_json, generation_lease_until, generation_lease_owner,
       status, error_code, scoring_model_id, synthesis_model_id, title, structured_json, created_at, completed_at FROM generated_reports
       ORDER BY COALESCE(completed_at, created_at) DESC LIMIT 50`).all()).results ?? []
     const summaries: GeneratedReportSummary[] = []
@@ -326,12 +342,25 @@ export class GeneratedReportRepository {
     const finalized = await this.finalizeStoredDocumentIfValid(row, now)
     if (finalized) return { kind: 'existing', report: this.summary(finalized) }
 
-    if (row.status === 'pending' && Date.now() - Date.parse(row.createdAt) > 5 * 60_000) {
-      await this.db.prepare("UPDATE generated_reports SET status='failed', error_code='stale-pending' WHERE id=?").bind(row.id).run()
-      row = { ...row, status: 'failed' }
+    const leaseActive = row.generationLeaseOwner && row.generationLeaseUntil
+      && Date.parse(row.generationLeaseUntil) > Date.parse(now)
+    if (row.status === 'pending' && leaseActive) return { kind: 'existing', report: this.summary(row) }
+    if (row.status === 'pending' && Date.parse(now) - Date.parse(row.createdAt) > 5 * 60_000) {
+      const stale = await this.db.prepare(`UPDATE generated_reports
+        SET status='failed', error_code='stale-pending', generation_lease_until=NULL, generation_lease_owner=NULL
+        WHERE id=? AND status='pending'
+          AND (generation_lease_owner IS NULL OR generation_lease_until IS NULL OR generation_lease_until<=?)`)
+        .bind(row.id, now).run()
+      if ((stale.meta?.changes ?? 0) === 0) {
+        const current = await this.getRow(row.id)
+        return { kind: 'existing', report: this.summary(current ?? row) }
+      }
+      row = { ...row, status: 'failed', generationLeaseUntil: null, generationLeaseOwner: null }
     }
     if (row.status !== 'failed') return { kind: 'existing', report: this.summary(row) }
-    await this.db.prepare("UPDATE generated_reports SET status='pending', error_code=NULL, created_at=?, scoring_model_id=?, synthesis_model_id=? WHERE id=?")
+    await this.db.prepare(`UPDATE generated_reports
+      SET status='pending', error_code=NULL, created_at=?, scoring_model_id=?, synthesis_model_id=?
+      WHERE id=? AND status='failed' AND generation_lease_owner IS NULL`)
       .bind(now, SCORING_MODEL, SYNTHESIS_MODEL, row.id).run()
     return { kind: 'claimed', report: this.summary({ ...row, status: 'pending', createdAt: now }) }
   }
@@ -347,21 +376,21 @@ export class GeneratedReportRepository {
   }
 
   private async findByRun(runId: string): Promise<ReportRow | null> {
-    const row = await this.db.prepare(`SELECT id, scope, public_run_id, response_watermark, cohort_fingerprint, cohort_snapshot_json,
+    const row = await this.db.prepare(`SELECT id, scope, public_run_id, response_watermark, cohort_fingerprint, cohort_snapshot_json, generation_lease_until, generation_lease_owner,
       status, error_code, scoring_model_id, synthesis_model_id, title, structured_json, created_at, completed_at FROM generated_reports WHERE scope='run' AND public_run_id=?`)
       .bind(runId).first<Record<string, unknown>>()
     return row ? mapReportRow(row) : null
   }
 
   private async findByCohortFingerprint(fingerprint: string): Promise<ReportRow | null> {
-    const row = await this.db.prepare(`SELECT id, scope, public_run_id, response_watermark, cohort_fingerprint, cohort_snapshot_json,
+    const row = await this.db.prepare(`SELECT id, scope, public_run_id, response_watermark, cohort_fingerprint, cohort_snapshot_json, generation_lease_until, generation_lease_owner,
       status, error_code, scoring_model_id, synthesis_model_id, title, structured_json, created_at, completed_at FROM generated_reports WHERE scope='global' AND cohort_fingerprint=?`)
       .bind(fingerprint).first<Record<string, unknown>>()
     return row ? mapReportRow(row) : null
   }
 
   private async getRow(id: string): Promise<ReportRow | null> {
-    const row = await this.db.prepare(`SELECT id, scope, public_run_id, response_watermark, cohort_fingerprint, cohort_snapshot_json,
+    const row = await this.db.prepare(`SELECT id, scope, public_run_id, response_watermark, cohort_fingerprint, cohort_snapshot_json, generation_lease_until, generation_lease_owner,
       status, error_code, scoring_model_id, synthesis_model_id, title, structured_json, created_at, completed_at FROM generated_reports WHERE id=?`)
       .bind(id).first<Record<string, unknown>>()
     return row ? mapReportRow(row) : null
@@ -383,6 +412,8 @@ function mapReportRow(row: Record<string, unknown>): ReportRow {
     responseWatermark: row.response_watermark == null ? null : n(row.response_watermark),
     cohortFingerprint: row.cohort_fingerprint == null ? null : s(row.cohort_fingerprint),
     cohortSnapshotJson: row.cohort_snapshot_json == null ? null : s(row.cohort_snapshot_json),
+    generationLeaseUntil: row.generation_lease_until == null ? null : s(row.generation_lease_until),
+    generationLeaseOwner: row.generation_lease_owner == null ? null : s(row.generation_lease_owner),
     status: s(row.status) as ReportRow['status'], scoringModelId: s(row.scoring_model_id), synthesisModelId: s(row.synthesis_model_id),
     title: row.title == null ? null : s(row.title), structuredJson: row.structured_json == null ? null : s(row.structured_json),
     createdAt: s(row.created_at), completedAt: row.completed_at == null ? null : s(row.completed_at),

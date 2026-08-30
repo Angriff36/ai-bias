@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { generatedReportDocumentSchema, type GeneratedReportPairScore, type PublicEvidenceItem } from '../../src/public/contracts'
 import { buildPairSampleId } from './matchedSampleIdentity'
-import { generateReport, handleReportChunkFailure, processReportChunk } from './reportGeneration'
+import { generateReport, handleReportChunkFailure, processReportChunk, runReportGenerationStep } from './reportGeneration'
 import { RetryableReportCheckpointError } from './reportJudgeBatch'
 
 function evidenceRecord(overrides: Partial<PublicEvidenceItem> & Pick<PublicEvidenceItem, 'id' | 'pairIndex' | 'runIndex' | 'variantKey' | 'classification'>): PublicEvidenceItem {
@@ -65,10 +65,8 @@ function mockJudgeBatch(prompt: string) {
 }
 
 describe('generated report pipeline', () => {
-  it('includes repository work in the deadline, checkpoints once, then synthesizes in the next chunk', async () => {
+  it('keeps the judge call on the connected request instead of aborting it at the background-task limit', async () => {
     const evidence = fixtureEvidence(1)
-    let elapsedMs = 0
-    const dateNow = vi.spyOn(Date, 'now').mockImplementation(() => elapsedMs)
     let savedScores: GeneratedReportPairScore[] = []
     const judge = vi.fn(async (_modelId: string, prompt: string) => mockJudgeBatch(prompt))
     const synthesis = vi.fn(async () => JSON.stringify({
@@ -80,10 +78,8 @@ describe('generated report pipeline', () => {
       limitations: ['One question is not representative of every context.'],
     }))
     const repository = {
-      touchReportGeneration: vi.fn(async () => { elapsedMs += 1_000 }),
-      getReportEvidence: vi.fn(async () => {
-        elapsedMs += 2_000
-        return {
+      touchReportGeneration: vi.fn(async () => undefined),
+      getReportEvidence: vi.fn(async () => ({
           row: {
             id: 'report-timebox',
             scope: 'run' as const,
@@ -91,12 +87,8 @@ describe('generated report pipeline', () => {
             synthesisModelId: 'x-ai/grok-4.6',
           },
           evidence,
-        }
-      }),
-      loadPairScores: vi.fn(async () => {
-        elapsedMs += 3_000
-        return savedScores
-      }),
+        })),
+      loadPairScores: vi.fn(async () => savedScores),
       upsertPairScores: vi.fn(async (_reportId: string, scores: typeof savedScores) => {
         savedScores = [...savedScores, ...scores]
       }),
@@ -104,44 +96,103 @@ describe('generated report pipeline', () => {
       failReport: vi.fn(async () => undefined),
     }
 
-    try {
-      await processReportChunk(
-        { complete: synthesis },
-        repository,
-        'report-timebox',
-        { complete: judge },
-      )
+    await processReportChunk(
+      { complete: synthesis },
+      repository,
+      'report-timebox',
+      { complete: judge },
+      'owner-a',
+    )
 
-      expect(judge).toHaveBeenCalledWith(
-        'z-ai/glm-5.3-flash',
-        expect.stringContaining('SCORING TASK'),
-        8192,
-        { jsonObject: true, timeoutMs: 17_000 },
-      )
-      expect(synthesis).not.toHaveBeenCalled()
-      expect(repository.completeReport).not.toHaveBeenCalled()
-      expect(repository.upsertPairScores).toHaveBeenCalledTimes(1)
-      expect(savedScores).toHaveLength(1)
+    expect(judge).toHaveBeenCalledWith(
+      'z-ai/glm-5.3-flash',
+      expect.stringContaining('SCORING TASK'),
+      8192,
+      { jsonObject: true },
+    )
+    expect(synthesis).not.toHaveBeenCalled()
+    expect(repository.completeReport).not.toHaveBeenCalled()
+    expect(repository.upsertPairScores).toHaveBeenCalledTimes(1)
+    expect(repository.touchReportGeneration).toHaveBeenCalledTimes(2)
+    expect(savedScores).toHaveLength(1)
 
-      await processReportChunk(
-        { complete: synthesis },
-        repository,
-        'report-timebox',
-        { complete: judge },
-      )
-    } finally {
-      dateNow.mockRestore()
-    }
+    await processReportChunk(
+      { complete: synthesis },
+      repository,
+      'report-timebox',
+      { complete: judge },
+      'owner-a',
+    )
 
     expect(judge).toHaveBeenCalledTimes(1)
     expect(synthesis).toHaveBeenCalledWith(
       'x-ai/grok-4.6',
       expect.stringContaining('DATA:'),
       4096,
-      { jsonObject: true, timeoutMs: 17_000 },
+      { jsonObject: true },
     )
     expect(repository.upsertPairScores).toHaveBeenCalledTimes(1)
     expect(repository.completeReport).toHaveBeenCalledTimes(1)
+  })
+
+  it('heartbeats the same lease owner while a long model call is in flight', async () => {
+    vi.useFakeTimers()
+    let finishJudge!: (value: string) => void
+    const judge = vi.fn(() => new Promise<string>((resolve) => { finishJudge = resolve }))
+    const repository = {
+      touchReportGeneration: vi.fn(async () => undefined),
+      getReportEvidence: vi.fn(async () => ({
+        row: { id: 'report-long', scope: 'global' as const, scoringModelId: 'judge', synthesisModelId: 'writer' },
+        evidence: fixtureEvidence(1),
+      })),
+      loadPairScores: vi.fn(async () => []),
+      upsertPairScores: vi.fn(async () => undefined),
+      completeReport: vi.fn(async () => undefined),
+      countPairScores: vi.fn(async () => 0),
+      failReport: vi.fn(async () => undefined),
+      releaseReportGeneration: vi.fn(async () => undefined),
+    }
+
+    try {
+      const running = runReportGenerationStep(
+        { complete: vi.fn() }, repository, 'report-long', { complete: judge }, 'owner-a',
+      )
+      await vi.advanceTimersByTimeAsync(30_000)
+      expect(repository.touchReportGeneration).toHaveBeenCalledWith(
+        'report-long', expect.any(String), 'owner-a',
+      )
+      expect(repository.touchReportGeneration.mock.calls.length).toBeGreaterThanOrEqual(2)
+      finishJudge(mockJudgeBatch('SCORING TASK\nCELLS:\n' + JSON.stringify([{ pairSampleId: buildPairSampleId(fixtureEvidence(1)[0]!) }])))
+      await running
+      expect(repository.releaseReportGeneration).toHaveBeenCalledWith('report-long', 'owner-a')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not turn a successful step into an error when best-effort lease release fails', async () => {
+    const repository = {
+      touchReportGeneration: vi.fn(async () => undefined),
+      getReportEvidence: vi.fn(async () => ({
+        row: { id: 'report-release', scope: 'global' as const, scoringModelId: 'judge', synthesisModelId: 'writer' },
+        evidence: fixtureEvidence(1),
+      })),
+      loadPairScores: vi.fn(async () => []),
+      upsertPairScores: vi.fn(async () => undefined),
+      completeReport: vi.fn(async () => undefined),
+      countPairScores: vi.fn(async () => 0),
+      failReport: vi.fn(async () => undefined),
+      releaseReportGeneration: vi.fn(async () => { throw new Error('temporary D1 outage') }),
+    }
+
+    await expect(runReportGenerationStep(
+      { complete: vi.fn() },
+      repository,
+      'report-release',
+      { complete: vi.fn(async (_modelId: string, prompt: string) => mockJudgeBatch(prompt)) },
+      'owner-a',
+    )).resolves.toBeUndefined()
+    expect(repository.releaseReportGeneration).toHaveBeenCalledWith('report-release', 'owner-a')
   })
 
   it('judges pairs in batches then synthesizes from aggregates only', async () => {
@@ -226,9 +277,12 @@ describe('generated report pipeline', () => {
       repository as never,
       'report-checkpoint-retry',
       new RetryableReportCheckpointError(new Error('D1 checkpoint unavailable')),
+      'owner-a',
     )
 
-    expect(repository.touchReportGeneration).toHaveBeenCalledTimes(1)
+    expect(repository.touchReportGeneration).toHaveBeenCalledWith(
+      'report-checkpoint-retry', expect.any(String), 'owner-a',
+    )
     expect(repository.failReport).not.toHaveBeenCalled()
   })
 })

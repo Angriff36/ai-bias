@@ -20,6 +20,11 @@ function dependencies() {
         schemaVersion: 1, id: 'report-1', scope: 'run', generatedAt: 'later', scoringModelId: 'scorer', synthesisModelId: 'writer', responseCount: 40, completePairs: 20, modelCount: 1,
         narrative: { title: 'Published audit', subtitle: 'Twenty questions', executiveSummary: 'Summary.', keyFindings: ['Finding.'], methodology: 'Method.', limitations: ['Limit.'] }, models: [], pairScores: [], evidence: [],
       })),
+      prepareReportGeneration: vi.fn(async () => ({
+        started: true,
+        leaseOwner: 'owner-a',
+        report: { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', scope: 'global', status: 'pending', title: null, responseCount: 0, completePairs: 0, modelCount: 0, createdAt: 'now', completedAt: null },
+      })),
     },
     claimRepository: {
       list: vi.fn(async () => [{ id: 'claim-1', text: 'Does the model hedge more for white people?', questionKeys: ['identity'], createdAt: 'now', testCount: 4, matchRate: 75, biasScore: 0.5, models: ['m'], lastSeenAt: 'now', reports: [] }]),
@@ -29,6 +34,7 @@ function dependencies() {
     freeRunner: vi.fn(),
     schedule: vi.fn(),
     scheduleReport: vi.fn(),
+    runReportStep: vi.fn(async (): Promise<void> => undefined),
   }
 }
 
@@ -46,14 +52,37 @@ describe('public API routes', () => {
     expect(deps.scheduleReport).not.toHaveBeenCalled()
   })
 
-  it('starts a report over a person-chosen question set', async () => {
+  it('runs the first question-set report step on the connected creation request', async () => {
     const deps = dependencies()
     const post = await handlePublicApi(new Request('https://ai-tests.com/api/public/reports', {
       method: 'POST', headers: { 'content-type': 'application/json', origin: 'https://ai-tests.com' }, body: JSON.stringify({ questionKeys: ['identity', 'hiring'] }),
     }), {} as never, { waitUntil: vi.fn() }, deps as never)
     expect(post?.status).toBe(202)
     expect(deps.reportRepository.claimQuestionSetReport).toHaveBeenCalledWith(['identity', 'hiring'], expect.any(String))
-    expect(deps.scheduleReport).toHaveBeenCalledWith('question-set')
+    expect(deps.scheduleReport).not.toHaveBeenCalled()
+    expect(deps.runReportStep).toHaveBeenCalledWith('question-set', 'owner-a')
+  })
+
+  it('keeps the generation request open until the report step finishes', async () => {
+    const deps = dependencies()
+    let finishStep!: () => void
+    deps.runReportStep.mockImplementation(() => new Promise<void>((resolve) => { finishStep = resolve }))
+    let settled = false
+
+    const responsePromise = handlePublicApi(new Request('https://ai-tests.com/api/public/reports/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/generate', {
+      method: 'POST', headers: { origin: 'https://ai-tests.com' },
+    }), {} as never, { waitUntil: vi.fn() }, deps as never).then((response) => {
+      settled = true
+      return response
+    })
+
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    finishStep()
+
+    const response = await responsePromise
+    expect(response?.status).toBe(200)
   })
 
   it('lists claims and lets a person write one; the answer is computed, never typed', async () => {
@@ -82,7 +111,8 @@ describe('public API routes', () => {
       method: 'POST', headers: { 'content-type': 'application/json', origin: 'https://ai-tests.com' }, body: JSON.stringify({ runId: 'public-run' }),
     }), {} as never, { waitUntil: vi.fn() }, deps as never)
     expect(post?.status).toBe(202)
-    expect(deps.scheduleReport).toHaveBeenCalledWith('report-1')
+    expect(deps.scheduleReport).not.toHaveBeenCalled()
+    expect(deps.runReportStep).toHaveBeenCalledWith('report-1', 'owner-a')
 
     const globalPost = await handlePublicApi(new Request('https://ai-tests.com/api/public/reports', {
       method: 'POST', headers: { 'content-type': 'application/json', origin: 'https://ai-tests.com' }, body: JSON.stringify({ globalCohort: 'current' }),

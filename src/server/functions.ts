@@ -638,7 +638,12 @@ export function updateExperimentName(token: string | null, id: number, name: str
   return getExperiment(token, id)
 }
 
-/** Replaces an owned experiment's editable definition before any run exists. */
+/**
+ * Replaces an owned experiment's questions and settings. Editing is allowed
+ * after runs: every stored answer carries its own prompt text, so history stays
+ * true, and the next run asks the new questions. The template row is kept
+ * because runs point at it.
+ */
 export function updateDraftExperiment(
   token: string | null,
   id: number,
@@ -656,24 +661,19 @@ export function updateDraftExperiment(
       [id, userId],
     )[0]?.values[0]
     if (!owned) throw new ServerError(404, 'Not found')
-    const runCount = Number(db.exec(
-      'SELECT COUNT(*) FROM run_batches WHERE experiment_id = ?',
-      [id],
-    )[0]?.values[0]?.[0] ?? 0)
-    if (runCount > 0) {
-      throw new ServerError(409, 'This experiment cannot be edited after a run has been created.')
-    }
 
     db.run(
-      "UPDATE experiments SET name = ?, hypothesis = ?, default_repeats = ?, sampling_mode = ?, status = 'draft' WHERE id = ? AND created_by = ?",
+      'UPDATE experiments SET name = ?, hypothesis = ?, default_repeats = ?, sampling_mode = ? WHERE id = ? AND created_by = ?',
       [parsed.value.name, parsed.value.description ?? null, parsed.value.repeats, parsed.value.samplingMode ?? 'shared-anchor', id, userId],
     )
     clearLeftoverPairs(db, id)
-    db.run('DELETE FROM templates WHERE experiment_id = ?', [id])
-    db.run(
-      'INSERT INTO templates (experiment_id, name, body) VALUES (?, ?, ?)',
-      [id, 'Imported complete prompts', 'Imported complete prompts; see matched questions.'],
-    )
+    const templateId = db.exec('SELECT id FROM templates WHERE experiment_id = ? ORDER BY id LIMIT 1', [id])[0]?.values[0]?.[0]
+    if (templateId == null) {
+      db.run(
+        'INSERT INTO templates (experiment_id, name, body) VALUES (?, ?, ?)',
+        [id, 'Imported complete prompts', 'Imported complete prompts; see matched questions.'],
+      )
+    }
     for (const [ordinal, pair] of parsed.value.pairs.entries()) {
       db.run(
         'INSERT INTO experiment_pairs (experiment_id, external_id, ordinal, question) VALUES (?, ?, ?, ?)',

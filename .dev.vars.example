@@ -1,0 +1,6 @@
+# Local development secrets for `wrangler dev` (copy to `.dev.vars` and fill in).
+# `.dev.vars` is git-ignored — never commit real values.
+#
+# Required for report generation and the cron report-resume path.
+# In production this is set with: wrangler secret put OPENROUTER_API_KEY
+OPENROUTER_API_KEY=sk-or-v1-replace-me

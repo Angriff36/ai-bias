@@ -13,3 +13,5 @@ ai-bias-analysis.json
 ai-bias-report.md
 .claude/
 .codex/
+.dev.vars
+.artifacts/

@@ -3,15 +3,19 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "packageManager": "bun@1.3.4",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
-    "start": "npm run build && wrangler dev",
+    "start": "bun run build && wrangler dev",
     "dev": "vite",
-    "dev:worker": "npm run build && wrangler dev",
-    "deploy": "npm run verify:public && wrangler deploy && wrangler d1 migrations apply ai-bias-public --remote",
-    "deploy:dry": "npm run verify:public && wrangler deploy --dry-run",
+    "dev:worker": "bun run build && wrangler dev",
+    "deploy": "bun run verify:public && wrangler deploy && wrangler d1 migrations apply ai-bias-public --remote",
+    "deploy:dry": "bun run verify:public && wrangler deploy --dry-run",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "verify:public": "npm run build && node scripts/verify-public-build.mjs",
+    "verify:public": "bun run build && node scripts/verify-public-build.mjs",
     "typecheck": "tsc -b && tsc --noEmit -p tsconfig.all.json",
     "test": "vitest run",
     "test:e2e": "playwright test"

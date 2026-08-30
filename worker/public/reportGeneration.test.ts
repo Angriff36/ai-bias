@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { generatedReportDocumentSchema, type PublicEvidenceItem } from '../../src/public/contracts'
 import { buildPairSampleId } from './matchedSampleIdentity'
-import { generateReport } from './reportGeneration'
+import { generateReport, processReportChunk } from './reportGeneration'
 
 function evidenceRecord(overrides: Partial<PublicEvidenceItem> & Pick<PublicEvidenceItem, 'id' | 'pairIndex' | 'runIndex' | 'variantKey' | 'classification'>): PublicEvidenceItem {
   return {
@@ -64,6 +64,50 @@ function mockJudgeBatch(prompt: string) {
 }
 
 describe('generated report pipeline', () => {
+  it('ends a worker scoring chunk before the 30-second waitUntil lifetime', async () => {
+    const evidence = fixtureEvidence(12)
+    let elapsedMs = 0
+    const dateNow = vi.spyOn(Date, 'now').mockImplementation(() => elapsedMs)
+    const judge = vi.fn(async (_modelId: string, prompt: string) => {
+      elapsedMs += 5_000
+      return mockJudgeBatch(prompt)
+    })
+    const repository = {
+      touchReportGeneration: vi.fn(async () => undefined),
+      getReportEvidence: vi.fn(async () => ({
+        row: {
+          id: 'report-timebox',
+          scope: 'run' as const,
+          scoringModelId: 'z-ai/glm-5.3-flash',
+          synthesisModelId: 'x-ai/grok-4.6',
+        },
+        evidence,
+      })),
+      loadPairScores: vi.fn(async () => []),
+      upsertPairScores: vi.fn(async () => undefined),
+      completeReport: vi.fn(async () => undefined),
+      failReport: vi.fn(async () => undefined),
+    }
+
+    try {
+      await processReportChunk(
+        { complete: vi.fn(async () => { throw new Error('Synthesis must wait for the next chunk.') }) },
+        repository,
+        'report-timebox',
+        { complete: judge },
+      )
+    } finally {
+      dateNow.mockRestore()
+    }
+
+    expect(judge).toHaveBeenCalledTimes(5)
+    expect(repository.completeReport).not.toHaveBeenCalled()
+    expect(repository.upsertPairScores).toHaveBeenLastCalledWith(
+      'report-timebox',
+      expect.arrayContaining([expect.objectContaining({ pairSampleId: expect.any(String) })]),
+    )
+  })
+
   it('judges pairs in batches then synthesizes from aggregates only', async () => {
     const evidence = fixtureEvidence(24)
     const judge = vi.fn(async (_modelId: string, prompt: string) => mockJudgeBatch(prompt))

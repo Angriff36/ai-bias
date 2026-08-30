@@ -1,10 +1,12 @@
 /** @vitest-environment jsdom */
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 
 const completeOAuth = vi.hoisted(() => vi.fn())
+const listGeneratedReports = vi.hoisted(() => vi.fn())
+const continueReportGeneration = vi.hoisted(() => vi.fn())
 
 vi.mock('./openrouter/oauth', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./openrouter/oauth')>()
@@ -32,26 +34,31 @@ vi.mock('./public/client', () => ({
     totals: { runs: 0, responses: 0, completePairs: 0, models: 0, questions: 0 },
     topQuestions: [], models: [], latestAnalysis: null, analysisPending: false, latestReport: null, reportPending: false, recentEvidence: [],
   }),
-  listGeneratedReports: vi.fn().mockResolvedValue([
-    {
-      id: 'race-swap-audit-2026-08-26', scope: 'global', status: 'complete',
-      title: 'The race-swap audit — Google AI Overview and three frontier LLMs',
-      responseCount: 1450, completePairs: 125, modelCount: 4,
-      createdAt: '2026-08-26T10:50:25.000Z', completedAt: '2026-08-26T10:50:25.000Z',
-    },
-  ]),
+  listGeneratedReports,
   listClaims: vi.fn().mockResolvedValue([]),
   createClaim: vi.fn(),
   requestQuestionSetReport: vi.fn(),
-  continueReportGeneration: vi.fn(),
+  continueReportGeneration,
 }))
 
 describe('application navigation', () => {
   afterEach(cleanup)
 
   beforeEach(() => {
+    vi.useRealTimers()
     completeOAuth.mockReset()
     completeOAuth.mockResolvedValue({ connected: false, returnHash: '' })
+    continueReportGeneration.mockReset()
+    continueReportGeneration.mockResolvedValue(undefined)
+    listGeneratedReports.mockReset()
+    listGeneratedReports.mockResolvedValue([
+      {
+        id: 'race-swap-audit-2026-08-26', scope: 'global', status: 'complete',
+        title: 'The race-swap audit — Google AI Overview and three frontier LLMs',
+        responseCount: 1450, completePairs: 125, modelCount: 4,
+        createdAt: '2026-08-26T10:50:25.000Z', completedAt: '2026-08-26T10:50:25.000Z',
+      },
+    ])
     window.history.replaceState({}, '', '/#/reports')
     window.location.hash = '#/reports'
   })
@@ -82,6 +89,28 @@ describe('application navigation', () => {
     expect(await screen.findByRole('tab', { name: 'Reports' })).toBeTruthy()
     const link = await screen.findByRole('link', { name: /The race-swap audit/ })
     expect(link.getAttribute('href')).toBe('/api/public/reports/race-swap-audit-2026-08-26.html')
+  })
+
+  it('does not retry a pending report before its 45-second server lease expires', async () => {
+    vi.useFakeTimers()
+    listGeneratedReports.mockResolvedValue([
+      {
+        id: 'pending-report', scope: 'global', status: 'pending',
+        title: 'Pending report', responseCount: 0, completePairs: 0, modelCount: 0,
+        progress: { scoredPairs: 6, expectedPairs: 12 },
+        createdAt: '2026-08-30T15:00:00.000Z', completedAt: null,
+      },
+    ])
+    await act(async () => {
+      render(<App />)
+    })
+    expect(continueReportGeneration).toHaveBeenCalledTimes(1)
+    await act(async () => { await vi.advanceTimersByTimeAsync(45_000) })
+    expect(continueReportGeneration).toHaveBeenCalledTimes(1)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000)
+    })
+    expect(continueReportGeneration).toHaveBeenCalledTimes(2)
   })
 
   it('exposes an about section describing what is published and what stays private', async () => {

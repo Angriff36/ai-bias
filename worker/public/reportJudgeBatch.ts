@@ -198,7 +198,7 @@ export interface JudgeProgressOptions {
   concurrency?: number
   /**
    * Called after each cell finishes so scored work survives a later failure in the
-   * same chunk. Receives every pair scored so far; persist with an upsert.
+   * same chunk. Receives only the pairs from that cell; persist with an upsert.
    */
   onCheckpoint?: (pairScores: GeneratedReportPairScore[]) => Promise<void> | void
 }
@@ -220,13 +220,14 @@ export async function scoreAllPairsWithJudge(
     })
   }
 
-  const collect = (): GeneratedReportPairScore[] => groups.flatMap((group) => {
+  const collectGroups = (sourceGroups: PublicEvidenceItem[][]): GeneratedReportPairScore[] => sourceGroups.flatMap((group) => {
     const variantA = group.find((item) => item.variantKey === 'A')!
     const variantB = group.find((item) => item.variantKey === 'B')!
     const judged = judgedById.get(buildPairSampleId(variantA))
     if (!judged) return []
     return [buildPairScoreFromJudge(variantA, variantB, judged)]
   })
+  const collect = (): GeneratedReportPairScore[] => collectGroups(groups)
 
   const pending = groupPolarJudgeCells(evidence).filter((cell) => !cell.groups.every((group) => {
     const variantA = group.find((item) => item.variantKey === 'A')!
@@ -251,7 +252,7 @@ export async function scoreAllPairsWithJudge(
         lastError = error
         continue
       }
-      if (options?.onCheckpoint) await options.onCheckpoint(collect())
+      if (options?.onCheckpoint) await options.onCheckpoint(collectGroups(cell.groups))
     }
   }
   await Promise.all(Array.from({ length: Math.min(concurrency, pending.length) }, worker))

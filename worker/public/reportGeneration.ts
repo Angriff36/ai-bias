@@ -33,7 +33,7 @@ interface ReportGenerationRepository {
 export interface GenerateReportOptions {
   existingPairScores?: GeneratedReportPairScore[]
   deadlineMs?: number
-  /** Persist scores as each judge cell lands, so a later failure keeps earlier work. */
+  /** Persist the newly scored pairs as each judge cell lands. */
   onCheckpoint?: (pairScores: GeneratedReportPairScore[]) => Promise<void> | void
 }
 
@@ -41,7 +41,7 @@ export type GenerateReportResult =
   | GeneratedReportDocument
   | { status: 'partial'; pairScores: GeneratedReportPairScore[] }
 
-export const REPORT_GENERATION_BUDGET_MS = 110_000
+export const REPORT_GENERATION_BUDGET_MS = 25_000
 
 class InvalidModelOutput extends Error {}
 

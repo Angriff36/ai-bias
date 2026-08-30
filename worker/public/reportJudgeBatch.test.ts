@@ -154,16 +154,21 @@ describe('report judge batch', () => {
     expect(result.pairScores.every((score) => score.modelId !== 'model/b')).toBe(true)
   })
 
-  it('checkpoints progress as each cell lands', async () => {
+  it('checkpoints only the scores from the cell that just landed', async () => {
     const evidence = judgeEvidence(['model/a', 'model/b', 'model/c'])
     const checkpoints: number[] = []
+    const checkpointIds: string[] = []
 
     const result = await scoreAllPairsWithJudge(scoringClient(), 'z-ai/glm-5.3-flash', evidence, {
       concurrency: 1,
-      onCheckpoint: (scores) => { checkpoints.push(scores.length) },
+      onCheckpoint: (scores) => {
+        checkpoints.push(scores.length)
+        checkpointIds.push(...scores.map((score) => score.pairSampleId))
+      },
     })
 
-    expect(checkpoints).toEqual([2, 4, 6])
+    expect(checkpoints).toEqual([2, 2, 2])
+    expect(new Set(checkpointIds).size).toBe(6)
     expect(result.complete).toBe(true)
   })
 

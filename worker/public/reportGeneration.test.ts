@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { generatedReportDocumentSchema, type PublicEvidenceItem } from '../../src/public/contracts'
+import { generatedReportDocumentSchema, type GeneratedReportPairScore, type PublicEvidenceItem } from '../../src/public/contracts'
 import { buildPairSampleId } from './matchedSampleIdentity'
 import { generateReport, processReportChunk } from './reportGeneration'
 
@@ -64,34 +64,66 @@ function mockJudgeBatch(prompt: string) {
 }
 
 describe('generated report pipeline', () => {
-  it('ends a worker scoring chunk before the 30-second waitUntil lifetime', async () => {
-    const evidence = fixtureEvidence(12)
+  it('includes repository work in the deadline, checkpoints once, then synthesizes in the next chunk', async () => {
+    const evidence = fixtureEvidence(1)
     let elapsedMs = 0
     const dateNow = vi.spyOn(Date, 'now').mockImplementation(() => elapsedMs)
-    const judge = vi.fn(async (_modelId: string, prompt: string) => {
-      elapsedMs += 5_000
-      return mockJudgeBatch(prompt)
-    })
+    let savedScores: GeneratedReportPairScore[] = []
+    const judge = vi.fn(async (_modelId: string, prompt: string) => mockJudgeBatch(prompt))
+    const synthesis = vi.fn(async () => JSON.stringify({
+      title: 'Identity framing audit',
+      subtitle: 'One matched question',
+      executiveSummary: 'The matched answers were compared.',
+      keyFindings: ['The judge found a measurable difference.'],
+      methodology: 'A judge model scored the matched pair before synthesis.',
+      limitations: ['One question is not representative of every context.'],
+    }))
     const repository = {
-      touchReportGeneration: vi.fn(async () => undefined),
-      getReportEvidence: vi.fn(async () => ({
-        row: {
-          id: 'report-timebox',
-          scope: 'run' as const,
-          scoringModelId: 'z-ai/glm-5.3-flash',
-          synthesisModelId: 'x-ai/grok-4.6',
-        },
-        evidence,
-      })),
-      loadPairScores: vi.fn(async () => []),
-      upsertPairScores: vi.fn(async () => undefined),
+      touchReportGeneration: vi.fn(async () => { elapsedMs += 1_000 }),
+      getReportEvidence: vi.fn(async () => {
+        elapsedMs += 2_000
+        return {
+          row: {
+            id: 'report-timebox',
+            scope: 'run' as const,
+            scoringModelId: 'z-ai/glm-5.3-flash',
+            synthesisModelId: 'x-ai/grok-4.6',
+          },
+          evidence,
+        }
+      }),
+      loadPairScores: vi.fn(async () => {
+        elapsedMs += 3_000
+        return savedScores
+      }),
+      upsertPairScores: vi.fn(async (_reportId: string, scores: typeof savedScores) => {
+        savedScores = [...savedScores, ...scores]
+      }),
       completeReport: vi.fn(async () => undefined),
       failReport: vi.fn(async () => undefined),
     }
 
     try {
       await processReportChunk(
-        { complete: vi.fn(async () => { throw new Error('Synthesis must wait for the next chunk.') }) },
+        { complete: synthesis },
+        repository,
+        'report-timebox',
+        { complete: judge },
+      )
+
+      expect(judge).toHaveBeenCalledWith(
+        'z-ai/glm-5.3-flash',
+        expect.stringContaining('SCORING TASK'),
+        8192,
+        { jsonObject: true, timeoutMs: 17_000 },
+      )
+      expect(synthesis).not.toHaveBeenCalled()
+      expect(repository.completeReport).not.toHaveBeenCalled()
+      expect(repository.upsertPairScores).toHaveBeenCalledTimes(1)
+      expect(savedScores).toHaveLength(1)
+
+      await processReportChunk(
+        { complete: synthesis },
         repository,
         'report-timebox',
         { complete: judge },
@@ -100,12 +132,15 @@ describe('generated report pipeline', () => {
       dateNow.mockRestore()
     }
 
-    expect(judge).toHaveBeenCalledTimes(5)
-    expect(repository.completeReport).not.toHaveBeenCalled()
-    expect(repository.upsertPairScores).toHaveBeenLastCalledWith(
-      'report-timebox',
-      expect.arrayContaining([expect.objectContaining({ pairSampleId: expect.any(String) })]),
+    expect(judge).toHaveBeenCalledTimes(1)
+    expect(synthesis).toHaveBeenCalledWith(
+      'x-ai/grok-4.6',
+      expect.stringContaining('DATA:'),
+      4096,
+      { jsonObject: true, timeoutMs: 17_000 },
     )
+    expect(repository.upsertPairScores).toHaveBeenCalledTimes(1)
+    expect(repository.completeReport).toHaveBeenCalledTimes(1)
   })
 
   it('judges pairs in batches then synthesizes from aggregates only', async () => {

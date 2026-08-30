@@ -101,8 +101,9 @@ describe('application navigation', () => {
         createdAt: '2026-08-30T15:00:00.000Z', completedAt: null,
       },
     ])
+    let unmount: () => void = () => undefined
     await act(async () => {
-      render(<App />)
+      unmount = render(<App />).unmount
     })
     expect(continueReportGeneration).toHaveBeenCalledTimes(1)
     await act(async () => { await vi.advanceTimersByTimeAsync(45_000) })
@@ -111,6 +112,38 @@ describe('application navigation', () => {
       await vi.advanceTimersByTimeAsync(5_000)
     })
     expect(continueReportGeneration).toHaveBeenCalledTimes(2)
+    await act(async () => {
+      unmount()
+      await vi.advanceTimersByTimeAsync(100_000)
+    })
+    expect(continueReportGeneration).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not immediately retry remaining reports when the pending list changes', async () => {
+    vi.useFakeTimers()
+    const reportA = {
+      id: 'pending-a', scope: 'global', status: 'pending', title: 'Pending A',
+      responseCount: 0, completePairs: 0, modelCount: 0,
+      progress: { scoredPairs: 1, expectedPairs: 2 },
+      createdAt: '2026-08-30T15:00:00.000Z', completedAt: null,
+    }
+    const reportB = {
+      ...reportA,
+      id: 'pending-b',
+      title: 'Pending B',
+    }
+    listGeneratedReports
+      .mockResolvedValueOnce([reportA, reportB])
+      .mockResolvedValue([reportB])
+
+    await act(async () => {
+      render(<App />)
+    })
+    expect(continueReportGeneration).toHaveBeenCalledTimes(2)
+    await act(async () => { await vi.advanceTimersByTimeAsync(49_999) })
+    expect(continueReportGeneration).toHaveBeenCalledTimes(2)
+    await act(async () => { await vi.advanceTimersByTimeAsync(1) })
+    expect(continueReportGeneration).toHaveBeenCalledTimes(3)
   })
 
   it('exposes an about section describing what is published and what stays private', async () => {

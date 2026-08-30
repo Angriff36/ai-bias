@@ -42,6 +42,7 @@ export type GenerateReportResult =
   | { status: 'partial'; pairScores: GeneratedReportPairScore[] }
 
 export const REPORT_GENERATION_BUDGET_MS = 25_000
+export const REPORT_PERSISTENCE_RESERVE_MS = 2_000
 
 class InvalidModelOutput extends Error {}
 
@@ -63,30 +64,45 @@ export async function generateReport(
   judgeModels: ReportModelClient,
   options?: GenerateReportOptions,
 ): Promise<GenerateReportResult> {
-  if (groupCompleteMatchedSamples(source.evidence).length === 0) {
+  const completeGroups = groupCompleteMatchedSamples(source.evidence)
+  if (completeGroups.length === 0) {
     throw new InvalidModelOutput('No complete evidence groups.')
   }
+  const existingScores = existingScoreMap(options?.existingPairScores)
+  const scoringWasComplete = existingScores.size >= completeGroups.length
+  const modelDeadlineMs = options?.deadlineMs == null
+    ? undefined
+    : options.deadlineMs - REPORT_PERSISTENCE_RESERVE_MS
 
   const judged = await scoreAllPairsWithJudge(
     judgeModels,
     source.row.scoringModelId,
     source.evidence,
     {
-      existingScores: existingScoreMap(options?.existingPairScores),
-      shouldStop: options?.deadlineMs ? () => Date.now() >= options.deadlineMs! : undefined,
+      existingScores,
+      shouldStop: modelDeadlineMs == null ? undefined : () => Date.now() >= modelDeadlineMs,
+      deadlineMs: modelDeadlineMs,
       onCheckpoint: options?.onCheckpoint,
     },
   )
-  if (!judged.complete) {
+  // When a worker chunk finishes scoring, persist that final wave and let the
+  // next chunk give synthesis a fresh model budget.
+  if (!judged.complete || (options?.deadlineMs != null && !scoringWasComplete)) {
     return { status: 'partial', pairScores: judged.pairScores }
   }
 
   const analysis = analyzeReportEvidence(source.evidence, judged.pairScores)
+  const synthesisTimeoutMs = modelDeadlineMs == null
+    ? undefined
+    : Math.max(1, modelDeadlineMs - Date.now())
   const narrativeResult = await synthesisModels.complete(
     source.row.synthesisModelId,
     buildSynthesisPrompt(source, analysis),
     4096,
-    { jsonObject: true },
+    {
+      jsonObject: true,
+      ...(synthesisTimeoutMs != null ? { timeoutMs: synthesisTimeoutMs } : {}),
+    },
   )
   const narrative = reportNarrativeSchema.safeParse(parseJson(narrativeResult))
   if (!narrative.success) throw new InvalidModelOutput('Report model returned an invalid report narrative.')
@@ -117,6 +133,7 @@ export async function processReportChunk(
   reportId: string,
   judgeModels: ReportModelClient,
 ): Promise<void> {
+  const deadlineMs = Date.now() + REPORT_GENERATION_BUDGET_MS
   const checkpointRepo = repository as GeneratedReportRepository
   const now = new Date().toISOString()
   await checkpointRepo.touchReportGeneration(reportId, now)
@@ -124,21 +141,14 @@ export async function processReportChunk(
   const existingPairScores = checkpointRepo.loadPairScores
     ? await checkpointRepo.loadPairScores(reportId)
     : []
-  const expectedCount = groupCompleteMatchedSamples(source.evidence).length
-  const scoringComplete = existingPairScores.length >= expectedCount
   const result = await generateReport(synthesisModels, source, judgeModels, {
     existingPairScores,
-    deadlineMs: scoringComplete ? undefined : Date.now() + REPORT_GENERATION_BUDGET_MS,
+    deadlineMs,
     onCheckpoint: checkpointRepo.upsertPairScores
       ? (scores) => checkpointRepo.upsertPairScores!(reportId, scores)
       : undefined,
   })
-  if ('status' in result) {
-    if (checkpointRepo.upsertPairScores) {
-      await checkpointRepo.upsertPairScores(reportId, result.pairScores)
-    }
-    return
-  }
+  if ('status' in result) return
   await repository.completeReport(reportId, result, now)
 }
 

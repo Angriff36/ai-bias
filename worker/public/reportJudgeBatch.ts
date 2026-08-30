@@ -137,6 +137,7 @@ export async function scoreJudgeBatch(
   client: ReportModelClient,
   modelId: string,
   groups: PublicEvidenceItem[][],
+  options?: { timeoutMs?: number },
 ): Promise<JudgeCellScore[]> {
   const cells = groups.map((group) => {
     const variantA = group.find((item) => item.variantKey === 'A')!
@@ -144,7 +145,10 @@ export async function scoreJudgeBatch(
     return judgePairPayload(variantA, variantB)
   })
   const prompt = buildJudgeBatchPrompt(cells)
-  const raw = await client.complete(modelId, prompt, JUDGE_BATCH_MAX_TOKENS, { jsonObject: true })
+  const raw = await client.complete(modelId, prompt, JUDGE_BATCH_MAX_TOKENS, {
+    jsonObject: true,
+    ...(options?.timeoutMs != null ? { timeoutMs: options.timeoutMs } : {}),
+  })
   const parsed = judgeBatchSchema.safeParse(parseJsonObject(raw))
   if (!parsed.success) {
     throw new Error(`Judge batch invalid: ${parsed.error.issues.map((issue) => issue.message).join('; ')}`)
@@ -194,6 +198,8 @@ export function groupPolarJudgeCells(evidence: PublicEvidenceItem[]): PolarJudge
 export interface JudgeProgressOptions {
   existingScores?: Map<string, GeneratedReportPairScore>
   shouldStop?: () => boolean
+  /** Absolute deadline for an in-flight model request. */
+  deadlineMs?: number
   /** Judge calls to keep in flight at once. Defaults to JUDGE_BATCH_CONCURRENCY. */
   concurrency?: number
   /**
@@ -246,7 +252,10 @@ export async function scoreAllPairsWithJudge(
       const cell = pending[index]
       if (!cell) return
       try {
-        const scores = await scoreJudgeBatch(client, modelId, cell.groups)
+        const timeoutMs = options?.deadlineMs == null
+          ? undefined
+          : Math.max(1, options.deadlineMs - Date.now())
+        const scores = await scoreJudgeBatch(client, modelId, cell.groups, { timeoutMs })
         for (const score of scores) judgedById.set(score.pairSampleId, score)
       } catch (error) {
         lastError = error

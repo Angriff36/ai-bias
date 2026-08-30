@@ -9,6 +9,7 @@ import type {
 } from '../../src/public/contracts'
 import { normalizeQuestionKey } from '../../src/public/questionKeys'
 import { completePairGroups, isMatchedSwapPair, isPromptPlaceholder } from './reportGlobalCohort'
+import { groupFromTemplate, isPlaceholderLabel } from '../../src/wizard/groupLabel'
 
 export { isMatchedSwapPair }
 
@@ -88,8 +89,15 @@ function variantPools(records: PublicEvidenceItem[]): VariantPools {
   return { aRows, bRows, questionText: question }
 }
 
-function groupLabelOf(item: PublicEvidenceItem): string {
-  return item.variantLabel.trim() || (item.variantKey === 'A' ? 'A' : 'B')
+/**
+ * The group name of an answer. Older runs stored "Prompt 2" instead of the
+ * swapped word; for those the name is read out of the prompt using the
+ * question's [group] slot.
+ */
+function groupLabelOf(item: PublicEvidenceItem, questionTemplate: string): string {
+  const stored = item.variantLabel.trim()
+  if (!isPlaceholderLabel(stored)) return stored
+  return groupFromTemplate(questionTemplate, item.prompt) ?? (stored || (item.variantKey === 'A' ? 'A' : 'B'))
 }
 
 function toAnswer(item: PublicEvidenceItem): PublicQuestionAnswer {
@@ -114,7 +122,7 @@ function groupPools(pools: VariantPools): PublicQuestionGroup[] {
   const order: string[] = []
   const byLabel = new Map<string, PublicEvidenceItem[]>()
   for (const item of [...pools.aRows, ...pools.bRows]) {
-    const label = groupLabelOf(item)
+    const label = groupLabelOf(item, pools.questionText)
     if (!byLabel.has(label)) order.push(label)
     byLabel.set(label, [...(byLabel.get(label) ?? []), item])
   }

@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { PublicQuestionDetail } from './contracts'
-import { QuestionDetailPage } from './QuestionDetailPage'
+import { QuestionDetailPage, buildComparisonRows } from './QuestionDetailPage'
 
 const detail: PublicQuestionDetail = {
   questionKey: 'identity',
@@ -47,10 +47,35 @@ describe('QuestionDetailPage', () => {
     expect(screen.getByText('white')).toBeTruthy()
     expect(screen.getByText('black')).toBeTruthy()
     expect(screen.getByText('2 × white · 2 × black · 1 model')).toBeTruthy()
-    const toggles = screen.getAllByRole('button', { name: 'Show answer' })
-    expect(toggles).toHaveLength(4)
-    await userEvent.click(toggles[2])
+    // The answer text is in the grid; nothing is hidden behind a button.
+    expect(screen.getByText('Response A')).toBeTruthy()
     expect(screen.getByText('Response B')).toBeTruthy()
+    expect(screen.getByText('Soft refusal')).toBeTruthy()
+    expect(screen.getAllByRole('row')).toHaveLength(3)
+    await userEvent.click(screen.getByRole('button', { name: 'a' }))
+    expect(screen.getAllByRole('row')).toHaveLength(3)
+  })
+
+  it('aligns cells by the run they came from and leaves blanks, never zipping unrelated answers', () => {
+    const a = (id: string, runId: string, receivedAt: string) => ({ ...detail.groups[0].answers[0], id, runId, receivedAt })
+    const rows = buildComparisonRows([
+      { label: 'white', prompt: 'p', count: 2, answers: [a('w1', 'run-1', '2026-08-01'), a('w2', 'run-2', '2026-08-02')] },
+      { label: 'black', prompt: 'p', count: 1, answers: [a('b1', 'run-1', '2026-08-01')] },
+      { label: 'asian', prompt: 'p', count: 1, answers: [a('a2', 'run-2', '2026-08-02')] },
+    ])
+    expect(rows.map((row) => row.cells.map((cell) => cell?.id ?? null))).toEqual([
+      ['w1', 'b1', null],
+      ['w2', null, 'a2'],
+    ])
+  })
+
+  it('keeps the same model id from two providers apart', () => {
+    const base = detail.groups[0].answers[0]
+    const rows = buildComparisonRows([
+      { label: 'white', prompt: 'p', count: 2, answers: [{ ...base, id: 'x', provider: 'openrouter' }, { ...base, id: 'y', provider: 'workers-ai' }] },
+    ])
+    expect(rows).toHaveLength(2)
+    expect(new Set(rows.map((row) => row.modelKey)).size).toBe(2)
   })
 
   it('shows a pair question as two prompts side by side', async () => {

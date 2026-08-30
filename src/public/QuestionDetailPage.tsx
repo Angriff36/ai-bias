@@ -30,7 +30,7 @@ export function plainAnswer(text: string): string {
   const source = text.replace(/\r/g, '')
   // A fence cut off by truncation stays code to the end of the answer.
   // (?!`) pins each delimiter to its full run, so a shorter inner run never closes a longer fence.
-  const code = /(`{3,})(?!`)[\s\S]*?\1(?!`)|`{3,}[\s\S]*$|(`+)(?!`)[^`\n][\s\S]*?\2(?!`)/g
+  const code = /(`{3,})(?!`)[\s\S]*?(?<!`)\1(?!`)|`{3,}[\s\S]*$|(`+)(?!`)[^`\n][\s\S]*?(?<!`)\2(?!`)/g
   let out = ''
   let last = 0
   for (const match of source.matchAll(code)) {
@@ -68,7 +68,7 @@ export function modelKeyOf(answer: Pick<PublicQuestionAnswer, 'provider' | 'mode
 export function buildComparisonRows(groups: PublicQuestionGroup[]): GridRow[] {
   const models: string[] = []
   const modelIds = new Map<string, string>()
-  const slots = new Map<string, Map<string, { firstSeen: string; cells: Array<PublicQuestionAnswer | null> }>>()
+  const slots = new Map<string, Map<string, { firstSeen: string; position: [number, number]; cells: Array<PublicQuestionAnswer | null> }>>()
   // Published positions are clamped (pairIndex <= 49, runIndex <= 20), so two
   // answers can share a position. A position that holds more than one answer in
   // any group is ambiguous: every answer there gets its own row, and nothing is
@@ -97,7 +97,7 @@ export function buildComparisonRows(groups: PublicQuestionGroup[]): GridRow[] {
       const slotKey = ambiguous.has(position)
         ? `${answer.runId} ${answer.pairIndex} ${answer.runIndex} ${answer.id}`
         : `${answer.runId} ${answer.pairIndex} ${answer.runIndex}`
-      const entry = perModel.get(slotKey) ?? { firstSeen: answer.receivedAt, cells: groups.map(() => null) }
+      const entry = perModel.get(slotKey) ?? { firstSeen: answer.receivedAt, position: [answer.pairIndex, answer.runIndex] as [number, number], cells: groups.map(() => null) }
       entry.cells[column] = answer
       if (answer.receivedAt < entry.firstSeen) entry.firstSeen = answer.receivedAt
       perModel.set(slotKey, entry)
@@ -105,7 +105,8 @@ export function buildComparisonRows(groups: PublicQuestionGroup[]): GridRow[] {
   })
   const rows: GridRow[] = []
   for (const model of models) {
-    const ordered = [...slots.get(model)!.entries()].sort((a, b) => a[1].firstSeen.localeCompare(b[1].firstSeen))
+    // Time first; on a tie (one upload stamps every record alike) the run position decides.
+    const ordered = [...slots.get(model)!.entries()].sort((a, b) => a[1].firstSeen.localeCompare(b[1].firstSeen) || a[1].position[0] - b[1].position[0] || a[1].position[1] - b[1].position[1])
     ordered.forEach(([slotKey, entry], index) => {
       rows.push({ key: `${model}#${slotKey}`, modelKey: model, modelId: modelIds.get(model) ?? model, runId: slotKey.split(' ')[0], index, cells: entry.cells })
     })

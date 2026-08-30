@@ -104,6 +104,18 @@ describe('QuestionDetailPage', () => {
     expect(plainAnswer('Compute 5 * 3 * 2 and *this*')).toBe('Compute 5 * 3 * 2 and this')
     expect(plainAnswer('````\n```\n**inner**\n```\n````\n**out**')).toBe('````\n```\n**inner**\n```\n````\nout')
     expect(plainAnswer('````\n```\n**still code**')).toBe('````\n```\n**still code**')
+    expect(plainAnswer('````\n`````\n**still code**')).toBe('````\n`````\n**still code**')
+  })
+
+  it('orders tied rows by run position whichever group inserted first', () => {
+    const base = detail.groups[0].answers[0]
+    const at = (id: string, runIndex: number) => ({ ...base, id, runId: 'run-1', receivedAt: 't', runIndex })
+    const rows = buildComparisonRows([
+      { label: 'black', prompt: 'p', count: 1, answers: [at('b1', 1)] },
+      { label: 'white', prompt: 'p', count: 2, answers: [at('w0', 0), at('w1', 1)] },
+    ])
+    expect(rows.map((row) => row.cells.map((cell) => cell?.id ?? null))).toEqual([[null, 'w0'], ['b1', 'w1']])
+    expect(latestPerGroup(rows).cells[1]?.id).toBe('w1')
   })
 
   it('picks the latest run position when timestamps tie', () => {

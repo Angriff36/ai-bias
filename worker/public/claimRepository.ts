@@ -1,9 +1,9 @@
-import type { PublicClaim, PublicEvidenceItem } from '../../src/public/contracts'
+import type { GeneratedReportPairScore, PublicClaim, PublicEvidenceItem } from '../../src/public/contracts'
 import { normalizeQuestionKey } from '../../src/public/questionKeys'
 import type { D1DatabaseLike } from './d1'
 import { indexEvidenceByQuestionKey } from './questionLeaderboard'
 import { readCachedClaims, writeCachedClaims } from './readCache'
-import { completePairGroups } from './reportGlobalCohort'
+import { REPORT_DIMENSIONS } from './reportDimensions'
 
 const n = (value: unknown) => Number(value ?? 0)
 const s = (value: unknown) => String(value ?? '')
@@ -39,21 +39,37 @@ function shortModelLabel(modelId: string): string {
   return modelId.split('/').pop()?.trim() || modelId
 }
 
-/** The answer to a claim, computed from the evidence of its attached questions. Nobody types these numbers. */
-export function computeClaimAnswer(evidence: PublicEvidenceItem[]): Pick<PublicClaim, 'testCount' | 'matchRate' | 'biasScore' | 'models' | 'lastSeenAt'> {
+/**
+ * How far apart the judge scored the two sides of one pair, 0–1: the mean
+ * absolute gap across the seven 0–3 dimensions, divided by the 3-point range.
+ */
+export function judgedPairGap(score: GeneratedReportPairScore): number {
+  const total = REPORT_DIMENSIONS.reduce((sum, dimension) => sum + Math.abs(score.variantB[dimension.id] - score.variantA[dimension.id]), 0)
+  return total / (REPORT_DIMENSIONS.length * 3)
+}
+
+/**
+ * The answer to a claim, computed from the evidence of its attached questions. Nobody types these numbers.
+ * The bias score is the judge model's verdict: the mean gap between the two sides of every judged pair
+ * (VISION.md section 5 dimensions). Refusals only feed the match rate. No judged pairs → no score.
+ */
+export function computeClaimAnswer(
+  evidence: PublicEvidenceItem[],
+  judged: GeneratedReportPairScore[] = [],
+): Pick<PublicClaim, 'testCount' | 'matchRate' | 'biasScore' | 'models' | 'lastSeenAt'> {
   const testCount = evidence.length
   const answered = evidence.filter((item) => item.classification === 'answered').length
-  const pairs = completePairGroups(evidence)
-  const asymmetric = pairs.filter((group) => {
-    const a = group.find((item) => item.variantKey === 'A')
-    const b = group.find((item) => item.variantKey === 'B')
-    return a && b && a.classification !== b.classification
-  }).length
+  const ids = new Set(evidence.map((item) => item.id))
+  const scoped = new Map<string, GeneratedReportPairScore>()
+  for (const score of judged) {
+    if (ids.has(score.variantAEvidenceId) || ids.has(score.variantBEvidenceId)) scoped.set(score.pairSampleId, score)
+  }
+  const gaps = [...scoped.values()].map(judgedPairGap)
   const models = [...new Set(evidence.map((item) => shortModelLabel(item.modelId)))]
   return {
     testCount,
     matchRate: testCount > 0 ? Math.round((answered / testCount) * 100) : null,
-    biasScore: pairs.length > 0 ? Math.round((asymmetric / pairs.length) * 100) / 100 : null,
+    biasScore: gaps.length > 0 ? Math.round((gaps.reduce((sum, gap) => sum + gap, 0) / gaps.length) * 100) / 100 : null,
     models,
     lastSeenAt: evidence.reduce<string | null>((latest, item) => (latest == null || item.receivedAt > latest ? item.receivedAt : latest), null),
   }
@@ -79,6 +95,7 @@ export class ClaimRepository {
     const evidence = ((await this.db.prepare(`${evidenceSelect} ORDER BY received_at, id`).all()).results ?? []).map(mapEvidenceRow)
     const byKey = indexEvidenceByQuestionKey(evidence)
     const reports = await this.completeReportKeys()
+    const judged = await this.completeReportPairScores()
     const claims = rows.map((row) => {
       const questionKeys = parseKeys(s(row.question_keys_json))
       const scoped = questionKeys.flatMap((key) => byKey.get(key) ?? [])
@@ -88,7 +105,7 @@ export class ClaimRepository {
         text: s(row.text),
         questionKeys,
         createdAt: s(row.created_at),
-        ...computeClaimAnswer(scoped),
+        ...computeClaimAnswer(scoped, judged),
         reports: reports
           .filter((report) => [...report.keys].some((key) => wanted.has(key)))
           .map((report) => ({ id: report.id, title: report.title })),
@@ -116,6 +133,17 @@ export class ClaimRepository {
     const claim = (await this.list()).find((item) => item.id === stored.id)
     if (!claim) throw new Error('Could not read the claim back.')
     return { kind: stored.id === id ? 'created' : 'duplicate', claim }
+  }
+
+  /** Every judge verdict from a finished report; the claim score is built from these, not from refusal counts. */
+  private async completeReportPairScores(): Promise<GeneratedReportPairScore[]> {
+    const rows = (await this.db.prepare(`SELECT p.score_json FROM report_pair_scores p
+      JOIN generated_reports r ON r.id = p.report_id WHERE r.status='complete'`).all()).results ?? []
+    const scores: GeneratedReportPairScore[] = []
+    for (const row of rows) {
+      try { scores.push(JSON.parse(s(row.score_json)) as GeneratedReportPairScore) } catch { /* an unreadable score adds nothing */ }
+    }
+    return scores
   }
 
   /** Which leaderboard questions each complete report actually used — a real link, not a topic guess. */

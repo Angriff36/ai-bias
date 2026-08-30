@@ -47,12 +47,11 @@ describe('QuestionDetailPage', () => {
     expect(screen.getByText('white')).toBeTruthy()
     expect(screen.getByText('black')).toBeTruthy()
     expect(screen.getByText('2 × white · 2 × black · 1 model')).toBeTruthy()
-    // The answer text is in the grid; nothing is hidden behind a button.
+    // Folded: one summary row per model with the latest answer in each group.
+    expect(screen.getAllByRole('row')).toHaveLength(2)
     expect(screen.getByText('Response A')).toBeTruthy()
     expect(screen.getByText('Response B')).toBeTruthy()
-    // Folded: one row per model shows the latest run; the other run is behind "Show all".
-    expect(screen.getAllByRole('row')).toHaveLength(2)
-    expect(screen.getByText('1 more folded')).toBeTruthy()
+    expect(screen.getByText(/latest of 2 runs/)).toBeTruthy()
     await userEvent.click(screen.getByRole('button', { name: 'Show all 2 runs' }))
     expect(screen.getAllByRole('row')).toHaveLength(3)
     expect(screen.getByText('Soft refusal')).toBeTruthy()

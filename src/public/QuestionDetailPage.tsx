@@ -22,6 +22,8 @@ export function plainAnswer(text: string): string {
   const stripProse = (chunk: string) => chunk
     .replace(/^\s{0,3}#{1,6}\s+/gm, '')
     .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/(^|[\s(])\*([^*
+]+?)\*(?=[\s.,;:!?)]|$)/gm, '$1$2')
     .replace(/^\s*[-*]\s+/gm, '• ')
   const segments = text.replace(/\r/g, '').split(/(```[\s\S]*?```|`[^`\n]*`)/)
   return segments
@@ -91,6 +93,20 @@ export function buildComparisonRows(groups: PublicQuestionGroup[]): GridRow[] {
   return rows
 }
 
+/** The latest answer a model gave in each group, whatever run it came from. */
+export function latestPerGroup(modelRows: GridRow[]): GridRow {
+  const first = modelRows[0]
+  const cells = first.cells.map((_, column) => {
+    let latest: PublicQuestionAnswer | null = null
+    for (const row of modelRows) {
+      const cell = row.cells[column]
+      if (cell && (!latest || cell.receivedAt > latest.receivedAt)) latest = cell
+    }
+    return latest
+  })
+  return { ...first, key: `${first.modelKey}#summary`, index: -1, cells }
+}
+
 function AnswerCell({ answer, expanded, onToggle }: { answer: PublicQuestionAnswer | null; expanded: boolean; onToggle: () => void }) {
   if (!answer) return <div className="qgrid-cell qgrid-empty" aria-label="No answer in this group">—</div>
   const text = plainAnswer(answer.response)
@@ -129,11 +145,12 @@ export function QuestionDetailPage({
     return [...seen.entries()]
   }, [rows])
   const visible = modelFilter ? rows.filter((row) => row.modelKey === modelFilter) : rows
-  // One block per model: the latest run shown, the rest folded until asked for.
+  // One block per model. Folded: a summary row with the latest answer per group.
+  // Unfolded: every run position, so a row only holds answers asked together.
   const byModel = useMemo(() => {
     const blocks = new Map<string, GridRow[]>()
     for (const row of visible) blocks.set(row.modelKey, [...(blocks.get(row.modelKey) ?? []), row])
-    return [...blocks.entries()]
+    return [...blocks.entries()].map(([key, modelRows]) => ({ key, modelRows, summary: latestPerGroup(modelRows) }))
   }, [visible])
   const isPair = detail?.layout === 'pair'
 
@@ -223,24 +240,26 @@ export function QuestionDetailPage({
                       </div>
                     ))}
                   </div>
-                  {byModel.map(([key, modelRows]) => {
+                  {byModel.map(({ key, modelRows, summary }) => {
                     const open = openModels.has(key)
-                    const shown = open ? modelRows : modelRows.slice(-1)
-                    const hidden = modelRows.length - shown.length
+                    const shown = open ? modelRows : [summary]
+                    const runs = modelRows.length
                     return shown.map((row, position) => {
                       const when = row.cells.find((cell) => cell)?.receivedAt
                       const last = position === shown.length - 1
+                      const label = row.index < 0
+                        ? (runs > 1 ? `latest of ${runs} runs` : 'one run')
+                        : `run ${row.index + 1} of ${runs}`
                       return (
                         <div key={row.key} className="qgrid-row" role="row">
                           <div className="qgrid-rowhead" role="rowheader">
                             {position === 0 && <strong title={key.replace('|', ' · ')}>{shortModel(row.modelId)}</strong>}
-                            <small>{modelRows.length > 1 ? `run ${row.index + 1} of ${modelRows.length}` : 'one run'}{when ? ` · ${evidenceTime(when)}` : ''}</small>
-                            {last && modelRows.length > 1 && (
+                            <small>{label}{when ? ` · ${evidenceTime(when)}` : ''}</small>
+                            {last && runs > 1 && (
                               <button type="button" className="link qgrid-fold" aria-expanded={open} onClick={() => toggleModel(key)}>
-                                {open ? 'Show latest only' : `Show all ${modelRows.length} runs`}
+                                {open ? 'Show latest only' : `Show all ${runs} runs`}
                               </button>
                             )}
-                            {hidden > 0 && last && <small className="qgrid-hidden">{hidden} more folded</small>}
                           </div>
                           {row.cells.map((cell, column) => (
                             <AnswerCell

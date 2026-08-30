@@ -338,7 +338,10 @@ export function ExperimentHistoryList() {
         : [...q.targetIds, id],
     }))
 
+  // Scroll to the list only when a filter changes, never on first paint: that hid the tab links.
+  const firstFilterRender = useRef(true)
   useEffect(() => {
+    if (firstFilterRender.current) { firstFilterRender.current = false; return }
     listTopRef.current?.scrollIntoView({ block: 'start' })
   }, [
     debounced.search,

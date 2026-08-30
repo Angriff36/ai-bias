@@ -122,7 +122,7 @@ export function NewBiasTestWizard({
     return () => window.removeEventListener('beforeunload', handler)
   }, [dirty])
 
-  useEffect(() => { headingRef.current?.focus() }, [])
+  useEffect(() => { headingRef.current?.focus({ preventScroll: true }) }, [])
 
   const pairs = useMemo<ComparisonPair[]>(() => {
     const original = variants[0]?.prompt ?? ''

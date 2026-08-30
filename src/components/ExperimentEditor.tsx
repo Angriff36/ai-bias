@@ -65,7 +65,7 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
         if (cancelled) return
         setRunSummary(summary)
         requestAnimationFrame(() => {
-          nameRef.current?.focus()
+          nameRef.current?.focus({ preventScroll: true })
           nameRef.current?.select()
         })
       })

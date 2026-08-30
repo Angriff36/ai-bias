@@ -69,7 +69,7 @@ function toSummary(entry: QuestionCatalogEntry, records: PublicEvidenceItem[]): 
   }
 }
 
-export function buildTopQuestionSummaries(evidence: PublicEvidenceItem[], limit = 30): PublicQuestionSummary[] {
+export function buildTopQuestionSummaries(evidence: PublicEvidenceItem[], limit = 100): PublicQuestionSummary[] {
   const canonicalEvidence = canonicalizeLegacyQuestions(evidence)
   const catalog = rankQuestions(buildQuestionCatalog(canonicalEvidence))
   const byKey = new Map<string, PublicEvidenceItem[]>()
@@ -103,8 +103,11 @@ function toInstance(group: PublicEvidenceItem[]): PublicQuestionInstance {
 }
 
 export function buildQuestionDetail(questionKey: string, evidence: PublicEvidenceItem[]): PublicQuestionDetail | null {
+  // The leaderboard hands out keys of the canonical (merged) question text, so
+  // detail lookups must match against the same canonicalized evidence.
+  const canonicalEvidence = canonicalizeLegacyQuestions(evidence)
   const legacyPromptKey = isPromptPlaceholder(questionKey)
-  const matching = legacyPromptKey ? evidence : evidence.filter((item) => normalizeQuestionKey(item.question) === questionKey)
+  const matching = legacyPromptKey ? canonicalEvidence : canonicalEvidence.filter((item) => normalizeQuestionKey(item.question) === questionKey)
   const records = canonicalizeLegacyQuestions(matching)
   if (records.length === 0) return null
   const catalog = buildQuestionCatalog(records)[0]

@@ -114,7 +114,14 @@ export class PublicRepository {
       ? this.db.prepare(`${evidenceSelect} ORDER BY received_at DESC, run_id DESC, pair_index ASC, variant_key ASC`)
       : this.db.prepare(`${evidenceSelect} WHERE question_key = ? ORDER BY received_at DESC, run_id DESC, pair_index ASC, variant_key ASC`).bind(questionKey)
     const rows = (await statement.all()).results ?? []
-    const detail = buildQuestionDetail(questionKey, rows.map(mapEvidenceRow))
+    let detail = buildQuestionDetail(questionKey, rows.map(mapEvidenceRow))
+    if (!detail && !legacyPromptKey && rows.length === 0) {
+      // The leaderboard publishes keys derived from canonicalized/merged question
+      // text, which no stored question_key column value may contain. Match those
+      // keys against the full evidence like the leaderboard ranking does.
+      const allRows = (await this.db.prepare(`${evidenceSelect} ORDER BY received_at DESC, run_id DESC, pair_index ASC, variant_key ASC`).all()).results ?? []
+      detail = buildQuestionDetail(questionKey, allRows.map(mapEvidenceRow))
+    }
     if (detail) writeCachedQuestionDetail(questionKey, detail)
     return detail
   }

@@ -1,5 +1,8 @@
-import { questionLeaderboardHref } from './questionKeys'
 import type { ConclusionsRowModel } from './conclusionsFeed'
+
+export function claimHref(claimId: string): string {
+  return `#/conclusions/claims/${encodeURIComponent(claimId)}`
+}
 
 function Chevron() {
   return (
@@ -17,14 +20,13 @@ function rankClass(rank: number): string {
 }
 
 export function ConclusionsRow({ row }: { row: ConclusionsRowModel }) {
-  const href = questionLeaderboardHref(row.questionKey)
   return (
-    <a className="conclusions-row" href={href} aria-label={`#${row.rank} ${row.questionText}`}>
+    <a className="conclusions-row" href={claimHref(row.id)} aria-label={`#${row.rank} ${row.text}`}>
       <span className={`conclusions-rank ${rankClass(row.rank)}`}>#{row.rank}</span>
       <div className="conclusions-question">
         <div>
           {row.isNew && <span className="conclusions-new">NEW</span>}
-          <p>{row.questionText}</p>
+          <p>{row.text}</p>
         </div>
         {row.reports.length > 0 && (
           <div className="conclusions-pills">
@@ -68,14 +70,14 @@ export function ConclusionsTable({ rows }: { rows: ConclusionsRowModel[] }) {
     <div className="conclusions-table">
       <div className="conclusions-table-head">
         <span />
-        <span>Question</span>
+        <span>Claim</span>
         <span>Models</span>
         <span>Tests</span>
         <span>Match Rate</span>
         <span>Bias Score</span>
         <span />
       </div>
-      {rows.map((row) => <ConclusionsRow key={row.questionKey} row={row} />)}
+      {rows.map((row) => <ConclusionsRow key={row.id} row={row} />)}
     </div>
   )
 }

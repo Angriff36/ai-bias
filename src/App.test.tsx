@@ -40,6 +40,10 @@ vi.mock('./public/client', () => ({
       createdAt: '2026-08-26T10:50:25.000Z', completedAt: '2026-08-26T10:50:25.000Z',
     },
   ]),
+  listClaims: vi.fn().mockResolvedValue([]),
+  createClaim: vi.fn(),
+  requestQuestionSetReport: vi.fn(),
+  continueReportGeneration: vi.fn(),
 }))
 
 describe('application navigation', () => {

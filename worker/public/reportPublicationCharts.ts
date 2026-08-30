@@ -2,9 +2,11 @@ import type { DimensionScores, GeneratedReportPairScore, PublicEvidenceItem } fr
 import {
   REPORT_DIMENSIONS,
   aggregateDimensionScores,
+  aggregateDimensionScoresByGroup,
   barWidth,
   dimensionDelta,
   pairDivergence,
+  type GroupDimensionAggregate,
   type ModelDimensionAggregate,
 } from './reportDimensions'
 import type { VariantSideLabels } from './reportVariantLabels'
@@ -50,6 +52,30 @@ export function renderPooledDimensionTable(
     pooled.variantB[dimension.id],
   )).join('')
   return `<table><tr><th>Dimension</th><th class="num">${escapeHtml(labels.reference)}</th><th class="chart"></th><th class="num">${escapeHtml(labels.comparison)}</th><th class="num">&Delta;</th></tr>${rows}</table>`
+}
+
+/**
+ * One column per group. Deltas are each group minus the first (reference) group.
+ * Rendered only when the report covers more than two groups; two groups already
+ * have the pooled table.
+ */
+export function renderGroupDimensionTable(groups: GroupDimensionAggregate[]): string {
+  if (groups.length <= 2) return ''
+  const [reference, ...others] = groups
+  const head = `<tr><th>Dimension</th><th class="num">${escapeHtml(reference.label)}</th>`
+    + others.map((group) => `<th class="num">${escapeHtml(group.label)}</th><th class="num">&Delta;</th>`).join('') + '</tr>'
+  const rows = REPORT_DIMENSIONS.map((dimension) => {
+    const base = reference.scores[dimension.id]
+    const cells = others.map((group) => {
+      const value = group.scores[dimension.id]
+      const delta = dimensionDelta(base, value)
+      return `<td class="num">${formatScore(value)}</td><td class="num ${deltaClass(delta)}">${delta > 0 ? '+' : ''}${formatScore(delta)}</td>`
+    }).join('')
+    return `<tr><td class="dn"><b>${escapeHtml(dimension.label)}</b><span class="dd">${escapeHtml(dimension.description)}</span></td>`
+      + `<td class="num">${formatScore(base)}</td>${cells}</tr>`
+  }).join('')
+  const counts = groups.map((group) => `${escapeHtml(group.label)}: ${group.pairCount}`).join(' · ')
+  return `<table class="dimtab">${head}${rows}</table><p class="legend">Scored answers per group — ${counts}. &Delta; = group minus ${escapeHtml(reference.label)}.</p>`
 }
 
 export function renderModelDimensionCard(model: ModelDimensionAggregate): string {
@@ -157,4 +183,4 @@ export function renderPublicationCharts(
   }
 }
 
-export { escapeHtml, aggregateDimensionScores }
+export { escapeHtml, aggregateDimensionScores, aggregateDimensionScoresByGroup }

@@ -11,7 +11,7 @@
     "start": "bun run build && wrangler dev",
     "dev": "vite",
     "dev:worker": "bun run build && wrangler dev",
-    "deploy": "bun run verify:public && wrangler deploy && wrangler d1 migrations apply ai-bias-public --remote",
+    "deploy": "bun run verify:public && wrangler d1 migrations apply ai-bias-public --remote && wrangler deploy",
     "deploy:dry": "bun run verify:public && wrangler deploy --dry-run",
     "build": "tsc -b && vite build",
     "preview": "vite preview",

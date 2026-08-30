@@ -65,7 +65,32 @@ export interface PublicQuestionSummary {
   variantACount: number
   /** Stored answers on the B (comparison) side of the question. */
   variantBCount: number
+  /** Every stored answer for the question, all groups together. */
+  answerCount: number
+  /** Group names (the swapped phrase values) in display order. */
+  groupLabels: string[]
   lastSeenAt: string
+}
+
+export type PublicQuestionLayout = 'group' | 'pair'
+
+export interface PublicQuestionAnswer {
+  id: string
+  runId: string
+  provider: string
+  modelId: string
+  prompt: string
+  response: string
+  classification: PublicEvidenceItem['classification']
+  receivedAt: string
+}
+
+/** One column on the question page: a group name and every answer it got. */
+export interface PublicQuestionGroup {
+  label: string
+  prompt: string
+  count: number
+  answers: PublicQuestionAnswer[]
 }
 
 export interface PublicQuestionInstance {
@@ -92,6 +117,10 @@ export interface PublicQuestionDetail {
   modelCount: number
   variantACount: number
   variantBCount: number
+  answerCount: number
+  /** 'group' = one template with the phrase swapped (columns). 'pair' = two hand-written prompts (side by side). */
+  layout: PublicQuestionLayout
+  groups: PublicQuestionGroup[]
   instances: PublicQuestionInstance[]
 }
 
@@ -256,9 +285,55 @@ export const generatedReportStateSchema = z.object({ report: generatedReportSumm
 export const generatedReportRequestSchema = z.object({
   runId: z.string().min(1).max(100).optional(),
   globalCohort: z.literal('current').optional(),
-}).strict().refine((value) => Boolean(value.runId) !== Boolean(value.globalCohort), {
-  message: 'Provide either runId or globalCohort.',
+  /** A person-chosen set of leaderboard question keys to report on. */
+  questionKeys: z.array(z.string().trim().min(1).max(1_000)).min(1).max(100).optional(),
+}).strict().refine((value) => [value.runId, value.globalCohort, value.questionKeys].filter(Boolean).length === 1, {
+  message: 'Provide exactly one of runId, globalCohort, or questionKeys.',
 })
+
+export interface PublicClaimReportRef {
+  id: string
+  title: string | null
+}
+
+/** A person-written claim about the AI, with its answer computed from the evidence. */
+export interface PublicClaim {
+  id: string
+  text: string
+  questionKeys: string[]
+  createdAt: string
+  /** Answers studied across the attached questions. */
+  testCount: number
+  /** Share of studied answers that were real answers (not refusals, errors, or empty). 0-100. */
+  matchRate: number | null
+  /** Share of complete matched pairs whose two sides were classified differently. 0-1. */
+  biasScore: number | null
+  models: string[]
+  lastSeenAt: string | null
+  reports: PublicClaimReportRef[]
+}
+
+export const publicClaimSchema: z.ZodType<PublicClaim> = z.object({
+  id: z.string(),
+  text: z.string(),
+  questionKeys: z.array(z.string()),
+  createdAt: z.string(),
+  testCount: z.number().int().min(0),
+  matchRate: z.number().min(0).max(100).nullable(),
+  biasScore: z.number().min(0).max(1).nullable(),
+  models: z.array(z.string()),
+  lastSeenAt: z.string().nullable(),
+  reports: z.array(z.object({ id: z.string(), title: z.string().nullable() })),
+})
+
+export const publicClaimListSchema = z.object({ claims: z.array(publicClaimSchema) })
+
+export const publicClaimRequestSchema = z.object({
+  text: z.string().trim().min(12).max(300),
+  questionKeys: z.array(z.string().trim().min(1).max(1_000)).min(1).max(100),
+}).strict()
+
+export type PublicClaimRequest = z.infer<typeof publicClaimRequestSchema>
 
 export const freeAllowanceSchema = z.object({
   remaining: z.number().int().min(0).max(2),
@@ -288,7 +363,29 @@ export const publicQuestionSummarySchema: z.ZodType<PublicQuestionSummary> = z.o
   modelCount: z.number().int().min(0),
   variantACount: z.number().int().min(0),
   variantBCount: z.number().int().min(0),
+  answerCount: z.number().int().min(0),
+  groupLabels: z.array(z.string()),
   lastSeenAt: z.string(),
+})
+
+const classificationSchema = z.enum(['hard-refusal', 'soft-refusal', 'empty', 'error', 'answered'])
+
+export const publicQuestionAnswerSchema: z.ZodType<PublicQuestionAnswer> = z.object({
+  id: z.string(),
+  runId: z.string(),
+  provider: z.string(),
+  modelId: z.string(),
+  prompt: z.string(),
+  response: z.string(),
+  classification: classificationSchema,
+  receivedAt: z.string(),
+})
+
+export const publicQuestionGroupSchema: z.ZodType<PublicQuestionGroup> = z.object({
+  label: z.string(),
+  prompt: z.string(),
+  count: z.number().int().min(0),
+  answers: z.array(publicQuestionAnswerSchema),
 })
 
 export const publicQuestionInstanceSchema: z.ZodType<PublicQuestionInstance> = z.object({
@@ -315,6 +412,9 @@ export const publicQuestionDetailSchema: z.ZodType<PublicQuestionDetail> = z.obj
   modelCount: z.number().int().min(0),
   variantACount: z.number().int().min(0),
   variantBCount: z.number().int().min(0),
+  answerCount: z.number().int().min(0),
+  layout: z.enum(['group', 'pair']),
+  groups: z.array(publicQuestionGroupSchema),
   instances: z.array(publicQuestionInstanceSchema),
 })
 

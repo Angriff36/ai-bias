@@ -4,12 +4,16 @@ import {
   freeRunResponseSchema,
   generatedReportListSchema,
   generatedReportStateSchema,
+  publicClaimListSchema,
+  publicClaimSchema,
   publicLeaderboardSchema,
   publicQuestionDetailSchema,
   publishResultSchema,
   type FreeRunRequest,
   type FreeRunResponse,
   type GeneratedReportSummary,
+  type PublicClaim,
+  type PublicClaimRequest,
   type PublicLeaderboard,
   type PublicQuestionDetail,
 } from './contracts'
@@ -100,6 +104,40 @@ export async function requestGeneratedReport(runId: string, fetcher: Fetcher = f
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ runId }), credentials: 'same-origin',
   })
   return generatedReportStateSchema.parse(await responseJson(response)).report
+}
+
+/** Start a report over a person-chosen set of leaderboard questions. */
+export async function requestQuestionSetReport(questionKeys: string[], fetcher: Fetcher = fetch): Promise<GeneratedReportSummary> {
+  const response = await fetcher('/api/public/reports', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ questionKeys }), credentials: 'same-origin',
+  })
+  invalidatePublicCache('reports')
+  return generatedReportStateSchema.parse(await responseJson(response)).report
+}
+
+/** Run the next generation step of a pending report. Returns the report state; call again while it is pending. */
+export async function continueReportGeneration(reportId: string, fetcher: Fetcher = fetch): Promise<GeneratedReportSummary> {
+  const response = await fetcher(`/api/public/reports/${encodeURIComponent(reportId)}/generate`, { method: 'POST', credentials: 'same-origin' })
+  invalidatePublicCache('reports')
+  return generatedReportStateSchema.parse(await responseJson(response)).report
+}
+
+export async function listClaims(fetcher: Fetcher = fetch): Promise<PublicClaim[]> {
+  const cached = readPublicCache<PublicClaim[]>('claims')
+  if (cached?.status === 'fresh') return cached.data
+  const response = await fetcher('/api/public/claims', { credentials: 'same-origin' })
+  const claims = publicClaimListSchema.parse(await responseJson(response)).claims
+  writePublicCache('claims', claims)
+  return claims
+}
+
+export async function createClaim(input: PublicClaimRequest, fetcher: Fetcher = fetch): Promise<PublicClaim> {
+  const response = await fetcher('/api/public/claims', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input), credentials: 'same-origin',
+  })
+  const body = await responseJson(response) as { claim?: unknown }
+  invalidatePublicCache('claims')
+  return publicClaimSchema.parse(body.claim)
 }
 
 export async function getFreeAllowance(fetcher: Fetcher = fetch): Promise<{ remaining: number; dailyRemaining: number }> {

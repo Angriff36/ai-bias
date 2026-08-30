@@ -1,4 +1,4 @@
-import { freeRunRequestSchema, generatedReportRequestSchema, publicQuestionDetailSchema, publicSubmissionSchema } from '../../src/public/contracts'
+import { freeRunRequestSchema, generatedReportRequestSchema, publicClaimRequestSchema, publicQuestionDetailSchema, publicSubmissionSchema } from '../../src/public/contracts'
 import { scheduleAnalysis, type AiBindingLike, type ExecutionContextLike } from './analysis'
 import type { D1DatabaseLike } from './d1'
 import { quotaIdentity, runFreePair } from './freeRun'
@@ -8,7 +8,8 @@ import { renderReportHtml } from './reportHtml'
 import { GeneratedReportRepository } from './reportRepository'
 import { createReportModelClient } from './reportModelClient'
 import { CURATED_REPORTS } from './curatedReports'
-import { readCachedReports, writeCachedReports } from './readCache'
+import { invalidateCachedReports, readCachedReports, writeCachedReports } from './readCache'
+import { ClaimRepository } from './claimRepository'
 
 const PUBLIC_CACHE_CONTROL = 'public, max-age=60, stale-while-revalidate=300'
 
@@ -39,7 +40,8 @@ export async function handlePublicApi(
   context: ExecutionContextLike,
   injected?: {
     repository: Pick<PublicRepository, 'publish' | 'getLeaderboard' | 'getQuestionDetail' | 'getAllowance'>
-    reportRepository: Pick<GeneratedReportRepository, 'claimRunReport' | 'claimCurrentGlobalReport' | 'evaluateGlobalReportAfterPublish' | 'listReports' | 'getReportDocument' | 'prepareReportGeneration'>
+    reportRepository: Pick<GeneratedReportRepository, 'claimRunReport' | 'claimCurrentGlobalReport' | 'claimQuestionSetReport' | 'listReports' | 'getReportDocument' | 'prepareReportGeneration'>
+    claimRepository?: Pick<ClaimRepository, 'list' | 'create'>
     quotaHash(request: Request, secret: string): Promise<{ hash: string; cookie?: string }>
     freeRunner: typeof runFreePair
     schedule(thresholds: number[]): void
@@ -52,6 +54,7 @@ export async function handlePublicApi(
   if (origin && origin !== url.origin) return json({ error: 'Cross-origin requests are not allowed.' }, 403)
   const repository = injected?.repository ?? new PublicRepository(env.PUBLIC_DB)
   const reportRepository = injected?.reportRepository ?? new GeneratedReportRepository(env.PUBLIC_DB)
+  const claimRepository = injected?.claimRepository ?? new ClaimRepository(env.PUBLIC_DB)
   const quotaHash = injected?.quotaHash ?? quotaIdentity
   const reportSchedule = injected?.scheduleReport ?? ((reportId: string) => {
       const reportModels = createReportModelClient(env.OPENROUTER_API_KEY, url.origin)
@@ -83,6 +86,14 @@ export async function handlePublicApi(
     if (url.pathname === '/api/public/reports' && request.method === 'POST') {
       const parsed = generatedReportRequestSchema.parse(await readJson(request))
       const now = new Date().toISOString()
+      if (parsed.questionKeys) {
+        const claim = await reportRepository.claimQuestionSetReport(parsed.questionKeys, now)
+        if (claim.kind === 'ineligible') return json({ error: 'None of the chosen questions has a complete matched pair to report on yet.' }, 422)
+        if (claim.kind === 'limited') return json({ error: 'The daily report-generation limit has been reached. Existing reports remain available.' }, 429)
+        invalidateCachedReports()
+        if (claim.kind === 'claimed') reportSchedule(claim.report.id)
+        return json({ report: claim.report }, claim.kind === 'claimed' ? 202 : 200)
+      }
       const claim = parsed.globalCohort != null
         ? await reportRepository.claimCurrentGlobalReport(now)
         : await reportRepository.claimRunReport(parsed.runId!, now)
@@ -99,6 +110,7 @@ export async function handlePublicApi(
       }
       if (claim.kind === 'unchanged') return json({ report: claim.report }, 200)
       if (claim.kind === 'limited') return json({ error: 'The daily report-generation limit has been reached. Existing reports remain available.' }, 429)
+      invalidateCachedReports()
       if (claim.kind === 'claimed') reportSchedule(claim.report.id)
       return json({ report: claim.report }, claim.kind === 'claimed' ? 202 : 200)
     }
@@ -107,6 +119,7 @@ export async function handlePublicApi(
       const now = new Date().toISOString()
       const reportId = regenerate[1]
       const prepared = await reportRepository.prepareReportGeneration(reportId, now)
+      invalidateCachedReports()
       if (!prepared) return json({ error: 'Report not found or already complete.' }, 404)
       if (prepared.started) {
         const synthesisModels = createReportModelClient(env.OPENROUTER_API_KEY, url.origin)
@@ -140,13 +153,17 @@ export async function handlePublicApi(
       const result = await repository.publish(parsed, new Date().toISOString())
       const runSchedule = injected?.schedule ?? ((thresholds: number[]) => scheduleAnalysis(env.AI, context, repository as PublicRepository, thresholds))
       if (result.crossedThresholds.length) runSchedule(result.crossedThresholds)
-      try {
-        const claim = await reportRepository.evaluateGlobalReportAfterPublish(new Date().toISOString())
-        if (claim.kind === 'claimed') reportSchedule(claim.report.id)
-      } catch {
-        // Evidence ingestion succeeds independently of report generation.
-      }
+      // Reports are started by a person (VISION.md §5); publishing never starts one.
       return json({ runId: result.runId, duplicate: result.duplicate }, result.duplicate ? 200 : 201)
+    }
+    if (url.pathname === '/api/public/claims' && request.method === 'GET') {
+      return json({ claims: await claimRepository.list() }, 200, { 'Cache-Control': PUBLIC_CACHE_CONTROL })
+    }
+    if (url.pathname === '/api/public/claims' && request.method === 'POST') {
+      const parsed = publicClaimRequestSchema.parse(await readJson(request))
+      const created = await claimRepository.create(parsed.text, parsed.questionKeys, new Date().toISOString())
+      if (created.kind === 'limited') return json({ error: 'The daily limit for new claims has been reached. Try again tomorrow.' }, 429)
+      return json({ claim: created.claim }, created.kind === 'duplicate' ? 200 : 201)
     }
     if (url.pathname === '/api/public/free-run' && request.method === 'GET') {
       const identity = await quotaHash(request, env.QUOTA_HMAC_SECRET)

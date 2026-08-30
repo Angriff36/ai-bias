@@ -5,7 +5,7 @@ import { SubmittedPromptFeedBuilder } from './submittedPromptFeed'
 const base: PublicLeaderboard = {
   totals: { runs: 2, responses: 4, completePairs: 2, models: 1, questions: 1 },
   topQuestions: [
-    { questionKey: 'does the model treat names differently', questionText: 'Does the model treat names differently?', runCount: 8, modelCount: 1, variantACount: 2, variantBCount: 2, lastSeenAt: '2026-08-26' },
+    { questionKey: 'does the model treat names differently', questionText: 'Does the model treat names differently?', runCount: 8, modelCount: 1, variantACount: 2, variantBCount: 2, answerCount: 4, groupLabels: ['White', 'Black'], lastSeenAt: '2026-08-26' },
   ],
   models: [],
   latestAnalysis: null,

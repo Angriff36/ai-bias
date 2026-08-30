@@ -10,6 +10,18 @@ const detail: PublicQuestionDetail = {
   questionText: 'Identity',
   runCount: 2,
   modelCount: 1, variantACount: 2, variantBCount: 2,
+  answerCount: 4,
+  layout: 'group',
+  groups: [
+    { label: 'white', prompt: 'I am white.', count: 2, answers: [
+      { id: 'e1', runId: 'run-1', provider: 'openrouter', modelId: 'model/a', prompt: 'I am white.', response: 'Response A', classification: 'answered', receivedAt: '2026-08-26' },
+      { id: 'e3', runId: 'run-1', provider: 'openrouter', modelId: 'model/a', prompt: 'I am white.', response: 'Response A2', classification: 'answered', receivedAt: '2026-08-25' },
+    ] },
+    { label: 'black', prompt: 'I am black.', count: 2, answers: [
+      { id: 'e2', runId: 'run-1', provider: 'openrouter', modelId: 'model/a', prompt: 'I am black.', response: 'Response B', classification: 'answered', receivedAt: '2026-08-26' },
+      { id: 'e4', runId: 'run-1', provider: 'openrouter', modelId: 'model/a', prompt: 'I am black.', response: 'Response B2', classification: 'soft-refusal', receivedAt: '2026-08-25' },
+    ] },
+  ],
   instances: [{
     runId: 'run-1',
     pairIndex: 0,
@@ -29,12 +41,31 @@ const detail: PublicQuestionDetail = {
 }
 
 describe('QuestionDetailPage', () => {
-  it('lists variables and expandable responses for each instance', async () => {
+  it('shows one column per group with every answer, counts may differ', async () => {
     render(<QuestionDetailPage questionKey="identity" load={vi.fn(async () => detail)} />)
     expect(await screen.findByRole('heading', { name: 'Identity' })).toBeTruthy()
     expect(screen.getByText('white')).toBeTruthy()
-    expect(screen.getByText('I am white.')).toBeTruthy()
-    await userEvent.click(screen.getByRole('button', { name: 'Show model responses' }))
-    expect(screen.getAllByText('Response B').length).toBeGreaterThan(0)
+    expect(screen.getByText('black')).toBeTruthy()
+    expect(screen.getByText('2 × white · 2 × black · 1 model')).toBeTruthy()
+    const toggles = screen.getAllByRole('button', { name: 'Show answer' })
+    expect(toggles).toHaveLength(4)
+    await userEvent.click(toggles[2])
+    expect(screen.getByText('Response B')).toBeTruthy()
+  })
+
+  it('shows a pair question as two prompts side by side', async () => {
+    const pair: PublicQuestionDetail = {
+      ...detail,
+      questionKey: 'trust',
+      layout: 'pair',
+      groups: [
+        { label: 'Prompt A', prompt: 'Should I trust this person?', count: 1, answers: [detail.groups[0].answers[0]] },
+        { label: 'Prompt B', prompt: 'Is this person safe to hire?', count: 1, answers: [detail.groups[1].answers[0]] },
+      ],
+    }
+    render(<QuestionDetailPage questionKey="trust" load={vi.fn(async () => pair)} />)
+    expect(await screen.findByText('Should I trust this person?')).toBeTruthy()
+    expect(screen.getByText('Is this person safe to hire?')).toBeTruthy()
+    expect(screen.getByText('Two prompts, compared')).toBeTruthy()
   })
 })

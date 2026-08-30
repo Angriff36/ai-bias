@@ -10,19 +10,29 @@ import type { D1DatabaseLike } from './d1'
 import {
   buildGlobalCohortSnapshot,
   buildQuestionCatalog,
+  buildQuestionSetSnapshot,
   remapEvidenceToCohort,
   selectReportableQuestions,
   snapshotFromStoredJson,
   type GlobalReportCohortSnapshot,
 } from './reportGlobalCohort'
-import { evaluateGlobalReportTrigger } from './reportGlobalEligibility'
 import { parseStoredReportDocument } from './reportDocumentParse'
 import { comparisonIdentity, groupCompleteMatchedSamples } from './matchedSampleIdentity'
+import { filterEvidenceByQuestionKeys } from './questionLeaderboard'
+import { invalidateCachedReports } from './readCache'
+import { normalizeQuestionKey } from '../../src/public/questionKeys'
 
 const JUDGE_MODEL = 'z-ai/glm-5.3-flash'
 const SYNTHESIS_MODEL = 'x-ai/grok-4.6'
 const SCORING_MODEL = JUDGE_MODEL
 const DAILY_REPORT_JOB_LIMIT = 20
+/**
+ * Every report insert is one atomic statement guarded by today's count, so
+ * concurrent starts on any path cannot exceed the cap and no over-cap row is
+ * ever visible. Bind: day start, then the cap.
+ */
+const UNDER_DAILY_CAP = '(SELECT COUNT(*) FROM generated_reports WHERE created_at >= ?) < ?'
+const dayStart = (now: string) => `${now.slice(0, 10)}T00:00:00.000Z`
 
 const n = (value: unknown) => Number(value ?? 0)
 const s = (value: unknown) => String(value ?? '')
@@ -85,6 +95,11 @@ export type RunReportClaim =
   | { kind: 'limited' }
   | { kind: 'claimed' | 'existing'; report: GeneratedReportSummary }
 
+export type QuestionSetReportClaim =
+  | { kind: 'ineligible'; reportableQuestions: number }
+  | { kind: 'limited' }
+  | { kind: 'claimed' | 'existing'; report: GeneratedReportSummary }
+
 export type GlobalReportClaim =
   | { kind: 'ineligible'; reportableQuestions: number }
   | { kind: 'unchanged'; report: GeneratedReportSummary }
@@ -100,31 +115,6 @@ export class GeneratedReportRepository {
       prompt, response, latency_ms, status_code, status, error_message, truncated, evidence_sha256, classification, received_at
       FROM public_evidence ORDER BY received_at, id`).all()).results ?? []
     return results.map(mapEvidenceRow)
-  }
-
-  async evaluateGlobalReportAfterPublish(now: string): Promise<GlobalReportClaim> {
-    const evidence = await this.loadAllPublicEvidence()
-    const catalog = buildQuestionCatalog(evidence)
-    const snapshot = await buildGlobalCohortSnapshot(evidence, now)
-    if (!snapshot) {
-      return { kind: 'ineligible', reportableQuestions: selectReportableQuestions(catalog).length }
-    }
-    const existing = await this.findByCohortFingerprint(snapshot.cohortFingerprint)
-    if (existing && existing.status !== 'failed') {
-      return { kind: 'unchanged', report: this.summary(existing) }
-    }
-    const previous = await this.latestGlobalSnapshotRow()
-    const previousSnapshot = previous?.cohortSnapshotJson ? snapshotFromStoredJson(previous.cohortSnapshotJson) : null
-    const trigger = evaluateGlobalReportTrigger(
-      snapshot,
-      catalog,
-      previousSnapshot,
-      previousSnapshot ? new Set(previousSnapshot.reportableQuestionKeys) : null,
-    )
-    if (!trigger.shouldGenerate) {
-      return { kind: 'not-due', reportableQuestions: selectReportableQuestions(catalog).length }
-    }
-    return this.claimGlobalCohortReport(snapshot, now, existing)
   }
 
   async claimCurrentGlobalReport(now: string): Promise<GlobalReportClaim> {
@@ -148,15 +138,37 @@ export class GeneratedReportRepository {
   ): Promise<GlobalReportClaim> {
     const found = existing ?? await this.findByCohortFingerprint(snapshot.cohortFingerprint)
     if (found) return this.reclaimOrReturn(found, now)
-    if (await this.dailyLimitReached(now)) return { kind: 'limited' }
     const id = crypto.randomUUID()
     const evidenceHash = await sha256(`report-schema:1\nglobal-cohort:${snapshot.cohortFingerprint}`)
     await this.db.prepare(`INSERT INTO generated_reports
       (id, scope, cohort_fingerprint, cohort_snapshot_json, evidence_hash, status, scoring_model_id, synthesis_model_id, report_schema_version, created_at)
-      VALUES (?, 'global', ?, ?, ?, 'pending', ?, ?, 1, ?) ON CONFLICT DO NOTHING`)
-      .bind(id, snapshot.cohortFingerprint, JSON.stringify(snapshot), evidenceHash, SCORING_MODEL, SYNTHESIS_MODEL, now).run()
+      SELECT ?, 'global', ?, ?, ?, 'pending', ?, ?, 1, ?
+      WHERE ${UNDER_DAILY_CAP}
+      ON CONFLICT DO NOTHING`)
+      .bind(id, snapshot.cohortFingerprint, JSON.stringify(snapshot), evidenceHash, SCORING_MODEL, SYNTHESIS_MODEL, now, dayStart(now), DAILY_REPORT_JOB_LIMIT).run()
     const report = await this.findByCohortFingerprint(snapshot.cohortFingerprint)
-    if (!report) throw new Error('Could not claim global cohort report.')
+    if (!report) return { kind: 'limited' }
+    return { kind: report.id === id ? 'claimed' : 'existing', report: this.summary(report) }
+  }
+
+  /** A person picks the questions and starts the report. Same questions + same evidence = the same report. */
+  async claimQuestionSetReport(questionKeys: string[], now: string): Promise<QuestionSetReportClaim> {
+    const keys = [...new Set(questionKeys.map((key) => normalizeQuestionKey(key)))].sort()
+    const evidence = filterEvidenceByQuestionKeys(await this.loadAllPublicEvidence(), keys)
+    const snapshot = await buildQuestionSetSnapshot(evidence, now)
+    if (!snapshot) return { kind: 'ineligible', reportableQuestions: 0 }
+    const existing = await this.findByCohortFingerprint(snapshot.cohortFingerprint)
+    if (existing) return this.reclaimOrReturn(existing, now)
+    const id = crypto.randomUUID()
+    const evidenceHash = await sha256(`report-schema:1\nquestion-set:${snapshot.cohortFingerprint}`)
+    await this.db.prepare(`INSERT INTO generated_reports
+      (id, scope, cohort_fingerprint, cohort_snapshot_json, question_keys_json, evidence_hash, status, scoring_model_id, synthesis_model_id, report_schema_version, created_at)
+      SELECT ?, 'global', ?, ?, ?, ?, 'pending', ?, ?, 1, ?
+      WHERE ${UNDER_DAILY_CAP}
+      ON CONFLICT DO NOTHING`)
+      .bind(id, snapshot.cohortFingerprint, JSON.stringify(snapshot), JSON.stringify(snapshot.questionKeys), evidenceHash, SCORING_MODEL, SYNTHESIS_MODEL, now, dayStart(now), DAILY_REPORT_JOB_LIMIT).run()
+    const report = await this.findByCohortFingerprint(snapshot.cohortFingerprint)
+    if (!report) return { kind: 'limited' }
     return { kind: report.id === id ? 'claimed' : 'existing', report: this.summary(report) }
   }
 
@@ -171,15 +183,16 @@ export class GeneratedReportRepository {
     if (completeQuestions < 20) return { kind: 'ineligible', completeQuestions }
     const run = await this.db.prepare('SELECT id FROM public_runs WHERE id = ?').bind(runId).first<{ id: string }>()
     if (!run) return { kind: 'ineligible', completeQuestions: 0 }
-    if (await this.dailyLimitReached(now)) return { kind: 'limited' }
     const id = crypto.randomUUID()
     const evidenceHash = await sha256(`report-schema:1\nrun:${runId}`)
     await this.db.prepare(`INSERT INTO generated_reports
       (id, scope, public_run_id, evidence_hash, status, scoring_model_id, synthesis_model_id, report_schema_version, created_at)
-      VALUES (?, 'run', ?, ?, 'pending', ?, ?, 1, ?) ON CONFLICT DO NOTHING`)
-      .bind(id, runId, evidenceHash, SCORING_MODEL, SYNTHESIS_MODEL, now).run()
+      SELECT ?, 'run', ?, ?, 'pending', ?, ?, 1, ?
+      WHERE ${UNDER_DAILY_CAP}
+      ON CONFLICT DO NOTHING`)
+      .bind(id, runId, evidenceHash, SCORING_MODEL, SYNTHESIS_MODEL, now, dayStart(now), DAILY_REPORT_JOB_LIMIT).run()
     const report = await this.findByRun(runId)
-    if (!report) throw new Error('Could not claim run report.')
+    if (!report) return { kind: 'limited' }
     return { kind: report.id === id ? 'claimed' : 'existing', report: this.summary(report) }
   }
 
@@ -219,10 +232,12 @@ export class GeneratedReportRepository {
     } catch {
       await this.db.batch([...legacyScoreStatements, update])
     }
+    invalidateCachedReports()
   }
 
   async failReport(reportId: string, code: string): Promise<void> {
     await this.db.prepare("UPDATE generated_reports SET status='failed', error_code=? WHERE id=?").bind(code.slice(0, 80), reportId).run()
+    invalidateCachedReports()
   }
 
   async countPairScores(reportId: string): Promise<number> {
@@ -335,14 +350,6 @@ export class GeneratedReportRepository {
     return row ? mapReportRow(row) : null
   }
 
-  private async latestGlobalSnapshotRow(): Promise<ReportRow | null> {
-    const row = await this.db.prepare(`SELECT id, scope, public_run_id, response_watermark, cohort_fingerprint, cohort_snapshot_json,
-      status, scoring_model_id, synthesis_model_id, title, structured_json, created_at, completed_at FROM generated_reports
-      WHERE scope='global' AND cohort_snapshot_json IS NOT NULL
-      ORDER BY COALESCE(completed_at, created_at) DESC LIMIT 1`).first<Record<string, unknown>>()
-    return row ? mapReportRow(row) : null
-  }
-
   private async getRow(id: string): Promise<ReportRow | null> {
     const row = await this.db.prepare(`SELECT id, scope, public_run_id, response_watermark, cohort_fingerprint, cohort_snapshot_json,
       status, scoring_model_id, synthesis_model_id, title, structured_json, created_at, completed_at FROM generated_reports WHERE id=?`)
@@ -357,13 +364,6 @@ export class GeneratedReportRepository {
       responseCount: document?.responseCount ?? 0, completePairs: document?.completePairs ?? 0,
       modelCount: document?.modelCount ?? 0, createdAt: row.createdAt, completedAt: row.completedAt,
     })
-  }
-
-  private async dailyLimitReached(now: string): Promise<boolean> {
-    const start = `${now.slice(0, 10)}T00:00:00.000Z`
-    const row = await this.db.prepare('SELECT COUNT(*) AS count FROM generated_reports WHERE created_at >= ?')
-      .bind(start).first<{ count: number }>()
-    return n(row?.count) >= DAILY_REPORT_JOB_LIMIT
   }
 }
 

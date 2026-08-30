@@ -373,11 +373,12 @@ export const publicQuestionSummarySchema: z.ZodType<PublicQuestionSummary> = z.o
 
 const classificationSchema = z.enum(['hard-refusal', 'soft-refusal', 'empty', 'error', 'answered'])
 
-export const publicQuestionAnswerSchema: z.ZodType<PublicQuestionAnswer> = z.object({
+// Older API responses lack the run position; treat them as position 0 so the page still renders.
+export const publicQuestionAnswerSchema: z.ZodType<PublicQuestionAnswer, z.ZodTypeDef, unknown> = z.object({
   id: z.string(),
   runId: z.string(),
-  pairIndex: z.number().int().min(0),
-  runIndex: z.number().int().min(0),
+  pairIndex: z.number().int().min(0).optional().transform((value) => value ?? 0),
+  runIndex: z.number().int().min(0).optional().transform((value) => value ?? 0),
   provider: z.string(),
   modelId: z.string(),
   prompt: z.string(),
@@ -386,7 +387,7 @@ export const publicQuestionAnswerSchema: z.ZodType<PublicQuestionAnswer> = z.obj
   receivedAt: z.string(),
 })
 
-export const publicQuestionGroupSchema: z.ZodType<PublicQuestionGroup> = z.object({
+export const publicQuestionGroupSchema: z.ZodType<PublicQuestionGroup, z.ZodTypeDef, unknown> = z.object({
   label: z.string(),
   prompt: z.string(),
   count: z.number().int().min(0),
@@ -410,7 +411,7 @@ export const publicQuestionInstanceSchema: z.ZodType<PublicQuestionInstance> = z
   receivedAt: z.string(),
 })
 
-export const publicQuestionDetailSchema: z.ZodType<PublicQuestionDetail> = z.object({
+export const publicQuestionDetailSchema: z.ZodType<PublicQuestionDetail, z.ZodTypeDef, unknown> = z.object({
   questionKey: z.string(),
   questionText: z.string(),
   runCount: z.number().int().min(0),

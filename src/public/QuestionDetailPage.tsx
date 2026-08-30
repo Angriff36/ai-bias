@@ -109,6 +109,7 @@ export function QuestionDetailPage({
   const [modelFilter, setModelFilter] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [allOpen, setAllOpen] = useState(false)
+  const [openModels, setOpenModels] = useState<Set<string>>(new Set())
 
   const groups = detail?.groups ?? []
   const rows = useMemo(() => buildComparisonRows(groups), [groups])
@@ -118,7 +119,22 @@ export function QuestionDetailPage({
     return [...seen.entries()]
   }, [rows])
   const visible = modelFilter ? rows.filter((row) => row.modelKey === modelFilter) : rows
+  // One block per model: the latest run shown, the rest folded until asked for.
+  const byModel = useMemo(() => {
+    const blocks = new Map<string, GridRow[]>()
+    for (const row of visible) blocks.set(row.modelKey, [...(blocks.get(row.modelKey) ?? []), row])
+    return [...blocks.entries()]
+  }, [visible])
   const isPair = detail?.layout === 'pair'
+
+  function toggleModel(key: string) {
+    setOpenModels((current) => {
+      const next = new Set(current)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
 
   function toggle(id: string) {
     setExpanded((current) => {
@@ -197,24 +213,36 @@ export function QuestionDetailPage({
                       </div>
                     ))}
                   </div>
-                  {visible.map((row) => {
-                    const when = row.cells.find((cell) => cell)?.receivedAt
-                    return (
-                      <div key={row.key} className="qgrid-row" role="row">
-                        <div className="qgrid-rowhead" role="rowheader">
-                          <strong title={row.modelKey.replace('|', ' · ')}>{shortModel(row.modelId)}</strong>
-                          <small>run {row.index + 1}{when ? ` · ${evidenceTime(when)}` : ''}</small>
+                  {byModel.map(([key, modelRows]) => {
+                    const open = openModels.has(key)
+                    const shown = open ? modelRows : modelRows.slice(-1)
+                    const hidden = modelRows.length - shown.length
+                    return shown.map((row, position) => {
+                      const when = row.cells.find((cell) => cell)?.receivedAt
+                      const last = position === shown.length - 1
+                      return (
+                        <div key={row.key} className="qgrid-row" role="row">
+                          <div className="qgrid-rowhead" role="rowheader">
+                            {position === 0 && <strong title={key.replace('|', ' · ')}>{shortModel(row.modelId)}</strong>}
+                            <small>{modelRows.length > 1 ? `run ${row.index + 1} of ${modelRows.length}` : 'one run'}{when ? ` · ${evidenceTime(when)}` : ''}</small>
+                            {last && modelRows.length > 1 && (
+                              <button type="button" className="link qgrid-fold" aria-expanded={open} onClick={() => toggleModel(key)}>
+                                {open ? 'Show latest only' : `Show all ${modelRows.length} runs`}
+                              </button>
+                            )}
+                            {hidden > 0 && last && <small className="qgrid-hidden">{hidden} more folded</small>}
+                          </div>
+                          {row.cells.map((cell, column) => (
+                            <AnswerCell
+                              key={cell?.id ?? `${row.key}-${column}`}
+                              answer={cell}
+                              expanded={cell ? expanded.has(cell.id) : false}
+                              onToggle={() => cell && toggle(cell.id)}
+                            />
+                          ))}
                         </div>
-                        {row.cells.map((cell, column) => (
-                          <AnswerCell
-                            key={cell?.id ?? `${row.key}-${column}`}
-                            answer={cell}
-                            expanded={cell ? expanded.has(cell.id) : false}
-                            onToggle={() => cell && toggle(cell.id)}
-                          />
-                        ))}
-                      </div>
-                    )
+                      )
+                    })
                   })}
                 </div>
               </div>

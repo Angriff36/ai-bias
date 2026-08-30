@@ -7,7 +7,7 @@ import {
 import type { ExecutionContextLike } from './analysis'
 import { groupCompleteMatchedSamples } from './matchedSampleIdentity'
 import { analyzeReportEvidence } from './reportExperimentAnalysis'
-import { scoreAllPairsWithJudge } from './reportJudgeBatch'
+import { RetryableReportCheckpointError, scoreAllPairsWithJudge } from './reportJudgeBatch'
 import type { ReportModelClient } from './reportModelClient'
 import { buildSynthesisPrompt } from './reportSynthesisPrompt'
 import type { GeneratedReportRepository } from './reportRepository'
@@ -166,7 +166,7 @@ export async function handleReportChunkFailure(
     return
   }
   const message = error instanceof Error ? error.message : 'generation-failed'
-  if (/timed out|429|rate limit/i.test(message)) {
+  if (error instanceof RetryableReportCheckpointError || /timed out|429|rate limit/i.test(message)) {
     await checkpointRepo.touchReportGeneration(reportId, new Date().toISOString())
     return
   }

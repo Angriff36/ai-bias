@@ -209,6 +209,17 @@ export interface JudgeProgressOptions {
   onCheckpoint?: (pairScores: GeneratedReportPairScore[]) => Promise<void> | void
 }
 
+export class RetryableReportCheckpointError extends Error {
+  readonly cause: unknown
+
+  constructor(cause: unknown) {
+    const detail = cause instanceof Error ? cause.message : 'unknown persistence error'
+    super(`Report checkpoint failed: ${detail}`)
+    this.name = 'RetryableReportCheckpointError'
+    this.cause = cause
+  }
+}
+
 export async function scoreAllPairsWithJudge(
   client: ReportModelClient,
   modelId: string,
@@ -281,7 +292,7 @@ export async function scoreAllPairsWithJudge(
   // With no prior or newly persisted scores, returning a normal partial result
   // would leave the report leased despite D1 having no progress to resume.
   if ((options?.existingScores?.size ?? 0) === 0 && checkpointSuccesses === 0 && lastCheckpointError) {
-    throw lastCheckpointError
+    throw new RetryableReportCheckpointError(lastCheckpointError)
   }
 
   const pairScores = collect()

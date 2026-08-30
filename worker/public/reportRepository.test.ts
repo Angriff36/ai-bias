@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { PublicEvidenceItem } from '../../src/public/contracts'
 import type { D1DatabaseLike, D1Result, D1Statement } from './d1'
 import { GeneratedReportRepository, completeQuestionCount, summarizeReportModels } from './reportRepository'
@@ -66,5 +66,42 @@ describe('generated report evidence preparation', () => {
     const repo = new GeneratedReportRepository(db)
     const loaded = await repo.getReportEvidence('legacy-global')
     expect(loaded.evidence.map((item) => item.id)).toEqual(['first', 'second'])
+  })
+
+  it('restarts a zero-progress pending report after the worker lease expires', async () => {
+    const row = {
+      id: 'pending-report', scope: 'global', public_run_id: null, response_watermark: 1,
+      cohort_fingerprint: null, cohort_snapshot_json: null, status: 'pending', error_code: null,
+      scoring_model_id: 'z-ai/glm-5.3-flash', synthesis_model_id: 'x-ai/grok-4.6',
+      title: null, structured_json: null, created_at: '2026-08-30T15:00:00.000Z', completed_at: null,
+    }
+    const updates: unknown[][] = []
+    const db: D1DatabaseLike = {
+      prepare(sql: string) {
+        let bindings: unknown[] = []
+        const statement: D1Statement = {
+          bind: (...args: unknown[]) => { bindings = args; return statement },
+          first: async <T>() => (sql.includes('COUNT(*)') ? { count: 0 } : row) as T,
+          all: async <T>() => ({ results: [] as T[] }),
+          run: async <T>() => { updates.push(bindings); return { meta: { changes: 1 } } as D1Result<T> },
+        }
+        return statement
+      },
+      batch: async (statements) => statements.map(() => ({ meta: { changes: 1 } })),
+    }
+
+    const dateNow = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-08-30T15:00:50.000Z'))
+    let prepared
+    try {
+      prepared = await new GeneratedReportRepository(db).prepareReportGeneration(
+        'pending-report',
+        '2026-08-30T15:00:50.000Z',
+      )
+    } finally {
+      dateNow.mockRestore()
+    }
+
+    expect(prepared?.started).toBe(true)
+    expect(updates).toContainEqual(['2026-08-30T15:00:50.000Z', 'pending-report'])
   })
 })

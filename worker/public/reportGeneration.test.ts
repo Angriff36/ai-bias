@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { generatedReportDocumentSchema, type GeneratedReportPairScore, type PublicEvidenceItem } from '../../src/public/contracts'
 import { buildPairSampleId } from './matchedSampleIdentity'
-import { generateReport, processReportChunk } from './reportGeneration'
+import { generateReport, handleReportChunkFailure, processReportChunk } from './reportGeneration'
+import { RetryableReportCheckpointError } from './reportJudgeBatch'
 
 function evidenceRecord(overrides: Partial<PublicEvidenceItem> & Pick<PublicEvidenceItem, 'id' | 'pairIndex' | 'runIndex' | 'variantKey' | 'classification'>): PublicEvidenceItem {
   return {
@@ -205,5 +206,29 @@ describe('generated report pipeline', () => {
       judgeModels,
     )).rejects.toThrow('Report model returned invalid JSON.')
     expect(synthesis).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps a checkpoint outage pending so the open Reports tab can retry it', async () => {
+    const repository = {
+      getReportEvidence: vi.fn(async () => ({
+        row: {
+          id: 'report-checkpoint-retry', scope: 'global' as const,
+          scoringModelId: 'z-ai/glm-5.3-flash', synthesisModelId: 'x-ai/grok-4.6',
+        },
+        evidence: fixtureEvidence(1),
+      })),
+      countPairScores: vi.fn(async () => 0),
+      touchReportGeneration: vi.fn(async () => undefined),
+      failReport: vi.fn(async () => undefined),
+    }
+
+    await handleReportChunkFailure(
+      repository as never,
+      'report-checkpoint-retry',
+      new RetryableReportCheckpointError(new Error('D1 checkpoint unavailable')),
+    )
+
+    expect(repository.touchReportGeneration).toHaveBeenCalledTimes(1)
+    expect(repository.failReport).not.toHaveBeenCalled()
   })
 })

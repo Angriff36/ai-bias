@@ -172,6 +172,25 @@ describe('report judge batch', () => {
     expect(result.complete).toBe(true)
   })
 
+  it('settles every judge worker when one cell checkpoint fails', async () => {
+    const evidence = judgeEvidence(['model/a', 'model/b', 'model/c'])
+    const finishedCheckpoints: string[] = []
+
+    const result = await scoreAllPairsWithJudge(scoringClient(), 'z-ai/glm-5.3-flash', evidence, {
+      concurrency: 3,
+      onCheckpoint: async (scores) => {
+        const modelId = scores[0]!.modelId
+        if (modelId === 'model/a') throw new Error('D1 checkpoint unavailable')
+        await new Promise((resolve) => setTimeout(resolve, 5))
+        finishedCheckpoints.push(modelId)
+      },
+    })
+
+    expect(finishedCheckpoints.sort()).toEqual(['model/b', 'model/c'])
+    expect(result.complete).toBe(true)
+    expect(result.pairScores).toHaveLength(6)
+  })
+
   it('raises the judge error only when nothing at all could be scored', async () => {
     const evidence = judgeEvidence(['model/a'])
     const client = { complete: async () => { throw new Error('Judge returned invalid JSON.') } }

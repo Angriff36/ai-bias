@@ -261,7 +261,15 @@ export async function scoreAllPairsWithJudge(
         lastError = error
         continue
       }
-      if (options?.onCheckpoint) await options.onCheckpoint(collectGroups(cell.groups))
+      if (options?.onCheckpoint) {
+        try {
+          await options.onCheckpoint(collectGroups(cell.groups))
+        } catch (error) {
+          // Keep this cell in the in-memory partial result and let every worker
+          // settle. A later chunk reloads D1 and retries any score not persisted.
+          lastError = error
+        }
+      }
     }
   }
   await Promise.all(Array.from({ length: Math.min(concurrency, pending.length) }, worker))

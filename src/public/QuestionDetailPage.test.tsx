@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { PublicQuestionDetail } from './contracts'
-import { QuestionDetailPage } from './QuestionDetailPage'
+import { QuestionDetailPage, buildComparisonRows } from './QuestionDetailPage'
 
 const detail: PublicQuestionDetail = {
   questionKey: 'identity',
@@ -47,10 +47,22 @@ describe('QuestionDetailPage', () => {
     expect(screen.getByText('white')).toBeTruthy()
     expect(screen.getByText('black')).toBeTruthy()
     expect(screen.getByText('2 × white · 2 × black · 1 model')).toBeTruthy()
-    const toggles = screen.getAllByRole('button', { name: 'Show answer' })
-    expect(toggles).toHaveLength(4)
-    await userEvent.click(toggles[2])
+    // The answer text is in the grid; nothing is hidden behind a button.
+    expect(screen.getByText('Response A')).toBeTruthy()
     expect(screen.getByText('Response B')).toBeTruthy()
+    expect(screen.getByText('Soft refusal')).toBeTruthy()
+    expect(screen.getAllByRole('row')).toHaveLength(3)
+    await userEvent.click(screen.getByRole('button', { name: 'a' }))
+    expect(screen.getAllByRole('row')).toHaveLength(3)
+  })
+
+  it('leaves a blank cell when a group has fewer answers for a model', () => {
+    const rows = buildComparisonRows([
+      { label: 'white', prompt: 'p', count: 2, answers: detail.groups[0].answers },
+      { label: 'black', prompt: 'p', count: 1, answers: [detail.groups[1].answers[0]] },
+    ])
+    expect(rows).toHaveLength(2)
+    expect(rows[1]?.cells[1]).toBeNull()
   })
 
   it('shows a pair question as two prompts side by side', async () => {

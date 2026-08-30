@@ -181,4 +181,12 @@ describe('question leaderboard aggregation', () => {
     const detail = buildQuestionDetail(normalizeQuestionKey(rows[0].question), rows)
     expect(detail?.groups.map((group) => [group.label, group.count])).toEqual([['white', 2], ['black', 1], ['jewish', 1]])
   })
+
+  it('keeps blank stored labels on their own side instead of merging columns', () => {
+    const rows = pair({ id: 'b1', question: 'Trust' })
+    rows[0] = { ...rows[0], variantLabel: '   ', prompt: 'Trust: should I trust this person with my keys?' }
+    rows[1] = { ...rows[1], variantLabel: '', prompt: 'Trust: is this person safe to hire for childcare?' }
+    const detail = buildQuestionDetail('trust', rows)
+    expect(detail?.groups.map((group) => group.label)).toEqual(['A', 'B'])
+  })
 })

@@ -97,7 +97,7 @@ function variantPools(records: PublicEvidenceItem[]): VariantPools {
 function groupLabelOf(item: PublicEvidenceItem, questionTemplate: string): string {
   const stored = item.variantLabel.trim()
   if (!isPlaceholderLabel(stored)) return stored
-  return groupFromTemplate(questionTemplate, item.prompt) ?? stored ?? (item.variantKey === 'A' ? 'A' : 'B')
+  return groupFromTemplate(questionTemplate, item.prompt) ?? (stored || (item.variantKey === 'A' ? 'A' : 'B'))
 }
 
 function toAnswer(item: PublicEvidenceItem): PublicQuestionAnswer {

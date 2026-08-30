@@ -362,13 +362,6 @@ question-set:${snapshot.cohortFingerprint}`)
     })
   }
 
-  private async dailyLimitExceeded(now: string): Promise<boolean> {
-    const start = `${now.slice(0, 10)}T00:00:00.000Z`
-    const row = await this.db.prepare('SELECT COUNT(*) AS count FROM generated_reports WHERE created_at >= ?')
-      .bind(start).first<{ count: number }>()
-    return n(row?.count) > DAILY_REPORT_JOB_LIMIT
-  }
-
   private async dailyLimitReached(now: string): Promise<boolean> {
     const start = `${now.slice(0, 10)}T00:00:00.000Z`
     const row = await this.db.prepare('SELECT COUNT(*) AS count FROM generated_reports WHERE created_at >= ?')

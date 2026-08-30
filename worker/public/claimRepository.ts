@@ -102,20 +102,16 @@ export class ClaimRepository {
     const cleanText = text.trim().replace(/\s+/g, ' ')
     const id = crypto.randomUUID()
     const keys = [...new Set(questionKeys.map((key) => normalizeQuestionKey(key)))]
-    // The unique index on lower(text) makes concurrent duplicate posts collapse to one row.
-    await this.db.prepare('INSERT INTO claims (id, text, question_keys_json, created_at) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING')
-      .bind(id, cleanText, JSON.stringify(keys), now).run()
+    const start = `${now.slice(0, 10)}T00:00:00.000Z`
+    // One atomic statement: the row is written only while today's count is under the cap,
+    // and the unique index on lower(text) collapses concurrent duplicate posts to one row.
+    // An over-cap row is never written, so it can never be read by another request.
+    await this.db.prepare(`INSERT INTO claims (id, text, question_keys_json, created_at)
+      SELECT ?, ?, ?, ? WHERE (SELECT COUNT(*) FROM claims WHERE created_at >= ?) < ?
+      ON CONFLICT DO NOTHING`)
+      .bind(id, cleanText, JSON.stringify(keys), now, start, DAILY_CLAIM_LIMIT).run()
     const stored = await this.db.prepare('SELECT id FROM claims WHERE lower(text) = lower(?) LIMIT 1').bind(cleanText).first<{ id: string }>()
-    if (!stored) throw new Error('Could not read the claim back.')
-    if (stored.id === id) {
-      const start = `${now.slice(0, 10)}T00:00:00.000Z`
-      const today = await this.db.prepare('SELECT COUNT(*) AS count FROM claims WHERE created_at >= ?').bind(start).first<{ count: number }>()
-      if (n(today?.count) > DAILY_CLAIM_LIMIT) {
-        // Concurrent posts can all pass a pre-check; the row that pushed the day over the cap backs out.
-        await this.db.prepare('DELETE FROM claims WHERE id=?').bind(id).run()
-        return { kind: 'limited' }
-      }
-    }
+    if (!stored) return { kind: 'limited' }
     writeCachedClaims(null)
     const claim = (await this.list()).find((item) => item.id === stored.id)
     if (!claim) throw new Error('Could not read the claim back.')

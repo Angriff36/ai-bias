@@ -1,6 +1,6 @@
 import type { PublicEvidenceItem, PublicQuestionDetail, PublicQuestionInstance, PublicQuestionSummary } from '../../src/public/contracts'
 import { normalizeQuestionKey } from '../../src/public/questionKeys'
-import { buildQuestionCatalog, completePairGroups, isMatchedSwapPair, isPromptPlaceholder, rankQuestions, type QuestionCatalogEntry } from './reportGlobalCohort'
+import { completePairGroups, isMatchedSwapPair, isPromptPlaceholder } from './reportGlobalCohort'
 
 export { isMatchedSwapPair }
 
@@ -13,7 +13,7 @@ function questionText(records: PublicEvidenceItem[], fallback: string): string {
   const stored = records.find((item) => item.question?.trim())?.question?.trim() ?? ''
   const byPair = new Map<string, PublicEvidenceItem[]>()
   for (const item of records) {
-    const key = `${item.runId}\u0000${item.pairIndex}\u0000${item.runIndex}\u0000${item.provider}\u0000${item.modelId}`
+    const key = `${item.runId}|${item.pairIndex}|${item.runIndex}|${item.provider}|${item.modelId}`
     byPair.set(key, [...(byPair.get(key) ?? []), item])
   }
   for (const pair of byPair.values()) {
@@ -53,30 +53,68 @@ function canonicalizeLegacyQuestions(evidence: PublicEvidenceItem[]): PublicEvid
   })
 }
 
-function toSummary(entry: QuestionCatalogEntry, records: PublicEvidenceItem[]): PublicQuestionSummary {
+/** A row answers its question when its prompt is (or contains) the question text, or is the same scenario with the phrase swapped. */
+function promptAsksQuestion(prompt: string, question: string): boolean {
+  if (!question.trim()) return false
+  const normalizedPrompt = normalizeQuestionKey(prompt)
+  const normalizedQuestion = normalizeQuestionKey(question)
+  if (normalizedPrompt === normalizedQuestion || normalizedPrompt.includes(normalizedQuestion)) return true
+  return isMatchedSwapPair(prompt, question)
+}
+
+type VariantPools = { aRows: PublicEvidenceItem[]; bRows: PublicEvidenceItem[]; questionText: string }
+
+/**
+ * Pool every stored answer of a question by variant side. Instances do not need
+ * to match one another — the two pools are what gets compared and displayed.
+ */
+function variantPools(records: PublicEvidenceItem[]): VariantPools {
+  const question = questionText(records, '')
+  const aRows: PublicEvidenceItem[] = []
+  const bRows: PublicEvidenceItem[] = []
+  for (const item of records) {
+    if (!promptAsksQuestion(item.prompt, question)) continue
+    if (item.variantKey === 'A') aRows.push(item)
+    else bRows.push(item)
+  }
+  return { aRows, bRows, questionText: question }
+}
+
+function toSummary(key: string, records: PublicEvidenceItem[]): PublicQuestionSummary | null {
+  const pools = variantPools(records)
+  if (pools.aRows.length === 0 && pools.bRows.length === 0) return null
+  const models = new Set([...pools.aRows, ...pools.bRows].map((item) => `${item.provider}|${item.modelId}`))
   return {
-    questionKey: entry.questionKey,
-    questionText: questionText(records, entry.questionText),
-    runCount: entry.completePairCount,
-    modelCount: entry.modelIds.length,
-    lastSeenAt: lastSeenAt(records),
+    questionKey: key,
+    questionText: pools.questionText,
+    runCount: Math.min(pools.aRows.length, pools.bRows.length),
+    modelCount: models.size,
+    variantACount: pools.aRows.length,
+    variantBCount: pools.bRows.length,
+    lastSeenAt: lastSeenAt([...pools.aRows, ...pools.bRows]),
   }
 }
 
 export function buildTopQuestionSummaries(evidence: PublicEvidenceItem[], limit = 100): PublicQuestionSummary[] {
   const canonicalEvidence = canonicalizeLegacyQuestions(evidence)
-  const catalog = rankQuestions(buildQuestionCatalog(canonicalEvidence).filter((entry) => entry.completePairCount > 0))
-  const byKey = new Map<string, PublicEvidenceItem[]>()
+  const groups = new Map<string, PublicEvidenceItem[]>()
   for (const item of canonicalEvidence) {
     const key = normalizeQuestionKey(item.question)
-    byKey.set(key, [...(byKey.get(key) ?? []), item])
+    if (key === '__missing_question__') continue
+    groups.set(key, [...(groups.get(key) ?? []), item])
   }
-  return catalog.slice(0, limit).map((entry) => toSummary(entry, byKey.get(entry.questionKey) ?? []))
+  return [...groups.entries()]
+    .map(([key, records]) => toSummary(key, records))
+    .filter((summary): summary is PublicQuestionSummary => summary !== null)
+    .sort((left, right) => (
+      (right.variantACount + right.variantBCount) - (left.variantACount + left.variantBCount)
+      || right.runCount - left.runCount
+      || left.questionKey.localeCompare(right.questionKey)
+    ))
+    .slice(0, limit)
 }
 
-function toInstance(group: PublicEvidenceItem[]): PublicQuestionInstance {
-  const variantA = group.find((item) => item.variantKey === 'A')!
-  const variantB = group.find((item) => item.variantKey === 'B')!
+function toInstance(variantA: PublicEvidenceItem, variantB: PublicEvidenceItem): PublicQuestionInstance {
   const receivedAt = variantA.receivedAt >= variantB.receivedAt ? variantA.receivedAt : variantB.receivedAt
   return {
     runId: variantA.runId,
@@ -96,29 +134,54 @@ function toInstance(group: PublicEvidenceItem[]): PublicQuestionInstance {
   }
 }
 
+/**
+ * Display pairing only: within one model, the i-th stored A answer is shown next
+ * to the i-th stored B answer. The counts are the evidence — the instances do
+ * not need to be from the same ask.
+ */
+function pairPoolsForDisplay(pools: VariantPools): PublicQuestionInstance[] {
+  const byModel = new Map<string, { a: PublicEvidenceItem[]; b: PublicEvidenceItem[] }>()
+  for (const item of [...pools.aRows, ...pools.bRows]) {
+    const key = `${item.provider}|${item.modelId}`
+    const side = byModel.get(key) ?? { a: [], b: [] }
+    if (item.variantKey === 'A') side.a.push(item)
+    else side.b.push(item)
+    byModel.set(key, side)
+  }
+  const instances: PublicQuestionInstance[] = []
+  for (const side of byModel.values()) {
+    // Display pairing only: the i-th stored answer per side, up to the shorter
+    // pool. The counts carry the imbalance; nothing is repeated to fill slots.
+    const total = Math.min(side.a.length, side.b.length)
+    for (let index = 0; index < total; index += 1) {
+      instances.push(toInstance(side.a[index], side.b[index]))
+    }
+  }
+  return instances.sort((left, right) => (
+    right.receivedAt.localeCompare(left.receivedAt)
+    || left.provider.localeCompare(right.provider)
+    || left.modelId.localeCompare(right.modelId)
+    || left.runIndex - right.runIndex
+  ))
+}
+
 export function buildQuestionDetail(questionKey: string, evidence: PublicEvidenceItem[]): PublicQuestionDetail | null {
   // The leaderboard hands out keys of the canonical (merged) question text, so
   // detail lookups must match against the same canonicalized evidence.
   const canonicalEvidence = canonicalizeLegacyQuestions(evidence)
   const legacyPromptKey = isPromptPlaceholder(questionKey)
   const matching = legacyPromptKey ? canonicalEvidence : canonicalEvidence.filter((item) => normalizeQuestionKey(item.question) === questionKey)
-  const records = canonicalizeLegacyQuestions(matching)
-  if (records.length === 0) return null
-  const catalog = buildQuestionCatalog(records)[0]
-  if (!catalog) return null
-  const instances = completePairGroups(records)
-    .map(toInstance)
-    .sort((left, right) => (
-      right.receivedAt.localeCompare(left.receivedAt)
-      || left.provider.localeCompare(right.provider)
-      || left.modelId.localeCompare(right.modelId)
-      || left.runIndex - right.runIndex
-    ))
+  if (matching.length === 0) return null
+  const pools = variantPools(matching)
+  if (pools.aRows.length === 0 && pools.bRows.length === 0) return null
+  const models = new Set([...pools.aRows, ...pools.bRows].map((item) => `${item.provider}|${item.modelId}`))
   return {
-    questionKey: catalog.questionKey,
-    questionText: questionText(records, catalog.questionText),
-    runCount: catalog.completePairCount,
-    modelCount: catalog.modelIds.length,
-    instances,
+    questionKey,
+    questionText: pools.questionText,
+    runCount: Math.min(pools.aRows.length, pools.bRows.length),
+    modelCount: models.size,
+    variantACount: pools.aRows.length,
+    variantBCount: pools.bRows.length,
+    instances: pairPoolsForDisplay(pools),
   }
 }

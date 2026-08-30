@@ -20,6 +20,7 @@ type RunPhase = 'idle' | 'running' | 'paused' | 'complete' | 'cancelled'
 /** Plain-language reason for a failed request, so the list is readable. */
 function failureReason(statusCode: number): string {
   if (statusCode === 0) return 'Could not reach the provider'
+  if (statusCode === 408) return 'The model never answered'
   if (statusCode === 401 || statusCode === 403) return 'Provider rejected the API key'
   if (statusCode === 404) return 'Model not found'
   if (statusCode === 429) return 'Rate limited by the provider'
@@ -190,16 +191,15 @@ export function RunScreen({
       onDone(outcome) {
         flush()
         setPhase(outcome === 'cancelled' ? 'cancelled' : 'complete')
-        if (outcome !== 'cancelled') {
-          const completedRecords = Object.values(recordsRef.current)
-          const failedRecords = completedRecords.filter((record) => record.status === 'error').length
-          onComplete?.({
-            browserBatchId: batchIdRef.current,
-            records: completedRecords,
-            succeeded: completedRecords.length - failedRecords,
-            failed: failedRecords,
-          })
-        }
+        const completedRecords = Object.values(recordsRef.current)
+        if (completedRecords.length === 0) return
+        const failedRecords = completedRecords.filter((record) => record.status === 'error').length
+        onComplete?.({
+          browserBatchId: batchIdRef.current,
+          records: completedRecords,
+          succeeded: completedRecords.length - failedRecords,
+          failed: failedRecords,
+        })
       },
     }, { concurrency })
     executorRef.current = executor
@@ -260,7 +260,10 @@ export function RunScreen({
   }
 
   const pairCount = pairDefinitions ? pairDefinitions.length : pairs
-  const requestCount = countModelRunRequests(pairCount, runsPerVariant, samplingMode)
+  const groupCount = pairDefinitions
+    ? new Set(pairDefinitions.map((pair) => `${pair.question.trim().toLowerCase()}|${pair.variantA.prompt}`)).size
+    : 1
+  const requestCount = countModelRunRequests(pairCount, runsPerVariant, samplingMode, groupCount)
 
   return (
     <div className="run-screen" data-phase={phase}>
@@ -346,10 +349,12 @@ export function RunScreen({
           )}
 
           {phase === 'cancelled' && (
-            <p className="banner info" data-testid="cancelled-note">
-              Run cancelled. {done} of {total} raw records were persisted and are available in
-              results.
-            </p>
+            <div className="banner info end-banner" data-testid="cancelled-note">
+              <span>Run stopped. {done} finished responses were filed into this experiment.</span>
+              {onViewResults && (
+                <button type="button" className="primary" onClick={onViewResults}>View Results</button>
+              )}
+            </div>
           )}
 
           {(phase === 'complete' || phase === 'cancelled') && failedRecords.length > 0 && (

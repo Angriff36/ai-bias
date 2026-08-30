@@ -9,7 +9,7 @@ const detail: PublicQuestionDetail = {
   questionKey: 'identity',
   questionText: 'Identity',
   runCount: 2,
-  modelCount: 1,
+  modelCount: 1, variantACount: 2, variantBCount: 2,
   instances: [{
     runId: 'run-1',
     pairIndex: 0,

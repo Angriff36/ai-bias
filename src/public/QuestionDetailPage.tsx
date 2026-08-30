@@ -70,11 +70,13 @@ export function QuestionDetailPage({
 }) {
   const loader = useCallback(() => load(questionKey), [load, questionKey])
   const { data: detail, error, loading, refreshing, retry } = usePublicFetch(`question:${questionKey}`, loader)
+  const sideLabelA = detail?.instances[0]?.variantLabelA ?? 'A'
+  const sideLabelB = detail?.instances[0]?.variantLabelB ?? 'B'
 
   return (
     <main className="leaderboard-page question-detail-page">
       <p className="question-detail-back">
-        <a className="text-link" href="#/leaderboard">← Back to question leaderboard</a>
+        <a className="text-link" href="#/leaderboard">← Back to top questions</a>
       </p>
       {refreshing && <p className="leaderboard-refresh-note" role="status">Updating question instances…</p>}
       {error && (
@@ -90,12 +92,15 @@ export function QuestionDetailPage({
             <p className="eyebrow">QUESTION INSTANCES</p>
             <h2>{detail.questionText}</h2>
             <p className="lead">
-              {detail.runCount.toLocaleString()} complete {detail.runCount === 1 ? 'run' : 'runs'} · {detail.modelCount.toLocaleString()} {detail.modelCount === 1 ? 'model' : 'models'}
+              {detail.variantACount.toLocaleString()} × {sideLabelA} · {detail.variantBCount.toLocaleString()} × {sideLabelB} · {detail.modelCount.toLocaleString()} {detail.modelCount === 1 ? 'model' : 'models'}
             </p>
           </header>
 
           {detail.instances.length === 0 ? (
-            <p className="muted">No complete matched instances are stored for this question yet.</p>
+            <p className="muted">
+              No paired answers are stored for this question yet
+              {detail.variantACount + detail.variantBCount > 0 ? ` — ${detail.variantACount.toLocaleString()} single-side answers exist and count toward the totals above.` : '.'}
+            </p>
           ) : (
             <div className="instance-list">
               {detail.instances.map((instance, index) => (

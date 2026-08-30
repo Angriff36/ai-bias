@@ -19,7 +19,11 @@ export interface BuildRunQueueInput {
 
 export class RunQueuePlanner {
   static countRequests(input: Pick<BuildRunQueueInput, 'pairs' | 'runsPerVariant' | 'samplingMode'>): number {
-    return countModelRunRequests(input.pairs.length, input.runsPerVariant, input.samplingMode)
+    return countModelRunRequests(input.pairs.length, input.runsPerVariant, input.samplingMode, RunQueuePlanner.countGroups(input.pairs))
+  }
+
+  private static countGroups(pairs: RunPair[]): number {
+    return new Set(pairs.map((pair) => pair.variantA.prompt.trim().toLowerCase())).size
   }
 
   static build(input: BuildRunQueueInput): RunRequest[] {
@@ -44,42 +48,55 @@ export class RunQueuePlanner {
 
   private static buildSharedAnchor(input: BuildRunQueueInput): RunRequest[] {
     const requests: RunRequest[] = []
-    const anchorPrompt = input.pairs[0]?.variantA.prompt ?? ''
-    const fanOutTargets: AnchorFanOutTarget[] = input.pairs.map((pair, pairIndex) => ({
-      pairIndex,
-      pairId: pair.id,
-      question: pair.question,
-      variantLabel: pair.variantA.label,
-    }))
+    // The anchor repeats per question group: each question's own first variant is
+    // asked once and serves as the reference side for that group's comparisons.
+    // The next question then gets its own anchor.
+    const groups = new Map<string, { pairs: RunPair[]; indexes: number[] }>()
+    input.pairs.forEach((pair, pairIndex) => {
+      const key = pair.variantA.prompt.trim().toLowerCase()
+      const group = groups.get(key) ?? { pairs: [], indexes: [] }
+      group.pairs.push(pair)
+      group.indexes.push(pairIndex)
+      groups.set(key, group)
+    })
 
     for (let runIndex = 0; runIndex < input.runsPerVariant; runIndex++) {
-      const anchorPair = input.pairs[0]
-      requests.push({
-        ...RunQueuePlanner.requestFor(
-          input,
-          anchorPair,
-          0,
-          runIndex,
-          'A',
-          anchorPair.variantA.label,
-          anchorPrompt,
-        ),
-        anchorRole: 'shared-anchor',
-        sharedAnchorKey: anchorPrompt,
-        anchorFanOutTargets: fanOutTargets,
-      })
+      for (const group of groups.values()) {
+        const anchorIndex = group.indexes[0]
+        const anchorPair = group.pairs[0]
+        const anchorPrompt = anchorPair.variantA.prompt
+        const fanOutTargets: AnchorFanOutTarget[] = group.pairs.map((pair, index) => ({
+          pairIndex: group.indexes[index],
+          pairId: pair.id,
+          question: pair.question,
+          variantLabel: pair.variantA.label,
+        }))
+        requests.push({
+          ...RunQueuePlanner.requestFor(
+            input,
+            anchorPair,
+            anchorIndex,
+            runIndex,
+            'A',
+            anchorPair.variantA.label,
+            anchorPrompt,
+          ),
+          anchorRole: 'shared-anchor',
+          sharedAnchorKey: anchorPrompt,
+          anchorFanOutTargets: fanOutTargets,
+        })
 
-      for (let pairIndex = 0; pairIndex < input.pairs.length; pairIndex++) {
-        const pair = input.pairs[pairIndex]
-        requests.push(RunQueuePlanner.requestFor(
-          input,
-          pair,
-          pairIndex,
-          runIndex,
-          'B',
-          pair.variantB.label,
-          pair.variantB.prompt,
-        ))
+        group.pairs.forEach((pair, index) => {
+          requests.push(RunQueuePlanner.requestFor(
+            input,
+            pair,
+            group.indexes[index],
+            runIndex,
+            'B',
+            pair.variantB.label,
+            pair.variantB.prompt,
+          ))
+        })
       }
     }
     return requests

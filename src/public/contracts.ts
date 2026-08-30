@@ -61,6 +61,10 @@ export interface PublicQuestionSummary {
   questionText: string
   runCount: number
   modelCount: number
+  /** Stored answers on the A (reference) side of the question. */
+  variantACount: number
+  /** Stored answers on the B (comparison) side of the question. */
+  variantBCount: number
   lastSeenAt: string
 }
 
@@ -86,6 +90,8 @@ export interface PublicQuestionDetail {
   questionText: string
   runCount: number
   modelCount: number
+  variantACount: number
+  variantBCount: number
   instances: PublicQuestionInstance[]
 }
 
@@ -280,6 +286,8 @@ export const publicQuestionSummarySchema: z.ZodType<PublicQuestionSummary> = z.o
   questionText: z.string(),
   runCount: z.number().int().min(0),
   modelCount: z.number().int().min(0),
+  variantACount: z.number().int().min(0),
+  variantBCount: z.number().int().min(0),
   lastSeenAt: z.string(),
 })
 
@@ -305,6 +313,8 @@ export const publicQuestionDetailSchema: z.ZodType<PublicQuestionDetail> = z.obj
   questionText: z.string(),
   runCount: z.number().int().min(0),
   modelCount: z.number().int().min(0),
+  variantACount: z.number().int().min(0),
+  variantBCount: z.number().int().min(0),
   instances: z.array(publicQuestionInstanceSchema),
 })
 

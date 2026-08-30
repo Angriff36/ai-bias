@@ -23,14 +23,24 @@ describe('OpenRouter report model', () => {
     const observed: { signal?: AbortSignal } = {}
     vi.stubGlobal('fetch', vi.fn((_url: string, init?: RequestInit) => {
       observed.signal = init?.signal as AbortSignal
-      return new Promise<Response>(() => undefined)
+      return new Promise<Response>((_resolve, reject) => {
+        observed.signal?.addEventListener('abort', () => {
+          reject(new DOMException('The operation was aborted.', 'AbortError'))
+        })
+      })
     }))
     const client = new OpenRouterReportModel('key', 'https://ai-tests.com')
 
-    void client.complete('z-ai/glm-5.3-flash', 'score', 8192, { jsonObject: true, timeoutMs: 25 })
+    const completion = expect(client.complete(
+      'z-ai/glm-5.3-flash',
+      'score',
+      8192,
+      { jsonObject: true, timeoutMs: 25 },
+    )).rejects.toThrow('OpenRouter request timed out for z-ai/glm-5.3-flash.')
     await vi.advanceTimersByTimeAsync(24)
     expect(observed.signal?.aborted).toBe(false)
     await vi.advanceTimersByTimeAsync(1)
     expect(observed.signal?.aborted).toBe(true)
+    await completion
   })
 })

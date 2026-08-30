@@ -5,8 +5,8 @@
  * pause/resume/cancel; already-persisted requests never re-run.
  */
 import type { ProviderAdapter } from './adapter'
-import { isAdapterFailure } from './adapter'
 import { persistRawRecord } from './db'
+import { ProviderAttempt } from './providerAttempt'
 import { RunQueuePlanner } from './runQueuePlanner'
 import type { SamplingMode } from './samplingMode'
 import type { CellStatus, RawRecord, RunPair, RunRequest } from './types'
@@ -23,6 +23,7 @@ export interface ExecutorCallbacks {
 export interface ExecutorOptions {
   concurrency?: number
   consecutiveFailureThreshold?: number
+  timeoutMs?: number
 }
 
 export interface BatchExecutor {
@@ -41,6 +42,7 @@ export function createBatchExecutor(
 ): BatchExecutor {
   const concurrency = opts.concurrency ?? 3
   const threshold = opts.consecutiveFailureThreshold ?? 5
+  const timeoutMs = opts.timeoutMs
   let cursor = 0
   let inFlight = 0
   let paused = false
@@ -71,31 +73,25 @@ export function createBatchExecutor(
     let errorMessage: string | undefined
     let truncated = false
     const started = performance.now()
-    try {
-      const result = await adapter.callModel(request, abort.signal)
-      response = result.content
-      statusCode = result.statusCode
-      latencyMs = result.latencyMs
-      truncated = result.truncated === true
-    } catch (e) {
-      if (e instanceof DOMException && e.name === 'AbortError') {
-        inFlight--
-        // Cancelled before a response: leave the cell pending, nothing persisted.
-        callbacks.onCell({ requestId: request.id, state: 'pending' })
-        settleAfterCancel()
-        return
-      }
-      latencyMs = Math.round(performance.now() - started)
-      if (isAdapterFailure(e)) {
-        statusCode = e.statusCode
-        errorMessage = e.message
-      } else {
-        statusCode = 0
-        errorMessage = e instanceof Error ? e.message : 'Unknown error'
-      }
+    const attempt = await new ProviderAttempt(adapter, abort.signal, timeoutMs).run(request)
+    if (attempt.kind === 'cancelled') {
+      inFlight--
+      callbacks.onCell({ requestId: request.id, state: 'pending' })
+      settleAfterCancel()
+      return
+    }
+    latencyMs = Math.round(performance.now() - started)
+    if (attempt.kind === 'ok') {
+      response = attempt.result.content
+      statusCode = attempt.result.statusCode
+      latencyMs = attempt.result.latencyMs
+      truncated = attempt.result.truncated === true
+    } else {
+      statusCode = attempt.failure.statusCode
+      errorMessage = attempt.failure.message
     }
 
-    const status = errorMessage ? 'error' : 'ok'
+    let status: 'ok' | 'error' = errorMessage ? 'error' : 'ok'
     const anchorSampleId = request.anchorRole === 'shared-anchor' ? crypto.randomUUID() : undefined
     const sharedFields = {
       batchId: request.batchId,
@@ -113,30 +109,35 @@ export function createBatchExecutor(
       ...(anchorSampleId ? { anchorSampleId } : {}),
     } satisfies Omit<RawRecord, 'requestId' | 'sha256' | 'persistedAt' | 'pairIndex' | 'variantKey' | 'variantLabel' | 'pairId' | 'question'>
 
-    if (request.anchorRole === 'shared-anchor' && request.anchorFanOutTargets?.length) {
-      for (const target of request.anchorFanOutTargets) {
+    try {
+      if (request.anchorRole === 'shared-anchor' && request.anchorFanOutTargets?.length) {
+        for (const target of request.anchorFanOutTargets) {
+          const record = await persistRawRecord({
+            requestId: `${request.id}-fanout-p${target.pairIndex}`,
+            pairIndex: target.pairIndex,
+            pairId: target.pairId,
+            question: target.question,
+            variantKey: 'A',
+            variantLabel: target.variantLabel,
+            ...sharedFields,
+          })
+          callbacks.onRecord(record)
+        }
+      } else {
         const record = await persistRawRecord({
-          requestId: `${request.id}-fanout-p${target.pairIndex}`,
-          pairIndex: target.pairIndex,
-          pairId: target.pairId,
-          question: target.question,
-          variantKey: 'A',
-          variantLabel: target.variantLabel,
+          requestId: request.id,
+          pairIndex: request.pairIndex,
+          pairId: request.pairId,
+          question: request.question,
+          variantKey: request.variantKey,
+          variantLabel: request.variantLabel,
           ...sharedFields,
         })
         callbacks.onRecord(record)
       }
-    } else {
-      const record = await persistRawRecord({
-        requestId: request.id,
-        pairIndex: request.pairIndex,
-        pairId: request.pairId,
-        question: request.question,
-        variantKey: request.variantKey,
-        variantLabel: request.variantLabel,
-        ...sharedFields,
-      })
-      callbacks.onRecord(record)
+    } catch {
+      status = 'error'
+      errorMessage = 'This browser could not store the response. The run continued so nothing else was lost.'
     }
 
     if (status === 'error') {

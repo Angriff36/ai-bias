@@ -20,6 +20,7 @@ export interface AdapterResult {
 export interface AdapterFailure {
   statusCode: number
   message: string
+  retryAfterMs?: number
 }
 
 export interface ProviderAdapter {

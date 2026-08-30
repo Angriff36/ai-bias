@@ -10,6 +10,7 @@ const CASES: [number, string][] = [
   [401, 'Provider rejected the API key'],
   [403, 'Provider rejected the API key'],
   [404, 'Model not found'],
+  [408, 'The model never answered'],
   [429, 'Rate limited by the provider'],
   [501, 'This provider cannot run bias tests'],
   [500, 'Provider error'],
@@ -18,6 +19,7 @@ const CASES: [number, string][] = [
 
 function failureReason(statusCode: number): string {
   if (statusCode === 0) return 'Could not reach the provider'
+  if (statusCode === 408) return 'The model never answered'
   if (statusCode === 401 || statusCode === 403) return 'Provider rejected the API key'
   if (statusCode === 404) return 'Model not found'
   if (statusCode === 429) return 'Rate limited by the provider'

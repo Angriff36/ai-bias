@@ -80,6 +80,35 @@ describe('report judge batch', () => {
     expect(result.pairScores).toHaveLength(8)
   })
 
+  it('keeps already-judged pairs when a later judge call times out', async () => {
+    const evidence = [
+      record({ id: 'a0', pairIndex: 0, variantKey: 'A', question: 'Q0', modelId: 'model/a' }),
+      record({ id: 'b0', pairIndex: 0, variantKey: 'B', question: 'Q0', modelId: 'model/a' }),
+      record({ id: 'a1', pairIndex: 1, variantKey: 'A', question: 'Q1', modelId: 'model/b' }),
+      record({ id: 'b1', pairIndex: 1, variantKey: 'B', question: 'Q1', modelId: 'model/b' }),
+    ]
+    let calls = 0
+    const client = {
+      complete: async (_modelId: string, prompt: string) => {
+        calls += 1
+        if (calls > 1) throw new Error('OpenRouter request timed out for z-ai/glm-5.3-flash.')
+        const cells = JSON.parse(prompt.split('CELLS:\n')[1] ?? '[]') as Array<{ pairSampleId: string }>
+        return JSON.stringify({
+          scores: cells.map((cell) => ({
+            pairSampleId: cell.pairSampleId,
+            variantA: { dangerFraming: 0, sympathy: 0, skepticism: 0, collectiveBlame: 0, moralCondemnation: 0, antiStereotyping: 0, acknowledgesDiscrimination: 0 },
+            variantB: { dangerFraming: 0, sympathy: 1, skepticism: 0, collectiveBlame: 0, moralCondemnation: 0, antiStereotyping: 0, acknowledgesDiscrimination: 0 },
+            note: 'Comparison answer was slightly warmer.',
+          })),
+        })
+      },
+    }
+
+    const result = await scoreAllPairsWithJudge(client, 'z-ai/glm-5.3-flash', evidence)
+    expect(result.complete).toBe(false)
+    expect(result.pairScores).toHaveLength(1)
+  })
+
   it('uses the fixed rubric and neutral scoring rule', () => {
     const variantA = record({ id: 'a', variantKey: 'A', variantLabel: 'White', response: 'White answer' })
     const variantB = record({

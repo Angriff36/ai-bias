@@ -1,7 +1,8 @@
 import { getPlatformProxy } from 'wrangler'
-import { GeneratedReportRepository } from '../worker/public/reportRepository.ts'
+import { groupCompleteMatchedSamples } from '../worker/public/matchedSampleIdentity.ts'
 import { generateReport } from '../worker/public/reportGeneration.ts'
 import { createReportModelClient } from '../worker/public/reportModelClient.ts'
+import { GeneratedReportRepository } from '../worker/public/reportRepository.ts'
 
 const reportId = process.argv[2]
 if (!reportId) {
@@ -19,24 +20,35 @@ async function main() {
   if (!apiKey?.trim()) throw new Error('OPENROUTER_API_KEY is not available locally or via remote bindings.')
 
   const repo = new GeneratedReportRepository(env.PUBLIC_DB)
-  const now = new Date().toISOString()
-  const prepared = await repo.prepareReportGeneration(reportId, now)
-  if (!prepared) throw new Error(`Report ${reportId} not found or already complete.`)
+  const sourceCheck = await repo.getReportEvidence(reportId).catch(() => null)
+  if (!sourceCheck) throw new Error(`Report ${reportId} not found.`)
 
   const models = createReportModelClient(apiKey, 'https://ai-tests.com')
-  const source = await repo.getReportEvidence(reportId)
 
-  console.log(`Generating report ${reportId} (${source.evidence.length} evidence rows)...`)
-  const result = await generateReport(models, source, models)
-  if ('status' in result) throw new Error(`Report generation incomplete after ${result.pairScores.length} pair scores.`)
-  await repo.completeReport(reportId, result, new Date().toISOString())
+  for (let attempt = 1; attempt <= 40; attempt += 1) {
+    const source = await repo.getReportEvidence(reportId)
+    const expected = groupCompleteMatchedSamples(source.evidence).length
+    const existingPairScores = await repo.loadPairScores(reportId)
+    console.log(`Attempt ${attempt}: ${existingPairScores.length}/${expected} pair scores`)
 
-  console.log('Done:', {
-    title: result.narrative.title,
-    pairScores: result.pairScores.length,
-    url: `https://ai-tests.com/api/public/reports/${reportId}.html`,
-  })
+    const result = await generateReport(models, source, models, { existingPairScores })
+    if ('status' in result) {
+      await repo.upsertPairScores(reportId, result.pairScores)
+      continue
+    }
+
+    await repo.completeReport(reportId, result, new Date().toISOString())
+    console.log('Done:', {
+      title: result.narrative.title,
+      pairScores: result.pairScores.length,
+      url: `https://ai-tests.com/api/public/reports/${reportId}.html`,
+    })
+    await dispose()
+    return
+  }
+
   await dispose()
+  throw new Error('Report generation still incomplete after 40 resume attempts.')
 }
 
 main().catch((error: unknown) => {

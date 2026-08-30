@@ -1,0 +1,15 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "ai-bias-lab",
+  "main": "tools/finish-report-checkpoint.dev-worker.ts",
+  "compatibility_date": "2026-08-26",
+  "d1_databases": [
+    {
+      "binding": "PUBLIC_DB",
+      "database_name": "ai-bias-public",
+      "database_id": "29560e87-1b08-408e-8625-576ba286f741",
+      "migrations_dir": "worker/migrations",
+      "remote": true
+    }
+  ]
+}

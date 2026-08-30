@@ -4,6 +4,7 @@ import App from './App'
 import './styles.css'
 import './public/submittedPrompts.css'
 import './public/conclusions.css'
+import './wizard/submitPrompt.css'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

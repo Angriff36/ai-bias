@@ -26,6 +26,8 @@ describe('public evidence normalization', () => {
     expect(normalized.records.map((item) => item.variantKey)).toEqual(['A', 'B'])
     expect(normalized.records[0].response).toBe('one')
     expect(submissionHashMaterial(input)).toBe(submissionHashMaterial({ ...input, records: [...input.records].reverse() }))
+    expect(submissionHashMaterial({ ...input, continueRunId: '11111111-1111-1111-1111-111111111111' }))
+      .toBe(submissionHashMaterial(input))
   })
 
   it('counts only complete matched pairs and detects response-treatment differences', () => {

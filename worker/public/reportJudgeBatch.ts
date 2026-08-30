@@ -221,8 +221,12 @@ export async function scoreAllPairsWithJudge(
     })
     if (complete) continue
     if (options?.shouldStop?.()) break
-    const scores = await scoreJudgeBatch(client, modelId, cell.groups)
-    for (const score of scores) judgedById.set(score.pairSampleId, score)
+    try {
+      const scores = await scoreJudgeBatch(client, modelId, cell.groups)
+      for (const score of scores) judgedById.set(score.pairSampleId, score)
+    } catch {
+      break
+    }
   }
 
   const pairScores = groups.flatMap((group) => {

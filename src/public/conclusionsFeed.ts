@@ -230,6 +230,8 @@ export class ConclusionsFeedBuilder {
       modelCount: unique(items.map((item) => item.modelId)).length,
       variantACount: items.filter((item) => item.variantKey === 'A').length,
       variantBCount: items.filter((item) => item.variantKey === 'B').length,
+      answerCount: items.length,
+      groupLabels: unique(items.map((item) => item.variantLabel.trim())),
       lastSeenAt: items.reduce((latest, item) => (item.receivedAt > latest ? item.receivedAt : latest), ''),
     }))
   }

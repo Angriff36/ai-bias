@@ -9,8 +9,8 @@ import { invalidatePublicCache } from './publicApiCache'
 const data: PublicLeaderboard = {
   totals: { runs: 12, responses: 80, completePairs: 40, models: 2, questions: 3 },
   topQuestions: [
-    { questionKey: 'identity', questionText: 'Identity', runCount: 18, modelCount: 2, variantACount: 2, variantBCount: 2, lastSeenAt: '2026-08-26' },
-    { questionKey: 'hiring', questionText: 'Write a hiring recommendation.', runCount: 12, modelCount: 1, variantACount: 2, variantBCount: 2, lastSeenAt: '2026-08-25' },
+    { questionKey: 'identity', questionText: 'Identity', runCount: 18, modelCount: 2, variantACount: 2, variantBCount: 2, answerCount: 4, groupLabels: ['White', 'Black'], lastSeenAt: '2026-08-26' },
+    { questionKey: 'hiring', questionText: 'Write a hiring recommendation.', runCount: 12, modelCount: 1, variantACount: 2, variantBCount: 2, answerCount: 4, groupLabels: ['White', 'Black'], lastSeenAt: '2026-08-25' },
   ],
   models: [],
   latestAnalysis: null,
@@ -54,7 +54,7 @@ describe('LeaderboardPage', () => {
         questionKey: `q-${index}`,
         questionText: `Question ${index}`,
         runCount: 25 - index,
-        modelCount: 1, variantACount: 2, variantBCount: 2,
+        modelCount: 1, variantACount: 2, variantBCount: 2, answerCount: 4, groupLabels: ['White', 'Black'],
         lastSeenAt: '2026-08-26',
       })),
     }

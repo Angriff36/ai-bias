@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { PublicEvidenceItem } from '../../src/public/contracts'
-import { buildQuestionDetail, buildTopQuestionSummaries } from './questionLeaderboard'
+import { buildQuestionDetail, buildTopQuestionSummaries, filterEvidenceByQuestionKeys } from './questionLeaderboard'
 
 function pair(input: Partial<PublicEvidenceItem> & { id: string; question: string; modelId?: string; runId?: string }): PublicEvidenceItem[] {
   const runId = input.runId ?? 'run-1'
@@ -131,5 +131,40 @@ describe('question leaderboard aggregation', () => {
     expect(merged[0]?.questionKey).toBe('i am [group].')
     expect(merged[0]?.runCount).toBe(2)
 
+  })
+
+  it('pools answers into one column per group and keeps unequal counts', () => {
+    const asian: PublicEvidenceItem = {
+      ...pair({ id: 'x', question: 'Identity' })[1], id: 'a3-b', runId: 'run-3', variantLabel: 'Asian',
+      prompt: 'Identity (asian people)', receivedAt: '2026-08-27',
+    }
+    const evidence = [
+      ...pair({ id: 'a1', question: 'Identity' }),
+      ...pair({ id: 'a2', question: 'Identity', runId: 'run-2' }),
+      asian,
+    ]
+    const detail = buildQuestionDetail('identity', evidence)
+    expect(detail?.layout).toBe('group')
+    expect(detail?.answerCount).toBe(5)
+    expect(detail?.groups.map((group) => [group.label, group.count])).toEqual([['White', 2], ['Black', 2], ['Asian', 1]])
+    expect(detail?.groups[2]?.answers[0]?.id).toBe('a3-b')
+    const summary = buildTopQuestionSummaries(evidence)[0]
+    expect(summary?.groupLabels).toEqual(['White', 'Black', 'Asian'])
+    expect(summary?.answerCount).toBe(5)
+  })
+
+  it('marks two differently worded prompts as a pair question', () => {
+    const rows = pair({ id: 'p1', question: 'Trust' })
+    rows[0] = { ...rows[0], prompt: 'Trust: should I trust this person with my keys?' }
+    rows[1] = { ...rows[1], prompt: 'Trust: is this person safe to hire for childcare?' }
+    const detail = buildQuestionDetail('trust', rows)
+    expect(detail?.layout).toBe('pair')
+    expect(detail?.groups).toHaveLength(2)
+  })
+
+  it('filters evidence to the requested question keys', () => {
+    const evidence = [...pair({ id: 'a1', question: 'Identity' }), ...pair({ id: 'h1', question: 'Hiring' })]
+    const kept = filterEvidenceByQuestionKeys(evidence, ['hiring'])
+    expect(kept.map((item) => item.id)).toEqual(['h1', 'h1-b'])
   })
 })

@@ -65,7 +65,32 @@ export interface PublicQuestionSummary {
   variantACount: number
   /** Stored answers on the B (comparison) side of the question. */
   variantBCount: number
+  /** Every stored answer for the question, all groups together. */
+  answerCount: number
+  /** Group names (the swapped phrase values) in display order. */
+  groupLabels: string[]
   lastSeenAt: string
+}
+
+export type PublicQuestionLayout = 'group' | 'pair'
+
+export interface PublicQuestionAnswer {
+  id: string
+  runId: string
+  provider: string
+  modelId: string
+  prompt: string
+  response: string
+  classification: PublicEvidenceItem['classification']
+  receivedAt: string
+}
+
+/** One column on the question page: a group name and every answer it got. */
+export interface PublicQuestionGroup {
+  label: string
+  prompt: string
+  count: number
+  answers: PublicQuestionAnswer[]
 }
 
 export interface PublicQuestionInstance {
@@ -92,6 +117,10 @@ export interface PublicQuestionDetail {
   modelCount: number
   variantACount: number
   variantBCount: number
+  answerCount: number
+  /** 'group' = one template with the phrase swapped (columns). 'pair' = two hand-written prompts (side by side). */
+  layout: PublicQuestionLayout
+  groups: PublicQuestionGroup[]
   instances: PublicQuestionInstance[]
 }
 
@@ -288,7 +317,29 @@ export const publicQuestionSummarySchema: z.ZodType<PublicQuestionSummary> = z.o
   modelCount: z.number().int().min(0),
   variantACount: z.number().int().min(0),
   variantBCount: z.number().int().min(0),
+  answerCount: z.number().int().min(0),
+  groupLabels: z.array(z.string()),
   lastSeenAt: z.string(),
+})
+
+const classificationSchema = z.enum(['hard-refusal', 'soft-refusal', 'empty', 'error', 'answered'])
+
+export const publicQuestionAnswerSchema: z.ZodType<PublicQuestionAnswer> = z.object({
+  id: z.string(),
+  runId: z.string(),
+  provider: z.string(),
+  modelId: z.string(),
+  prompt: z.string(),
+  response: z.string(),
+  classification: classificationSchema,
+  receivedAt: z.string(),
+})
+
+export const publicQuestionGroupSchema: z.ZodType<PublicQuestionGroup> = z.object({
+  label: z.string(),
+  prompt: z.string(),
+  count: z.number().int().min(0),
+  answers: z.array(publicQuestionAnswerSchema),
 })
 
 export const publicQuestionInstanceSchema: z.ZodType<PublicQuestionInstance> = z.object({
@@ -315,6 +366,9 @@ export const publicQuestionDetailSchema: z.ZodType<PublicQuestionDetail> = z.obj
   modelCount: z.number().int().min(0),
   variantACount: z.number().int().min(0),
   variantBCount: z.number().int().min(0),
+  answerCount: z.number().int().min(0),
+  layout: z.enum(['group', 'pair']),
+  groups: z.array(publicQuestionGroupSchema),
   instances: z.array(publicQuestionInstanceSchema),
 })
 

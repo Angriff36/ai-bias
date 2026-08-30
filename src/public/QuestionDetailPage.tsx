@@ -1,63 +1,59 @@
 import { useCallback, useState } from 'react'
-import type { PublicQuestionDetail, PublicQuestionInstance } from './contracts'
+import type { PublicQuestionAnswer, PublicQuestionDetail, PublicQuestionGroup } from './contracts'
 import { getPublicQuestionDetail } from './client'
 import { evidenceTime } from './leaderboardUi'
 import { usePublicFetch } from './usePublicFetch'
 
-function InstanceMeta({ instance, index }: { instance: PublicQuestionInstance; index: number }) {
+const CLASS_LABELS: Record<PublicQuestionAnswer['classification'], string> = {
+  answered: 'Answered',
+  'soft-refusal': 'Soft refusal',
+  'hard-refusal': 'Hard refusal',
+  empty: 'Empty',
+  error: 'Error',
+}
+
+function shortModel(modelId: string): string {
+  return modelId.split('/').pop()?.trim() || modelId
+}
+
+function AnswerCard({ answer }: { answer: PublicQuestionAnswer }) {
+  const [open, setOpen] = useState(false)
   return (
-    <aside className="instance-meta" aria-label={`Run ${index + 1} details`}>
-      <p className="instance-meta-title">Run {index + 1}</p>
-      <dl className="instance-meta-list">
-        <div><dt>Model</dt><dd>{instance.modelId}</dd></div>
-        <div><dt>When</dt><dd><time dateTime={instance.receivedAt}>{evidenceTime(instance.receivedAt)}</time></dd></div>
-      </dl>
-    </aside>
+    <article className={`answer-card class-${answer.classification}`}>
+      <header>
+        <span className="answer-model" title={answer.modelId}>{shortModel(answer.modelId)}</span>
+        <span className={`answer-class class-${answer.classification}`}>{CLASS_LABELS[answer.classification]}</span>
+        <time dateTime={answer.receivedAt}>{evidenceTime(answer.receivedAt)}</time>
+      </header>
+      <button
+        type="button"
+        className="secondary answer-toggle"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        {open ? 'Hide answer' : 'Show answer'}
+      </button>
+      {open && <pre className="answer-text">{answer.response || '(No response)'}</pre>}
+    </article>
   )
 }
 
-function InstanceCard({ instance, index }: { instance: PublicQuestionInstance; index: number }) {
-  const [open, setOpen] = useState(false)
+function GroupColumn({ group, showPrompt }: { group: PublicQuestionGroup; showPrompt: boolean }) {
   return (
-    <article className="instance-card">
-      <div className="instance-layout">
-        <InstanceMeta instance={instance} index={index} />
-        <div className="instance-main">
-          <div className="instance-prompts">
-            <section className="prompt-panel">
-              <span className="variant-chip">{instance.variantLabelA}</span>
-              <pre>{instance.promptA}</pre>
-            </section>
-            <section className="prompt-panel">
-              <span className="variant-chip">{instance.variantLabelB}</span>
-              <pre>{instance.promptB}</pre>
-            </section>
-          </div>
-          <button
-            type="button"
-            className="secondary instance-responses-toggle"
-            aria-expanded={open}
-            onClick={() => setOpen((value) => !value)}
-          >
-            {open ? 'Hide model responses' : 'Show model responses'}
-          </button>
-          {open && (
-            <div className="instance-responses">
-              <section className="response-panel">
-                <span className="variant-chip muted">{instance.variantLabelA}</span>
-                <pre>{instance.responseA || '(No response)'}</pre>
-                <small>{instance.classificationA}</small>
-              </section>
-              <section className="response-panel">
-                <span className="variant-chip muted">{instance.variantLabelB}</span>
-                <pre>{instance.responseB || '(No response)'}</pre>
-                <small>{instance.classificationB}</small>
-              </section>
-            </div>
-          )}
+    <section className="group-column" aria-label={`${group.label} answers`}>
+      <header className="group-column-head">
+        <span className="variant-chip">{group.label}</span>
+        <span className="group-column-count">{group.count.toLocaleString()} {group.count === 1 ? 'answer' : 'answers'}</span>
+      </header>
+      {showPrompt && <pre className="group-column-prompt">{group.prompt}</pre>}
+      {group.answers.length === 0 ? (
+        <p className="muted">No answers yet.</p>
+      ) : (
+        <div className="group-column-answers">
+          {group.answers.map((answer) => <AnswerCard key={answer.id} answer={answer} />)}
         </div>
-      </div>
-    </article>
+      )}
+    </section>
   )
 }
 
@@ -70,42 +66,36 @@ export function QuestionDetailPage({
 }) {
   const loader = useCallback(() => load(questionKey), [load, questionKey])
   const { data: detail, error, loading, refreshing, retry } = usePublicFetch(`question:${questionKey}`, loader)
-  const sideLabelA = detail?.instances[0]?.variantLabelA ?? 'A'
-  const sideLabelB = detail?.instances[0]?.variantLabelB ?? 'B'
+  const isPair = detail?.layout === 'pair'
 
   return (
-    <main className="leaderboard-page question-detail-page">
+    <main className="leaderboard-page question-detail">
       <p className="question-detail-back">
         <a className="text-link" href="#/leaderboard">← Back to top questions</a>
       </p>
-      {refreshing && <p className="leaderboard-refresh-note" role="status">Updating question instances…</p>}
+      {refreshing && <p className="leaderboard-refresh-note" role="status">Updating answers…</p>}
       {error && (
         <div className="banner error" role="alert">
           <span>{error}</span>
           <button className="secondary" onClick={retry}>Try again</button>
         </div>
       )}
-      {loading && !detail && <p role="status">Loading question instances…</p>}
+      {loading && !detail && <p role="status">Loading answers…</p>}
       {detail && (
         <>
-          <header className="research-header question-detail-header">
-            <p className="eyebrow">QUESTION INSTANCES</p>
+          <header className="research-header">
+            <p className="eyebrow">{isPair ? 'Two prompts, compared' : 'Same question, group swapped'}</p>
             <h2>{detail.questionText}</h2>
             <p className="lead">
-              {detail.variantACount.toLocaleString()} × {sideLabelA} · {detail.variantBCount.toLocaleString()} × {sideLabelB} · {detail.modelCount.toLocaleString()} {detail.modelCount === 1 ? 'model' : 'models'}
+              {detail.groups.map((group) => `${group.count.toLocaleString()} × ${group.label}`).join(' · ')}
+              {' · '}{detail.modelCount.toLocaleString()} {detail.modelCount === 1 ? 'model' : 'models'}
             </p>
           </header>
-
-          {detail.instances.length === 0 ? (
-            <p className="muted">
-              No paired answers are stored for this question yet
-              {detail.variantACount + detail.variantBCount > 0 ? ` — ${detail.variantACount.toLocaleString()} single-side answers exist and count toward the totals above.` : '.'}
-            </p>
+          {detail.groups.length === 0 ? (
+            <p className="muted">No answers are stored for this question yet.</p>
           ) : (
-            <div className="instance-list">
-              {detail.instances.map((instance, index) => (
-                <InstanceCard key={`${instance.runId}:${instance.pairIndex}:${instance.runIndex}:${instance.modelId}`} instance={instance} index={index} />
-              ))}
+            <div className={isPair ? 'question-pair' : 'question-groups'} style={{ ['--group-count' as string]: detail.groups.length }}>
+              {detail.groups.map((group) => <GroupColumn key={group.label} group={group} showPrompt={isPair || detail.groups.length === 1} />)}
             </div>
           )}
         </>

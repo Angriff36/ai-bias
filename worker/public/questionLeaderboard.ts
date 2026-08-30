@@ -1,4 +1,12 @@
-import type { PublicEvidenceItem, PublicQuestionDetail, PublicQuestionInstance, PublicQuestionSummary } from '../../src/public/contracts'
+import type {
+  PublicEvidenceItem,
+  PublicQuestionAnswer,
+  PublicQuestionDetail,
+  PublicQuestionGroup,
+  PublicQuestionInstance,
+  PublicQuestionLayout,
+  PublicQuestionSummary,
+} from '../../src/public/contracts'
 import { normalizeQuestionKey } from '../../src/public/questionKeys'
 import { completePairGroups, isMatchedSwapPair, isPromptPlaceholder } from './reportGlobalCohort'
 
@@ -80,10 +88,64 @@ function variantPools(records: PublicEvidenceItem[]): VariantPools {
   return { aRows, bRows, questionText: question }
 }
 
+function groupLabelOf(item: PublicEvidenceItem): string {
+  return item.variantLabel.trim() || (item.variantKey === 'A' ? 'A' : 'B')
+}
+
+function toAnswer(item: PublicEvidenceItem): PublicQuestionAnswer {
+  return {
+    id: item.id,
+    runId: item.runId,
+    provider: item.provider,
+    modelId: item.modelId,
+    prompt: item.prompt,
+    response: item.response,
+    classification: item.classification,
+    receivedAt: item.receivedAt,
+  }
+}
+
+/**
+ * Pool every answer by its group name (the swapped phrase value stored as the
+ * variant label). Reference-side groups come first, then comparison groups, each
+ * in first-seen order. Columns never need equal counts.
+ */
+function groupPools(pools: VariantPools): PublicQuestionGroup[] {
+  const order: string[] = []
+  const byLabel = new Map<string, PublicEvidenceItem[]>()
+  for (const item of [...pools.aRows, ...pools.bRows]) {
+    const label = groupLabelOf(item)
+    if (!byLabel.has(label)) order.push(label)
+    byLabel.set(label, [...(byLabel.get(label) ?? []), item])
+  }
+  return order.map((label) => {
+    const rows = [...(byLabel.get(label) ?? [])].sort((left, right) => right.receivedAt.localeCompare(left.receivedAt))
+    return {
+      label,
+      prompt: rows[0]?.prompt ?? '',
+      count: rows.length,
+      answers: rows.map(toAnswer),
+    }
+  })
+}
+
+/**
+ * A question is a group question when every comparison prompt is the reference
+ * prompt with only the phrase swapped. Two prompts that differ in wording make
+ * a pair question and are shown side by side instead of as columns.
+ */
+function detectLayout(groups: PublicQuestionGroup[]): PublicQuestionLayout {
+  const prompts = groups.map((group) => group.prompt).filter(Boolean)
+  if (prompts.length <= 1) return 'group'
+  const [reference, ...rest] = prompts
+  return rest.every((prompt) => prompt === reference || isMatchedSwapPair(reference, prompt)) ? 'group' : 'pair'
+}
+
 function toSummary(key: string, records: PublicEvidenceItem[]): PublicQuestionSummary | null {
   const pools = variantPools(records)
   if (pools.aRows.length === 0 && pools.bRows.length === 0) return null
   const models = new Set([...pools.aRows, ...pools.bRows].map((item) => `${item.provider}|${item.modelId}`))
+  const groups = groupPools(pools)
   return {
     questionKey: key,
     questionText: pools.questionText,
@@ -91,8 +153,16 @@ function toSummary(key: string, records: PublicEvidenceItem[]): PublicQuestionSu
     modelCount: models.size,
     variantACount: pools.aRows.length,
     variantBCount: pools.bRows.length,
+    answerCount: pools.aRows.length + pools.bRows.length,
+    groupLabels: groups.map((group) => group.label),
     lastSeenAt: lastSeenAt([...pools.aRows, ...pools.bRows]),
   }
+}
+
+/** Evidence rows that belong to any of the given leaderboard question keys. */
+export function filterEvidenceByQuestionKeys(evidence: PublicEvidenceItem[], questionKeys: string[]): PublicEvidenceItem[] {
+  const wanted = new Set(questionKeys)
+  return canonicalizeLegacyQuestions(evidence).filter((item) => wanted.has(normalizeQuestionKey(item.question)))
 }
 
 export function buildTopQuestionSummaries(evidence: PublicEvidenceItem[], limit = 100): PublicQuestionSummary[] {
@@ -175,6 +245,7 @@ export function buildQuestionDetail(questionKey: string, evidence: PublicEvidenc
   const pools = variantPools(matching)
   if (pools.aRows.length === 0 && pools.bRows.length === 0) return null
   const models = new Set([...pools.aRows, ...pools.bRows].map((item) => `${item.provider}|${item.modelId}`))
+  const groups = groupPools(pools)
   return {
     questionKey,
     questionText: pools.questionText,
@@ -182,6 +253,9 @@ export function buildQuestionDetail(questionKey: string, evidence: PublicEvidenc
     modelCount: models.size,
     variantACount: pools.aRows.length,
     variantBCount: pools.bRows.length,
+    answerCount: pools.aRows.length + pools.bRows.length,
+    layout: detectLayout(groups),
+    groups,
     instances: pairPoolsForDisplay(pools),
   }
 }

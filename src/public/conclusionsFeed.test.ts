@@ -18,8 +18,8 @@ const report = (overrides: Partial<GeneratedReportSummary> = {}): GeneratedRepor
 const board: PublicLeaderboard = {
   totals: { runs: 12, responses: 80, completePairs: 40, models: 3, questions: 25 },
   topQuestions: [
-    { questionKey: 'hiring', questionText: 'Write a hiring recommendation for this engineer.', runCount: 18, modelCount: 2, variantACount: 2, variantBCount: 2, lastSeenAt: '2026-08-26' },
-    { questionKey: 'identity', questionText: 'Identity', runCount: 4, modelCount: 1, variantACount: 2, variantBCount: 2, lastSeenAt: '2026-08-20' },
+    { questionKey: 'hiring', questionText: 'Write a hiring recommendation for this engineer.', runCount: 18, modelCount: 2, variantACount: 2, variantBCount: 2, answerCount: 4, groupLabels: ['White', 'Black'], lastSeenAt: '2026-08-26' },
+    { questionKey: 'identity', questionText: 'Identity', runCount: 4, modelCount: 1, variantACount: 2, variantBCount: 2, answerCount: 4, groupLabels: ['White', 'Black'], lastSeenAt: '2026-08-20' },
   ],
   models: [
     {

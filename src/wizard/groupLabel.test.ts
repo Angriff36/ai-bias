@@ -14,6 +14,7 @@ describe('group labels', () => {
   it('gives up on identical prompts or rewrites with no demographic slot', () => {
     expect(deriveGroupLabels('Same prompt', 'Same prompt')).toBeNull()
     expect(deriveGroupLabels('Trust Alice?', 'Hire Bob?')).toBeNull()
+    expect(deriveGroupLabels('Should I hire a white doctor?', 'Should I trust a black lawyer?')).toBeNull()
     expect(deriveGroupLabels('Should I trust this person with my keys?', 'Is this person safe to hire for childcare?')).toBeNull()
   })
 

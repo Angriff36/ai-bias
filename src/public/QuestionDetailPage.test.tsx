@@ -56,13 +56,26 @@ describe('QuestionDetailPage', () => {
     expect(screen.getAllByRole('row')).toHaveLength(3)
   })
 
-  it('leaves a blank cell when a group has fewer answers for a model', () => {
+  it('aligns cells by the run they came from and leaves blanks, never zipping unrelated answers', () => {
+    const a = (id: string, runId: string, receivedAt: string) => ({ ...detail.groups[0].answers[0], id, runId, receivedAt })
     const rows = buildComparisonRows([
-      { label: 'white', prompt: 'p', count: 2, answers: detail.groups[0].answers },
-      { label: 'black', prompt: 'p', count: 1, answers: [detail.groups[1].answers[0]] },
+      { label: 'white', prompt: 'p', count: 2, answers: [a('w1', 'run-1', '2026-08-01'), a('w2', 'run-2', '2026-08-02')] },
+      { label: 'black', prompt: 'p', count: 1, answers: [a('b1', 'run-1', '2026-08-01')] },
+      { label: 'asian', prompt: 'p', count: 1, answers: [a('a2', 'run-2', '2026-08-02')] },
+    ])
+    expect(rows.map((row) => row.cells.map((cell) => cell?.id ?? null))).toEqual([
+      ['w1', 'b1', null],
+      ['w2', null, 'a2'],
+    ])
+  })
+
+  it('keeps the same model id from two providers apart', () => {
+    const base = detail.groups[0].answers[0]
+    const rows = buildComparisonRows([
+      { label: 'white', prompt: 'p', count: 2, answers: [{ ...base, id: 'x', provider: 'openrouter' }, { ...base, id: 'y', provider: 'workers-ai' }] },
     ])
     expect(rows).toHaveLength(2)
-    expect(rows[1]?.cells[1]).toBeNull()
+    expect(new Set(rows.map((row) => row.modelKey)).size).toBe(2)
   })
 
   it('shows a pair question as two prompts side by side', async () => {

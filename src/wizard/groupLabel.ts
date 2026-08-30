@@ -35,13 +35,12 @@ export function deriveGroupLabels(original: string, variant: string): { a: strin
   ) suffix++
   const diffStart = prefix
   const diffEnd = left.length - suffix
-  const phrase = detectPhrases(left).find((item) => item.start < Math.max(diffEnd, diffStart + 1) && item.end > diffStart)
+  // The changed span must sit inside one detected demographic phrase. A change
+  // that spills outside it rewrote the scenario, and that is not a group swap.
+  const phrase = detectPhrases(left).find((item) => item.start <= diffStart && item.end >= Math.max(diffEnd, diffStart + 1))
   if (!phrase) return null
-  // Cover the whole phrase plus the whole changed span, so shared words stay in the name.
-  const start = Math.min(phrase.start, diffStart)
-  const end = Math.max(phrase.end, diffEnd)
-  const a = clean(left.slice(start, end))
-  const b = clean(right.slice(start, right.length - (left.length - end)))
+  const a = clean(left.slice(phrase.start, phrase.end))
+  const b = clean(right.slice(phrase.start, right.length - (left.length - phrase.end)))
   if (!a || !b || a.length > MAX_LABEL || b.length > MAX_LABEL || a.toLowerCase() === b.toLowerCase()) return null
   return { a, b }
 }

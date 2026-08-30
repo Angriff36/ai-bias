@@ -31,37 +31,57 @@ function shortModel(modelId: string): string {
   return modelId.split('/').pop()?.trim() || modelId
 }
 
-/** One row of the comparison grid: the i-th answer a model gave in each group. */
+/** One row of the comparison grid: what one model answered in one run, across groups. */
 interface GridRow {
   key: string
+  modelKey: string
   modelId: string
+  runId: string
   index: number
   cells: Array<PublicQuestionAnswer | null>
 }
 
+export function modelKeyOf(answer: Pick<PublicQuestionAnswer, 'provider' | 'modelId'>): string {
+  return `${answer.provider}|${answer.modelId}`
+}
+
 /**
- * Line answers up by model so the eye can read across groups. Counts never
- * need to match: a group with fewer answers for a model leaves blank cells.
+ * Line answers up by model AND by the run they came from, so a row only ever
+ * holds answers that were asked together. A group with no answer in that run
+ * leaves a blank cell. Counts never need to match.
  */
 export function buildComparisonRows(groups: PublicQuestionGroup[]): GridRow[] {
+  type Slot = { runId: string; occurrence: number }
   const models: string[] = []
-  const byModel = new Map<string, PublicQuestionAnswer[][]>()
+  const modelIds = new Map<string, string>()
+  const slots = new Map<string, Map<string, { firstSeen: string; cells: Array<PublicQuestionAnswer | null> }>>()
   groups.forEach((group, column) => {
+    const seen = new Map<string, number>()
     for (const answer of [...group.answers].sort((a, b) => a.receivedAt.localeCompare(b.receivedAt))) {
-      if (!byModel.has(answer.modelId)) {
-        models.push(answer.modelId)
-        byModel.set(answer.modelId, groups.map(() => []))
+      const model = modelKeyOf(answer)
+      if (!slots.has(model)) {
+        models.push(model)
+        modelIds.set(model, answer.modelId)
+        slots.set(model, new Map())
       }
-      byModel.get(answer.modelId)![column].push(answer)
+      const occurrenceKey = `${model} ${answer.runId}`
+      const occurrence = seen.get(occurrenceKey) ?? 0
+      seen.set(occurrenceKey, occurrence + 1)
+      const slot: Slot = { runId: answer.runId, occurrence }
+      const slotKey = `${slot.runId} ${slot.occurrence}`
+      const perModel = slots.get(model)!
+      const entry = perModel.get(slotKey) ?? { firstSeen: answer.receivedAt, cells: groups.map(() => null) }
+      entry.cells[column] = answer
+      if (answer.receivedAt < entry.firstSeen) entry.firstSeen = answer.receivedAt
+      perModel.set(slotKey, entry)
     }
   })
   const rows: GridRow[] = []
-  for (const modelId of models) {
-    const columns = byModel.get(modelId)!
-    const depth = Math.max(...columns.map((list) => list.length))
-    for (let index = 0; index < depth; index += 1) {
-      rows.push({ key: `${modelId}#${index}`, modelId, index, cells: columns.map((list) => list[index] ?? null) })
-    }
+  for (const model of models) {
+    const ordered = [...slots.get(model)!.entries()].sort((a, b) => a[1].firstSeen.localeCompare(b[1].firstSeen))
+    ordered.forEach(([slotKey, entry], index) => {
+      rows.push({ key: `${model}#${slotKey}`, modelKey: model, modelId: modelIds.get(model) ?? model, runId: slotKey.split(' ')[0], index, cells: entry.cells })
+    })
   }
   return rows
 }
@@ -183,7 +203,7 @@ export function QuestionDetailPage({
                     return (
                       <div key={row.key} className="qgrid-row" role="row">
                         <div className="qgrid-rowhead" role="rowheader">
-                          <strong title={row.modelId}>{shortModel(row.modelId)}</strong>
+                          <strong title={row.modelKey.replace('|', ' · ')}>{shortModel(row.modelId)}</strong>
                           <small>run {row.index + 1}{when ? ` · ${evidenceTime(when)}` : ''}</small>
                         </div>
                         {row.cells.map((cell, column) => (

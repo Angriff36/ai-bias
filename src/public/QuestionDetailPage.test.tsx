@@ -101,6 +101,8 @@ describe('QuestionDetailPage', () => {
     expect(plainAnswer('See `` a `tick` **b** `` here **c**')).toBe('See `` a `tick` **b** `` here c')
     expect(plainAnswer('```\n**x**\n\n\n\ny\n```\n\n\n\n**z**')).toBe('```\n**x**\n\n\n\ny\n```\n\nz')
     expect(plainAnswer('**a**\n```md\n**literal**')).toBe('a\n```md\n**literal**')
+    expect(plainAnswer('Compute 5 * 3 * 2 and *this*')).toBe('Compute 5 * 3 * 2 and this')
+    expect(plainAnswer('````\n```\n**inner**\n```\n````\n**out**')).toBe('````\n```\n**inner**\n```\n````\nout')
   })
 
   it('picks the latest run position when timestamps tie', () => {

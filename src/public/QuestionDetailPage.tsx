@@ -23,12 +23,13 @@ export function plainAnswer(text: string): string {
   const stripProse = (chunk: string) => chunk
     .replace(/^\s{0,3}#{1,6}\s+/gm, '')
     .replace(/\*\*(.+?)\*\*/g, '$1')
-    .replace(/(^|[\s(])\*([^*\n]+?)\*(?=[\s.,;:!?)]|$)/gm, '$1$2')
+    // Emphasis only when the marker hugs the text; `5 * 3 * 2` is arithmetic and stays.
+    .replace(/(^|[\s(])\*(\S(?:[^*\n]*?\S)?)\*(?=[\s.,;:!?)]|$)/gm, '$1$2')
     .replace(/^\s*[-*]\s+/gm, '• ')
     .replace(/\n{3,}/g, '\n\n')
   const source = text.replace(/\r/g, '')
   // A fence cut off by truncation stays code to the end of the answer.
-  const code = /```[\s\S]*?```|```[\s\S]*$|(`+)[^`\n][\s\S]*?\1/g
+  const code = /(`{3,})[\s\S]*?\1|`{3,}[\s\S]*$|(`+)[^`\n][\s\S]*?\2/g
   let out = ''
   let last = 0
   for (const match of source.matchAll(code)) {

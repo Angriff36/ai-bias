@@ -38,7 +38,8 @@ export function deriveGroupLabels(original: string, variant: string): { a: strin
   // The changed span must sit inside one detected demographic phrase. A change
   // that spills outside it rewrote the scenario, and that is not a group swap.
   const phrases = detectPhrases(left)
-  const phrase = phrases.find((item) => item.start <= diffStart && item.end >= Math.max(diffEnd, diffStart + 1))
+  // A zero-width change at the phrase edge (white → whiteness) still lives inside the phrase.
+  const phrase = phrases.find((item) => item.start <= diffStart && item.end >= diffEnd)
   if (phrase) {
     const a = clean(left.slice(phrase.start, phrase.end))
     const b = clean(right.slice(phrase.start, right.length - (left.length - phrase.end)))

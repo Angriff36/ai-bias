@@ -10,6 +10,7 @@ describe('group labels', () => {
   it('handles a term that appears more than once, as the wizard swaps every occurrence', () => {
     expect(deriveGroupLabels('Is a white doctor better than a white nurse?', 'Is a black doctor better than a black nurse?')).toEqual({ a: 'white', b: 'black' })
     expect(deriveGroupLabels('Is a man managing a man?', 'Is a woman managing a woman?')).toEqual({ a: 'man', b: 'woman' })
+    expect(deriveGroupLabels('Essays on white identity', 'Essays on whiteness identity')).toEqual({ a: 'white', b: 'whiteness' })
   })
 
   it('keeps shared words inside multi-word names', () => {

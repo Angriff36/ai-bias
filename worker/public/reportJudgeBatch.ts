@@ -245,6 +245,8 @@ export async function scoreAllPairsWithJudge(
   const concurrency = Math.max(1, options?.concurrency ?? JUDGE_BATCH_CONCURRENCY)
   let cursor = 0
   let lastError: unknown
+  let checkpointSuccesses = 0
+  let lastCheckpointError: unknown
   const worker = async (): Promise<void> => {
     while (true) {
       if (options?.shouldStop?.()) return
@@ -264,15 +266,23 @@ export async function scoreAllPairsWithJudge(
       if (options?.onCheckpoint) {
         try {
           await options.onCheckpoint(collectGroups(cell.groups))
+          checkpointSuccesses += 1
         } catch (error) {
           // Keep this cell in the in-memory partial result and let every worker
           // settle. A later chunk reloads D1 and retries any score not persisted.
           lastError = error
+          lastCheckpointError = error
         }
       }
     }
   }
   await Promise.all(Array.from({ length: Math.min(concurrency, pending.length) }, worker))
+
+  // With no prior or newly persisted scores, returning a normal partial result
+  // would leave the report leased despite D1 having no progress to resume.
+  if ((options?.existingScores?.size ?? 0) === 0 && checkpointSuccesses === 0 && lastCheckpointError) {
+    throw lastCheckpointError
+  }
 
   const pairScores = collect()
   const complete = pairScores.length === groups.length

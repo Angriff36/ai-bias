@@ -210,8 +210,12 @@ function ReportsRoute() {
   return match ? <ReportDetailView reportId={Number(match[1])} /> : <ReportsList />
 }
 
-/** A pending report advances one step per call; while this tab is open the browser drives it. No server timer. */
-const REPORT_STEP_INTERVAL_MS = 50_000
+/**
+ * A pending report advances one step per call; while this tab is open the browser drives it.
+ * Steps chain back to back instead of waiting out a fixed tick, so the wall-clock cost of a
+ * report is the work itself rather than the polling interval. The gap only paces retries.
+ */
+const REPORT_STEP_GAP_MS = 1_000
 
 function reportProgressLabel(r: GeneratedReportSummary): string {
   const scored = r.progress ? `${r.progress.scoredPairs} of ${r.progress.expectedPairs} answer pairs scored` : null
@@ -250,12 +254,22 @@ function ReportsList() {
 
   useEffect(() => {
     if (!pendingIds) return
-    // Step at once when the page opens, then keep stepping.
-    for (const id of pendingIds.split(',')) void step(id)
-    const timer = window.setInterval(() => {
-      for (const id of pendingIds.split(',')) void step(id)
-    }, REPORT_STEP_INTERVAL_MS)
-    return () => window.clearInterval(timer)
+    let cancelled = false
+    const timers: number[] = []
+    // Drive each pending report in its own chain: as soon as one step returns, start the next.
+    for (const id of pendingIds.split(',')) {
+      void (async () => {
+        while (!cancelled) {
+          await step(id)
+          if (cancelled) return
+          await new Promise<void>((resolve) => { timers.push(window.setTimeout(resolve, REPORT_STEP_GAP_MS)) })
+        }
+      })()
+    }
+    return () => {
+      cancelled = true
+      for (const timer of timers) window.clearTimeout(timer)
+    }
   }, [pendingIds, step])
 
   const header = (

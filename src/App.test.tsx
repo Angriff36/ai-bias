@@ -53,13 +53,24 @@ describe('application navigation', () => {
     expect(screen.queryByRole('button', { name: 'Reset database' })).toBeNull()
   })
 
-  it('exposes the anonymous public question leaderboard as a primary section', async () => {
+  it('exposes top questions and conclusions as primary public sections', async () => {
     window.history.replaceState({}, '', '/#/leaderboard')
     window.location.hash = '#/leaderboard'
     render(<App />)
 
-    expect(await screen.findByRole('tab', { name: 'Leaderboard' })).toBeTruthy()
-    expect(await screen.findByRole('heading', { name: 'Question leaderboard' })).toBeTruthy()
+    expect(await screen.findByRole('tab', { name: 'Top Questions' })).toBeTruthy()
+    expect(screen.getByRole('tab', { name: 'Conclusions' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Top Questions' })).toBeTruthy()
+  })
+
+  it('exposes an about section describing what is published and what stays private', async () => {
+    window.history.replaceState({}, '', '/#/about')
+    window.location.hash = '#/about'
+    render(<App />)
+
+    expect(await screen.findByRole('tab', { name: 'About' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'About AI Bias Lab' })).toBeTruthy()
+    expect(screen.getByText(/Nothing else is collected, nothing is tracked, nothing is sold\./)).toBeTruthy()
   })
 
   it('completes the OpenRouter callback and removes the authorization code from the URL', async () => {

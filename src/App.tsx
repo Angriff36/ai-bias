@@ -11,6 +11,8 @@ import { ProvidersPanel } from './components/ProvidersPanel'
 import { TemplateLibrary } from './components/TemplateLibrary'
 import { ObservationsPanel } from './components/ObservationsPanel'
 import { completeOpenRouterOAuth } from './openrouter/oauth'
+import { ConclusionsPage } from './public/ConclusionsPage'
+import { AboutPage } from './components/AboutPage'
 import { LeaderboardPage } from './public/LeaderboardPage'
 import { QuestionDetailPage } from './public/QuestionDetailPage'
 
@@ -19,9 +21,9 @@ type ServerState =
   | { phase: 'ready' }
   | { phase: 'failed'; message: string }
 
-type Tab = 'experiments' | 'leaderboard' | 'templates' | 'observations' | 'targets' | 'reports'
+type Tab = 'experiments' | 'leaderboard' | 'conclusions' | 'templates' | 'observations' | 'targets' | 'reports' | 'about'
 
-const TABS: Tab[] = ['experiments', 'leaderboard', 'templates', 'observations', 'targets', 'reports']
+const TABS: Tab[] = ['experiments', 'leaderboard', 'conclusions', 'templates', 'observations', 'targets', 'reports', 'about']
 
 /** A prompt handed from the template library to the new-experiment wizard. */
 export const PENDING_PROMPT_KEY = 'ai-bias-pending-prompt'
@@ -140,11 +142,13 @@ function MainApp() {
 
   const tabs: { id: Tab; label: string }[] = [
     { id: 'experiments', label: 'Experiments' },
-    { id: 'leaderboard', label: 'Leaderboard' },
+    { id: 'leaderboard', label: 'Top Questions' },
+    { id: 'conclusions', label: 'Conclusions' },
     { id: 'templates', label: 'Templates' },
     { id: 'observations', label: 'Observations' },
     { id: 'targets', label: 'Providers' },
     { id: 'reports', label: 'Reports' },
+    { id: 'about', label: 'About' },
   ]
   return (
     <div className="app">
@@ -166,6 +170,7 @@ function MainApp() {
       {toast && <div className="toast" role="status" aria-live="polite"><span>{toast}</span><button aria-label="Dismiss notification" onClick={() => setToast(null)}>×</button></div>}
       {tab === 'experiments' && <ExperimentRoute />}
       {tab === 'leaderboard' && <LeaderboardRoute />}
+      {tab === 'conclusions' && <ConclusionsPage />}
       {tab === 'templates' && (
         <TemplateLibrary
           onUsePrompt={(prompt, name) => {
@@ -177,6 +182,7 @@ function MainApp() {
       {tab === 'observations' && <ObservationsPanel />}
       {tab === 'targets' && <ProvidersPanel />}
       {tab === 'reports' && <ReportsRoute />}
+      {tab === 'about' && <AboutPage />}
     </div>
   )
 }

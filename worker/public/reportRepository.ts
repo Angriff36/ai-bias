@@ -151,21 +151,19 @@ export class GeneratedReportRepository {
     if (!snapshot) return { kind: 'ineligible', reportableQuestions: 0 }
     const existing = await this.findByCohortFingerprint(snapshot.cohortFingerprint)
     if (existing) return this.reclaimOrReturn(existing, now)
-    if (await this.dailyLimitReached(now)) return { kind: 'limited' }
     const id = crypto.randomUUID()
-    const evidenceHash = await sha256(`report-schema:1
-question-set:${snapshot.cohortFingerprint}`)
+    const evidenceHash = await sha256(`report-schema:1\nquestion-set:${snapshot.cohortFingerprint}`)
+    const start = `${now.slice(0, 10)}T00:00:00.000Z`
+    // One atomic statement: the row is written only while today's count is under the cap,
+    // so concurrent starts cannot exceed it and no over-cap row is ever visible.
     await this.db.prepare(`INSERT INTO generated_reports
       (id, scope, cohort_fingerprint, cohort_snapshot_json, question_keys_json, evidence_hash, status, scoring_model_id, synthesis_model_id, report_schema_version, created_at)
-      VALUES (?, 'global', ?, ?, ?, ?, 'pending', ?, ?, 1, ?) ON CONFLICT DO NOTHING`)
-      .bind(id, snapshot.cohortFingerprint, JSON.stringify(snapshot), JSON.stringify(snapshot.questionKeys), evidenceHash, SCORING_MODEL, SYNTHESIS_MODEL, now).run()
+      SELECT ?, 'global', ?, ?, ?, ?, 'pending', ?, ?, 1, ?
+      WHERE (SELECT COUNT(*) FROM generated_reports WHERE created_at >= ?) < ?
+      ON CONFLICT DO NOTHING`)
+      .bind(id, snapshot.cohortFingerprint, JSON.stringify(snapshot), JSON.stringify(snapshot.questionKeys), evidenceHash, SCORING_MODEL, SYNTHESIS_MODEL, now, start, DAILY_REPORT_JOB_LIMIT).run()
     const report = await this.findByCohortFingerprint(snapshot.cohortFingerprint)
-    if (!report) throw new Error('Could not claim question-set report.')
-    if (report.id === id && await this.dailyLimitExceeded(now)) {
-      // Concurrent starts can all pass the pre-check; the row that pushed the day over the cap backs out.
-      await this.db.prepare('DELETE FROM generated_reports WHERE id=?').bind(id).run()
-      return { kind: 'limited' }
-    }
+    if (!report) return { kind: 'limited' }
     return { kind: report.id === id ? 'claimed' : 'existing', report: this.summary(report) }
   }
 

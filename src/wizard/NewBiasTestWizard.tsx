@@ -9,6 +9,7 @@ import {
   type DetectedPhrase,
 } from './phraseDetection'
 import type { SamplingMode } from '../engine/samplingMode'
+import { deriveGroupLabels } from './groupLabel'
 
 export interface WizardResult {
   name: string
@@ -110,12 +111,16 @@ export function NewBiasTestWizard({
 
   const pairs = useMemo<ComparisonPair[]>(() => {
     const original = variants[0]?.prompt ?? ''
-    return variants.slice(1).map((variant, index) => ({
-      id: variant.pairId ?? `prompt-1-vs-prompt-${index + 2}`,
-      question: variant.question ?? canonicalMatchedQuestion(original, variant.prompt),
-      variantA: { label: variant.labelA ?? 'Prompt 1', prompt: original },
-      variantB: { label: variant.labelB ?? `Prompt ${index + 2}`, prompt: variant.prompt },
-    }))
+    return variants.slice(1).map((variant, index) => {
+      // Name each side by the swapped word so the public site can pool answers by group.
+      const derived = deriveGroupLabels(original, variant.prompt)
+      return {
+        id: variant.pairId ?? `prompt-1-vs-prompt-${index + 2}`,
+        question: variant.question ?? canonicalMatchedQuestion(original, variant.prompt),
+        variantA: { label: variant.labelA ?? derived?.a ?? 'Prompt 1', prompt: original },
+        variantB: { label: variant.labelB ?? derived?.b ?? `Prompt ${index + 2}`, prompt: variant.prompt },
+      }
+    })
   }, [variants])
 
   const promptsReady = variants.length >= 2

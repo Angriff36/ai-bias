@@ -22,8 +22,7 @@ export function plainAnswer(text: string): string {
   const stripProse = (chunk: string) => chunk
     .replace(/^\s{0,3}#{1,6}\s+/gm, '')
     .replace(/\*\*(.+?)\*\*/g, '$1')
-    .replace(/(^|[\s(])\*([^*
-]+?)\*(?=[\s.,;:!?)]|$)/gm, '$1$2')
+    .replace(/(^|[\s(])\*([^*\n]+?)\*(?=[\s.,;:!?)]|$)/gm, '$1$2')
     .replace(/^\s*[-*]\s+/gm, '• ')
   const segments = text.replace(/\r/g, '').split(/(```[\s\S]*?```|`[^`\n]*`)/)
   return segments

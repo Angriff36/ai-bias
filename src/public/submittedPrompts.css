@@ -1,0 +1,121 @@
+.submitted-prompts { display: flex; flex-direction: column; gap: 32px; padding: 8px 0 24px; }
+.submitted-prompts-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
+.submitted-prompts-intro { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.submitted-prompts-intro h2 { margin: 0; font-size: 32px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.2; }
+.submitted-prompts-intro p { margin: 0; max-width: 42rem; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.submitted-prompts-actions { display: flex; flex-shrink: 0; align-items: center; gap: 8px; padding-top: 4px; }
+.submitted-prompts-live {
+  display: inline-flex; align-items: center; gap: 6px; margin: 0; padding: 6px 12px;
+  border: 1px solid rgba(91, 141, 255, 0.3); border-radius: var(--radius-sm);
+  background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 600;
+}
+.submitted-prompts-live > span { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+
+.submitted-prompt-stats { display: flex; flex-wrap: wrap; align-items: center; gap: 32px; }
+.submitted-prompt-stats > div { display: flex; flex-direction: column; gap: 2px; }
+.submitted-prompt-stats strong { font-size: 24px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; line-height: 1.2; }
+.submitted-prompt-stats span { color: var(--muted); font-size: 11px; }
+.submitted-prompt-stats > div + div { position: relative; padding-left: 32px; }
+.submitted-prompt-stats > div + div::before {
+  content: ''; position: absolute; top: 50%; left: 0; width: 1px; height: 32px;
+  background: var(--border); transform: translateY(-50%);
+}
+
+.submitted-prompt-guide {
+  display: flex; align-items: flex-start; gap: 16px; padding: 20px;
+  border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel);
+}
+.submitted-prompt-guide > span { flex-shrink: 0; width: 6px; height: 20px; margin-top: 2px; border-radius: 4px; background: var(--success); }
+.submitted-prompt-guide h3 { margin: 0 0 4px; font-size: 13px; font-weight: 600; }
+.submitted-prompt-guide p { margin: 0; color: #c5c8d0; font-size: 13px; line-height: 1.625; }
+
+.submitted-prompt-controls { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.submitted-prompt-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.submitted-prompt-filters, .submitted-prompt-sorts, .submitted-prompt-pages {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px;
+  margin: 0; padding: 0; border: 0; min-width: 0;
+}
+.submitted-prompt-filters button, .submitted-prompt-sorts button, .submitted-prompt-pages button {
+  min-height: 32px; padding: 6px 12px; border: 0; border-radius: var(--radius-sm);
+  background: transparent; color: var(--muted); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer;
+}
+.submitted-prompt-filters button.is-active, .submitted-prompt-sorts button.is-active, .submitted-prompt-pages button.is-active {
+  background: var(--panel-raised); color: var(--text);
+}
+.submitted-prompt-filters button:hover, .submitted-prompt-sorts button:hover, .submitted-prompt-pages button:hover { color: var(--text); }
+
+.submitted-prompt-table { overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius); }
+.submitted-prompt-table-head {
+  display: flex; align-items: center; gap: 16px; padding: 10px 20px;
+  border-bottom: 1px solid var(--border); background: rgba(26, 28, 34, 0.55);
+  color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase;
+}
+.submitted-prompt-table-head > span:nth-child(2) { flex: 1; min-width: 0; }
+.submitted-prompt-table-head > span:last-child { flex-shrink: 0; width: 224px; text-align: right; }
+.submitted-prompt-score-spacer { flex-shrink: 0; width: 32px; }
+
+.submitted-prompt-row {
+  display: flex; align-items: flex-start; gap: 16px; padding: 16px 20px;
+  border-bottom: 1px solid var(--border); background: var(--bg);
+}
+.submitted-prompt-row:last-child { border-bottom: 0; }
+.submitted-prompt-row:hover { background: var(--panel); }
+.submitted-prompt-score {
+  display: flex; flex-shrink: 0; flex-direction: column; align-items: center; gap: 2px;
+  width: 32px; padding-top: 2px; color: var(--muted);
+}
+.submitted-prompt-score span, .tabular-nums { font-size: 11px; font-variant-numeric: tabular-nums; }
+.submitted-prompt-copy { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 8px; }
+.submitted-prompt-text {
+  color: var(--text); font-size: 13px; font-weight: 500; line-height: 1.375; text-decoration: none;
+}
+.submitted-prompt-text:hover { color: var(--accent); }
+.submitted-prompt-group { display: flex; align-items: flex-start; gap: 8px; margin: 0; }
+.submitted-prompt-group > span { flex-shrink: 0; margin-top: 2px; color: var(--muted); font-size: 11px; }
+.submitted-prompt-group a { color: #b4b8c4; font-size: 11px; line-height: 1.375; text-decoration: underline; text-decoration-color: var(--border); text-underline-offset: 2px; }
+.submitted-prompt-group a:hover { color: var(--text); }
+.submitted-prompt-meta { display: flex; flex-shrink: 0; flex-direction: column; align-items: flex-end; gap: 8px; }
+.submitted-prompt-tags { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.submitted-prompt-meta p {
+  display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 10px;
+  margin: 0; color: var(--muted); font-size: 11px;
+}
+.submitted-topic-chip {
+  display: inline-flex; align-items: center; padding: 2px 8px; border: 1px solid; border-radius: 4px;
+  font-size: 11px; font-weight: 600; line-height: 1.4; white-space: nowrap;
+}
+.submitted-topic-chip.topic-hiring { color: #818cf8; background: rgba(129, 140, 248, 0.15); border-color: rgba(129, 140, 248, 0.3); }
+.submitted-topic-chip.topic-medical { color: #fb923c; background: rgba(251, 146, 60, 0.15); border-color: rgba(251, 146, 60, 0.3); }
+.submitted-topic-chip.topic-politics { color: #34d399; background: rgba(52, 211, 153, 0.15); border-color: rgba(52, 211, 153, 0.3); }
+.submitted-topic-chip.topic-gender { color: #f472b6; background: rgba(244, 114, 182, 0.15); border-color: rgba(244, 114, 182, 0.3); }
+.submitted-topic-chip.topic-race { color: var(--warning); background: var(--warning-soft); border-color: rgba(240, 169, 42, 0.3); }
+.submitted-topic-chip.topic-age { color: #fb923c; background: rgba(251, 146, 60, 0.15); border-color: rgba(251, 146, 60, 0.3); }
+.submitted-topic-chip.topic-other { color: var(--success); background: var(--success-soft); border-color: rgba(63, 185, 122, 0.3); }
+
+.submitted-prompt-footer {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding-bottom: 16px; color: var(--muted); font-size: 12px;
+}
+.submitted-prompt-footer p { margin: 0; }
+.submitted-prompt-empty { margin: 0; padding: 28px 20px; color: var(--muted); }
+.submitted-prompt-skeleton-row { display: grid; grid-template-columns: 32px 1fr 180px; gap: 16px; padding: 18px 20px; border-bottom: 1px solid var(--border); }
+.submitted-prompt-skeleton-row .skeleton-line:last-child { justify-self: end; width: 140px; }
+
+@media (max-width: 900px) {
+  .submitted-prompts-header, .submitted-prompt-controls { flex-direction: column; align-items: stretch; }
+  .submitted-prompts-actions { justify-content: flex-start; }
+  .submitted-prompt-stats { gap: 16px 24px; }
+  .submitted-prompt-stats > div + div { padding-left: 0; }
+  .submitted-prompt-stats > div + div::before { display: none; }
+  .submitted-prompt-table-head > span:last-child { display: none; }
+  .submitted-prompt-row { flex-wrap: wrap; }
+  .submitted-prompt-copy { flex: 1 1 calc(100% - 48px); }
+  .submitted-prompt-meta { width: 100%; align-items: flex-start; padding-left: 48px; }
+  .submitted-prompt-tags, .submitted-prompt-meta p { justify-content: flex-start; }
+}
+
+@media (max-width: 640px) {
+  .submitted-prompts-intro h2 { font-size: 26px; }
+  .submitted-prompt-table-head { display: none; }
+  .submitted-prompt-meta { padding-left: 0; }
+}

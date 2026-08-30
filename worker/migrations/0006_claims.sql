@@ -7,6 +7,8 @@ CREATE TABLE IF NOT EXISTS claims (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_claims_created ON claims(created_at DESC);
+-- One claim per wording, whatever the case; concurrent duplicate posts collapse to one row.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_claims_text ON claims(lower(text));
 
 -- A report can be started by a person over a chosen set of questions.
 ALTER TABLE generated_reports ADD COLUMN question_keys_json TEXT;

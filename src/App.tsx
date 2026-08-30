@@ -233,6 +233,8 @@ function ReportsList() {
       await continueReportGeneration(reportId)
       await reload()
     } catch (e: unknown) {
+      // A 404 here means the report finished between steps; the fresh list shows it.
+      if ((e as { statusCode?: number }).statusCode === 404) { await reload(); return }
       setError(e instanceof Error ? e.message : 'The report could not continue.')
     } finally {
       setStepping(null)

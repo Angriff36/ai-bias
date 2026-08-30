@@ -19,6 +19,7 @@ import {
 import { parseStoredReportDocument } from './reportDocumentParse'
 import { comparisonIdentity, groupCompleteMatchedSamples } from './matchedSampleIdentity'
 import { filterEvidenceByQuestionKeys } from './questionLeaderboard'
+import { invalidateCachedReports } from './readCache'
 import { normalizeQuestionKey } from '../../src/public/questionKeys'
 
 const JUDGE_MODEL = 'z-ai/glm-5.3-flash'
@@ -227,10 +228,12 @@ question-set:${snapshot.cohortFingerprint}`)
     } catch {
       await this.db.batch([...legacyScoreStatements, update])
     }
+    invalidateCachedReports()
   }
 
   async failReport(reportId: string, code: string): Promise<void> {
     await this.db.prepare("UPDATE generated_reports SET status='failed', error_code=? WHERE id=?").bind(code.slice(0, 80), reportId).run()
+    invalidateCachedReports()
   }
 
   async countPairScores(reportId: string): Promise<number> {

@@ -119,8 +119,8 @@ export async function handlePublicApi(
       const now = new Date().toISOString()
       const reportId = regenerate[1]
       const prepared = await reportRepository.prepareReportGeneration(reportId, now)
-      if (!prepared) return json({ error: 'Report not found or already complete.' }, 404)
       invalidateCachedReports()
+      if (!prepared) return json({ error: 'Report not found or already complete.' }, 404)
       if (prepared.started) {
         const synthesisModels = createReportModelClient(env.OPENROUTER_API_KEY, url.origin)
         scheduleReportGeneration(synthesisModels, context, reportRepository as GeneratedReportRepository, reportId, synthesisModels, url.origin)

@@ -77,6 +77,9 @@ export type PublicQuestionLayout = 'group' | 'pair'
 export interface PublicQuestionAnswer {
   id: string
   runId: string
+  /** Position inside the run: which matched question and which repeat. Rows on the question page align on these. */
+  pairIndex: number
+  runIndex: number
   provider: string
   modelId: string
   prompt: string
@@ -373,6 +376,8 @@ const classificationSchema = z.enum(['hard-refusal', 'soft-refusal', 'empty', 'e
 export const publicQuestionAnswerSchema: z.ZodType<PublicQuestionAnswer> = z.object({
   id: z.string(),
   runId: z.string(),
+  pairIndex: z.number().int().min(0),
+  runIndex: z.number().int().min(0),
   provider: z.string(),
   modelId: z.string(),
   prompt: z.string(),

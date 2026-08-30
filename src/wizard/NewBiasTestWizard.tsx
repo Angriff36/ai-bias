@@ -117,8 +117,8 @@ export function NewBiasTestWizard({
       return {
         id: variant.pairId ?? `prompt-1-vs-prompt-${index + 2}`,
         question: variant.question ?? canonicalMatchedQuestion(original, variant.prompt),
-        variantA: { label: variant.labelA ?? derived?.a ?? 'Prompt 1', prompt: original },
-        variantB: { label: variant.labelB ?? derived?.b ?? `Prompt ${index + 2}`, prompt: variant.prompt },
+        variantA: { label: derived?.a ?? variant.labelA ?? 'Prompt 1', prompt: original },
+        variantB: { label: derived?.b ?? variant.labelB ?? `Prompt ${index + 2}`, prompt: variant.prompt },
       }
     })
   }, [variants])

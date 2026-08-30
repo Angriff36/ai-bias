@@ -46,29 +46,24 @@ export function modelKeyOf(answer: Pick<PublicQuestionAnswer, 'provider' | 'mode
 }
 
 /**
- * Line answers up by model AND by the run they came from, so a row only ever
- * holds answers that were asked together. A group with no answer in that run
- * leaves a blank cell. Counts never need to match.
+ * Line answers up by model AND by where they sat in their run (run id, matched
+ * question, repeat), so a row only ever holds answers that were asked together.
+ * A group with no answer at that position leaves a blank cell. Counts never
+ * need to match.
  */
 export function buildComparisonRows(groups: PublicQuestionGroup[]): GridRow[] {
-  type Slot = { runId: string; occurrence: number }
   const models: string[] = []
   const modelIds = new Map<string, string>()
   const slots = new Map<string, Map<string, { firstSeen: string; cells: Array<PublicQuestionAnswer | null> }>>()
   groups.forEach((group, column) => {
-    const seen = new Map<string, number>()
-    for (const answer of [...group.answers].sort((a, b) => a.receivedAt.localeCompare(b.receivedAt))) {
+    for (const answer of [...group.answers].sort((a, b) => a.receivedAt.localeCompare(b.receivedAt) || a.runIndex - b.runIndex)) {
       const model = modelKeyOf(answer)
       if (!slots.has(model)) {
         models.push(model)
         modelIds.set(model, answer.modelId)
         slots.set(model, new Map())
       }
-      const occurrenceKey = `${model} ${answer.runId}`
-      const occurrence = seen.get(occurrenceKey) ?? 0
-      seen.set(occurrenceKey, occurrence + 1)
-      const slot: Slot = { runId: answer.runId, occurrence }
-      const slotKey = `${slot.runId} ${slot.occurrence}`
+      const slotKey = `${answer.runId} ${answer.pairIndex} ${answer.runIndex}`
       const perModel = slots.get(model)!
       const entry = perModel.get(slotKey) ?? { firstSeen: answer.receivedAt, cells: groups.map(() => null) }
       entry.cells[column] = answer
@@ -117,8 +112,12 @@ export function QuestionDetailPage({
 
   const groups = detail?.groups ?? []
   const rows = useMemo(() => buildComparisonRows(groups), [groups])
-  const models = useMemo(() => [...new Set(rows.map((row) => row.modelId))], [rows])
-  const visible = modelFilter ? rows.filter((row) => row.modelId === modelFilter) : rows
+  const models = useMemo(() => {
+    const seen = new Map<string, string>()
+    for (const row of rows) if (!seen.has(row.modelKey)) seen.set(row.modelKey, row.modelId)
+    return [...seen.entries()]
+  }, [rows])
+  const visible = modelFilter ? rows.filter((row) => row.modelKey === modelFilter) : rows
   const isPair = detail?.layout === 'pair'
 
   function toggle(id: string) {
@@ -172,8 +171,8 @@ export function QuestionDetailPage({
               <div className="qgrid-toolbar">
                 <div className="qgrid-filter" role="group" aria-label="Filter by model">
                   <button type="button" className={modelFilter === null ? 'is-active' : undefined} onClick={() => setModelFilter(null)}>All models</button>
-                  {models.map((modelId) => (
-                    <button key={modelId} type="button" className={modelFilter === modelId ? 'is-active' : undefined} title={modelId} onClick={() => setModelFilter(modelId)}>
+                  {models.map(([key, modelId]) => (
+                    <button key={key} type="button" className={modelFilter === key ? 'is-active' : undefined} title={key.replace('|', ' · ')} onClick={() => setModelFilter(key)}>
                       {shortModel(modelId)}
                     </button>
                   ))}

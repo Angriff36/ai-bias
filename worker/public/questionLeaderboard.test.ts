@@ -189,4 +189,12 @@ describe('question leaderboard aggregation', () => {
     const detail = buildQuestionDetail('trust', rows)
     expect(detail?.groups.map((group) => group.label)).toEqual(['A', 'B'])
   })
+
+  it('pools one group across capitalizations and shows the first spelling', () => {
+    const rows = [...pair({ id: 'c1', question: 'Identity' }), ...pair({ id: 'c2', question: 'Identity', runId: 'run-2' })]
+    rows[2] = { ...rows[2], variantLabel: 'white' }
+    rows[3] = { ...rows[3], variantLabel: 'BLACK' }
+    const detail = buildQuestionDetail('identity', rows)
+    expect(detail?.groups.map((group) => [group.label, group.count])).toEqual([['White', 2], ['Black', 2]])
+  })
 })

@@ -14,12 +14,12 @@ const detail: PublicQuestionDetail = {
   layout: 'group',
   groups: [
     { label: 'white', prompt: 'I am white.', count: 2, answers: [
-      { id: 'e1', runId: 'run-1', provider: 'openrouter', modelId: 'model/a', prompt: 'I am white.', response: 'Response A', classification: 'answered', receivedAt: '2026-08-26' },
-      { id: 'e3', runId: 'run-1', provider: 'openrouter', modelId: 'model/a', prompt: 'I am white.', response: 'Response A2', classification: 'answered', receivedAt: '2026-08-25' },
+      { id: 'e1', runId: 'run-1', pairIndex: 0, runIndex: 0, provider: 'openrouter', modelId: 'model/a', prompt: 'I am white.', response: 'Response A', classification: 'answered', receivedAt: '2026-08-26' },
+      { id: 'e3', runId: 'run-1', pairIndex: 0, runIndex: 1, provider: 'openrouter', modelId: 'model/a', prompt: 'I am white.', response: 'Response A2', classification: 'answered', receivedAt: '2026-08-25' },
     ] },
     { label: 'black', prompt: 'I am black.', count: 2, answers: [
-      { id: 'e2', runId: 'run-1', provider: 'openrouter', modelId: 'model/a', prompt: 'I am black.', response: 'Response B', classification: 'answered', receivedAt: '2026-08-26' },
-      { id: 'e4', runId: 'run-1', provider: 'openrouter', modelId: 'model/a', prompt: 'I am black.', response: 'Response B2', classification: 'soft-refusal', receivedAt: '2026-08-25' },
+      { id: 'e2', runId: 'run-1', pairIndex: 0, runIndex: 0, provider: 'openrouter', modelId: 'model/a', prompt: 'I am black.', response: 'Response B', classification: 'answered', receivedAt: '2026-08-26' },
+      { id: 'e4', runId: 'run-1', pairIndex: 0, runIndex: 1, provider: 'openrouter', modelId: 'model/a', prompt: 'I am black.', response: 'Response B2', classification: 'soft-refusal', receivedAt: '2026-08-25' },
     ] },
   ],
   instances: [{
@@ -57,7 +57,7 @@ describe('QuestionDetailPage', () => {
   })
 
   it('aligns cells by the run they came from and leaves blanks, never zipping unrelated answers', () => {
-    const a = (id: string, runId: string, receivedAt: string) => ({ ...detail.groups[0].answers[0], id, runId, receivedAt })
+    const a = (id: string, runId: string, receivedAt: string, runIndex = 0) => ({ ...detail.groups[0].answers[0], id, runId, receivedAt, runIndex })
     const rows = buildComparisonRows([
       { label: 'white', prompt: 'p', count: 2, answers: [a('w1', 'run-1', '2026-08-01'), a('w2', 'run-2', '2026-08-02')] },
       { label: 'black', prompt: 'p', count: 1, answers: [a('b1', 'run-1', '2026-08-01')] },
@@ -66,6 +66,18 @@ describe('QuestionDetailPage', () => {
     expect(rows.map((row) => row.cells.map((cell) => cell?.id ?? null))).toEqual([
       ['w1', 'b1', null],
       ['w2', null, 'a2'],
+    ])
+  })
+
+  it('aligns repeats by their run position even when timestamps tie', () => {
+    const a = (id: string, runIndex: number) => ({ ...detail.groups[0].answers[0], id, runId: 'run-1', receivedAt: '2026-08-01', runIndex })
+    const rows = buildComparisonRows([
+      { label: 'white', prompt: 'p', count: 2, answers: [a('w0', 0), a('w1', 1)] },
+      { label: 'black', prompt: 'p', count: 1, answers: [a('b1', 1)] },
+    ])
+    expect(rows.map((row) => row.cells.map((cell) => cell?.id ?? null))).toEqual([
+      ['w0', null],
+      ['w1', 'b1'],
     ])
   })
 

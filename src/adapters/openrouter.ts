@@ -39,6 +39,8 @@ export const openrouterAdapter: ProviderAdapter = {
         messages: [{ role: 'user', content: prompt }],
         // Room for reasoning plus a full answer; the executor's 90 s deadline is the real stop.
         max_tokens: 4000,
+        // Answer, do not think first: reasoning made a flash model take 30–90 s per reply.
+        reasoning: { enabled: false },
       }),
     }).catch(() => { throw { kind: 'timeout', message: 'fetch failed' } })
 

@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react'
-import { api, type ReportRow } from './api'
+import { api } from './api'
 import { getPublicLeaderboard, listGeneratedReports } from './public/client'
 import type { GeneratedReportSummary } from './public/contracts'
 import { readPublicCache } from './public/publicApiCache'
 import { EmptyState, SkeletonRows } from './components/EmptyState'
-import { ReadOnlyBadge, RecordedHashBadge } from './components/StatusBadge'
 import { ExperimentHistoryList } from './components/ExperimentHistoryList'
 import { ExperimentEditor } from './components/ExperimentEditor'
 import { ReportDetailView } from './components/ReportDetailView'
@@ -205,17 +204,13 @@ function ReportsRoute() {
 }
 
 function ReportsList() {
-  const [rows, setRows] = useState<ReportRow[] | null>(null)
+  const [reports, setReports] = useState<GeneratedReportSummary[] | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [publicReports, setPublicReports] = useState<GeneratedReportSummary[] | null>(null)
   useEffect(() => {
     let cancelled = false
-    api.listReports()
-      .then((list) => { if (!cancelled) setRows(list) })
-      .catch((e: unknown) => { if (!cancelled) setError(e instanceof Error ? e.message : 'The reports could not be loaded.') })
     listGeneratedReports()
-      .then((list) => { if (!cancelled) setPublicReports(list) })
-      .catch(() => { if (!cancelled) setPublicReports([]) })
+      .then((list) => { if (!cancelled) setReports(list) })
+      .catch((e: unknown) => { if (!cancelled) setError(e instanceof Error ? e.message : 'The reports could not be loaded.') })
     return () => { cancelled = true }
   }, [])
 
@@ -224,71 +219,40 @@ function ReportsList() {
       <div>
         <p className="eyebrow">Evidence</p>
         <h2>Reports</h2>
-        <p className="lead">Every completed run writes a read-only report with the exact prompts and replies.</p>
+        <p className="lead">Every published research report, the same in every browser.</p>
       </div>
     </div>
   )
-  const publicSection = publicReports === null ? null : (
-    <section className="panel" aria-labelledby="public-reports-title">
-      <div className="panel-split">
-        <h3 id="public-reports-title">Research reports</h3>
-        <span className="muted">Published on ai-tests.com — the same list in every browser.</span>
-      </div>
-      {publicReports.length === 0 ? (
-        <p className="muted">No research reports have been published yet.</p>
-      ) : (
-        <table>
-          <caption>Research reports</caption>
-          <thead><tr><th scope="col">Title</th><th scope="col">Published</th></tr></thead>
-          <tbody>
-            {[...publicReports]
-              .filter((r) => r.status === 'complete')
-              .sort((a, b) => (b.completedAt ?? b.createdAt).localeCompare(a.completedAt ?? a.createdAt))
-              .map((r) => (
-                <tr key={r.id}>
-                  <td>
-                    <a className="report-link" href={`/reports/${r.id}`}>{r.title ?? 'Untitled research report'}</a>
-                    <span className="muted"> {r.responseCount.toLocaleString()} responses · {r.modelCount.toLocaleString()} {r.modelCount === 1 ? 'model' : 'models'}</span>
-                  </td>
-                  <td>{new Date(r.completedAt ?? r.createdAt).toLocaleDateString()}</td>
-                </tr>
-              ))}
-          </tbody>
-        </table>
-      )}
-    </section>
-  )
-
   if (error) {
     return (
       <section className="report-list">
         {header}
-        {publicSection}
         <div className="banner error" role="alert"><span>{error}</span></div>
       </section>
     )
   }
-  if (rows === null) {
+  if (reports === null) {
     return (
       <section className="report-list">
         {header}
-        {publicSection}
         <table>
           <caption>Reports</caption>
-          <thead><tr><th scope="col">Title</th><th scope="col">Evidence</th></tr></thead>
+          <thead><tr><th scope="col">Title</th><th scope="col">Published</th></tr></thead>
           <tbody><SkeletonRows columns={2} /></tbody>
         </table>
       </section>
     )
   }
-  if (rows.length === 0) {
+  const published = reports
+    .filter((r) => r.status === 'complete')
+    .sort((a, b) => (b.completedAt ?? b.createdAt).localeCompare(a.completedAt ?? a.createdAt))
+  if (published.length === 0) {
     return (
       <section className="report-list">
         {header}
-        {publicSection}
         <EmptyState
-          heading="No run reports in this browser yet"
-          body="Complete a run on an experiment and its report appears here. Run reports stay in the browser that made them."
+          heading="No reports published yet"
+          body="Run an experiment, then choose Analyze this experiment — its research report is published here for everyone."
           actionLabel="Go to experiments"
           onAction={() => { window.location.hash = '#/experiments' }}
         />
@@ -298,15 +262,17 @@ function ReportsList() {
   return (
     <section className="report-list">
       {header}
-      {publicSection}
       <table>
         <caption>Reports</caption>
-        <thead><tr><th scope="col">Title</th><th scope="col">Evidence</th></tr></thead>
+        <thead><tr><th scope="col">Title</th><th scope="col">Published</th></tr></thead>
         <tbody>
-          {rows.map((r) => (
+          {published.map((r) => (
             <tr key={r.id}>
-              <td><a className="report-link" href={`#/reports/${r.id}`}>{r.title}</a> <ReadOnlyBadge /></td>
-              <td><RecordedHashBadge /></td>
+              <td>
+                <a className="report-link" href={`/reports/${r.id}`}>{r.title ?? 'Untitled research report'}</a>
+                <span className="muted"> {r.responseCount.toLocaleString()} responses · {r.modelCount.toLocaleString()} {r.modelCount === 1 ? 'model' : 'models'}</span>
+              </td>
+              <td>{new Date(r.completedAt ?? r.createdAt).toLocaleDateString()}</td>
             </tr>
           ))}
         </tbody>

@@ -35,7 +35,7 @@ export function AboutPage() {
       <div className="panel">
         <h3>What stays in your browser</h3>
         <p>
-          Your experiment names, templates, observations, and reports live only in this browser.
+          Your experiment names, templates, and observations live only in this browser.
           They never leave your device. Clearing your browser data removes them.
         </p>
         <p>

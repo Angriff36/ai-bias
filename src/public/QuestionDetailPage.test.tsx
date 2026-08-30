@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { PublicQuestionDetail } from './contracts'
-import { QuestionDetailPage, buildComparisonRows } from './QuestionDetailPage'
+import { QuestionDetailPage, buildComparisonRows, plainAnswer } from './QuestionDetailPage'
 
 const detail: PublicQuestionDetail = {
   questionKey: 'identity',
@@ -83,6 +83,20 @@ describe('QuestionDetailPage', () => {
       ['w0', null],
       ['w1', 'b1'],
     ])
+  })
+
+  it('never drops an answer whose published position collides with another', () => {
+    const base = detail.groups[0].answers[0]
+    const same = (id: string) => ({ ...base, id, runId: 'run-1', pairIndex: 49, runIndex: 20 })
+    const rows = buildComparisonRows([
+      { label: 'white', prompt: 'p', count: 3, answers: [same('w1'), same('w2'), same('w3')] },
+      { label: 'black', prompt: 'p', count: 1, answers: [same('b1')] },
+    ])
+    expect(rows.flatMap((row) => row.cells.map((cell) => cell?.id)).filter(Boolean).sort()).toEqual(['b1', 'w1', 'w2', 'w3'])
+  })
+
+  it('strips markdown markers from prose but leaves code exactly as written', () => {
+    expect(plainAnswer('## Title\n**Bold** point\n- item\nUse `__init__` and **not** `**raw**`')).toBe('Title\nBold point\n• item\nUse `__init__` and not `**raw**`')
   })
 
   it('keeps the same model id from two providers apart', () => {

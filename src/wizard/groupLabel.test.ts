@@ -7,6 +7,10 @@ describe('group labels', () => {
     expect(deriveGroupLabels("I'm proud to be white!", "I'm proud to be Asian American!")).toEqual({ a: 'white', b: 'Asian American' })
   })
 
+  it('handles a term that appears more than once, as the wizard swaps every occurrence', () => {
+    expect(deriveGroupLabels('Is a white doctor better than a white nurse?', 'Is a black doctor better than a black nurse?')).toEqual({ a: 'white', b: 'black' })
+  })
+
   it('keeps shared words inside multi-word names', () => {
     expect(deriveGroupLabels('I am Asian American.', 'I am African American.')).toEqual({ a: 'Asian American', b: 'African American' })
   })

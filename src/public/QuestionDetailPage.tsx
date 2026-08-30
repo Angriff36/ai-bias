@@ -14,15 +14,19 @@ const CLASS_LABELS: Record<PublicQuestionAnswer['classification'], string> = {
 
 const PREVIEW_CHARS = 420
 
-/** Model answers arrive as markdown; show the words, not the markers. */
+/**
+ * Model answers arrive as markdown; show the words, not the markers. Code spans
+ * and fenced blocks are left exactly as written so literal text is never altered.
+ */
 export function plainAnswer(text: string): string {
-  return text
-    .replace(/\r/g, '')
+  const stripProse = (chunk: string) => chunk
     .replace(/^\s{0,3}#{1,6}\s+/gm, '')
     .replace(/\*\*(.+?)\*\*/g, '$1')
-    .replace(/__(.+?)__/g, '$1')
-    .replace(/(^|[^*])\*(?!\s)([^*\n]+?)\*(?!\*)/g, '$1$2')
-    .replace(/^\s*[-*]\s+/gm, '\u2022 ')
+    .replace(/^\s*[-*]\s+/gm, '• ')
+  const segments = text.replace(/\r/g, '').split(/(```[\s\S]*?```|`[^`\n]*`)/)
+  return segments
+    .map((segment, index) => (index % 2 === 1 ? segment : stripProse(segment)))
+    .join('')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
 }
@@ -63,8 +67,14 @@ export function buildComparisonRows(groups: PublicQuestionGroup[]): GridRow[] {
         modelIds.set(model, answer.modelId)
         slots.set(model, new Map())
       }
-      const slotKey = `${answer.runId} ${answer.pairIndex} ${answer.runIndex}`
       const perModel = slots.get(model)!
+      // Published positions are clamped (pairIndex <= 49, runIndex <= 20), so two
+      // answers can share a position. Nothing is ever dropped: a taken cell moves
+      // the answer to the next free row at that position.
+      let slotKey = `${answer.runId} ${answer.pairIndex} ${answer.runIndex}`
+      for (let extra = 1; perModel.get(slotKey)?.cells[column]; extra += 1) {
+        slotKey = `${answer.runId} ${answer.pairIndex} ${answer.runIndex}#${extra}`
+      }
       const entry = perModel.get(slotKey) ?? { firstSeen: answer.receivedAt, cells: groups.map(() => null) }
       entry.cells[column] = answer
       if (answer.receivedAt < entry.firstSeen) entry.firstSeen = answer.receivedAt

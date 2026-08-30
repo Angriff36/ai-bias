@@ -37,10 +37,30 @@ export function deriveGroupLabels(original: string, variant: string): { a: strin
   const diffEnd = left.length - suffix
   // The changed span must sit inside one detected demographic phrase. A change
   // that spills outside it rewrote the scenario, and that is not a group swap.
-  const phrase = detectPhrases(left).find((item) => item.start <= diffStart && item.end >= Math.max(diffEnd, diffStart + 1))
-  if (!phrase) return null
-  const a = clean(left.slice(phrase.start, phrase.end))
-  const b = clean(right.slice(phrase.start, right.length - (left.length - phrase.end)))
+  const phrases = detectPhrases(left)
+  const phrase = phrases.find((item) => item.start <= diffStart && item.end >= Math.max(diffEnd, diffStart + 1))
+  if (phrase) {
+    const a = clean(left.slice(phrase.start, phrase.end))
+    const b = clean(right.slice(phrase.start, right.length - (left.length - phrase.end)))
+    return finish(a, b)
+  }
+  // The wizard replaces every occurrence of the chosen term, so the changed span
+  // can run from the first occurrence to the last. Accept the swap when replacing
+  // all occurrences of one detected term reproduces the variant exactly.
+  for (const candidate of phrases) {
+    const term = lowerLeft.slice(candidate.start, candidate.end)
+    const occurrences = lowerLeft.split(term).length - 1
+    if (occurrences < 2) continue
+    const replacementLength = term.length + (right.length - left.length) / occurrences
+    if (!Number.isInteger(replacementLength) || replacementLength <= 0) continue
+    const b = right.slice(candidate.start, candidate.start + replacementLength)
+    if (lowerLeft.split(term).join(b.toLowerCase()) !== lowerRight) continue
+    return finish(clean(left.slice(candidate.start, candidate.end)), clean(b))
+  }
+  return null
+}
+
+function finish(a: string, b: string): { a: string; b: string } | null {
   if (!a || !b || a.length > MAX_LABEL || b.length > MAX_LABEL || a.toLowerCase() === b.toLowerCase()) return null
   return { a, b }
 }

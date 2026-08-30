@@ -310,7 +310,7 @@ export function ExperimentEditor({ experimentId }: { experimentId: number }) {
             <p className="lead">Edit the matched prompts, choose models and repeats, then run—without leaving this page.</p>
           </div>
           <div className="page-actions">
-            {experiment.run_count === 0 && importedPairs.length > 0 && (
+            {importedPairs.length > 0 && (
               <button type="button" className="secondary" aria-expanded={editingPrompts} onClick={() => setEditingPrompts((open) => !open)}>
                 {editingPrompts ? 'Hide prompt editor' : 'Edit prompts'}
               </button>

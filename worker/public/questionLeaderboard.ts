@@ -9,6 +9,7 @@ import type {
 } from '../../src/public/contracts'
 import { normalizeQuestionKey } from '../../src/public/questionKeys'
 import { completePairGroups, isMatchedSwapPair, isPromptPlaceholder } from './reportGlobalCohort'
+import { groupFromTemplate, isPlaceholderLabel } from '../../src/wizard/groupLabel'
 
 export { isMatchedSwapPair }
 
@@ -88,14 +89,23 @@ function variantPools(records: PublicEvidenceItem[]): VariantPools {
   return { aRows, bRows, questionText: question }
 }
 
-function groupLabelOf(item: PublicEvidenceItem): string {
-  return item.variantLabel.trim() || (item.variantKey === 'A' ? 'A' : 'B')
+/**
+ * The group name of an answer. Older runs stored "Prompt 2" instead of the
+ * swapped word; for those the name is read out of the prompt using the
+ * question's [group] slot.
+ */
+function groupLabelOf(item: PublicEvidenceItem, questionTemplate: string): string {
+  const stored = item.variantLabel.trim()
+  if (!isPlaceholderLabel(stored)) return stored
+  return groupFromTemplate(questionTemplate, item.prompt) ?? (stored || (item.variantKey === 'A' ? 'A' : 'B'))
 }
 
 function toAnswer(item: PublicEvidenceItem): PublicQuestionAnswer {
   return {
     id: item.id,
     runId: item.runId,
+    pairIndex: item.pairIndex,
+    runIndex: item.runIndex,
     provider: item.provider,
     modelId: item.modelId,
     prompt: item.prompt,
@@ -111,17 +121,23 @@ function toAnswer(item: PublicEvidenceItem): PublicQuestionAnswer {
  * in first-seen order. Columns never need equal counts.
  */
 function groupPools(pools: VariantPools): PublicQuestionGroup[] {
+  // "white" and "White" are one group; the first spelling seen is the one shown.
   const order: string[] = []
+  const display = new Map<string, string>()
   const byLabel = new Map<string, PublicEvidenceItem[]>()
   for (const item of [...pools.aRows, ...pools.bRows]) {
-    const label = groupLabelOf(item)
-    if (!byLabel.has(label)) order.push(label)
-    byLabel.set(label, [...(byLabel.get(label) ?? []), item])
+    const shown = groupLabelOf(item, pools.questionText)
+    const key = shown.toLowerCase()
+    if (!byLabel.has(key)) {
+      order.push(key)
+      display.set(key, shown)
+    }
+    byLabel.set(key, [...(byLabel.get(key) ?? []), item])
   }
-  return order.map((label) => {
-    const rows = [...(byLabel.get(label) ?? [])].sort((left, right) => right.receivedAt.localeCompare(left.receivedAt))
+  return order.map((key) => {
+    const rows = [...(byLabel.get(key) ?? [])].sort((left, right) => right.receivedAt.localeCompare(left.receivedAt))
     return {
-      label,
+      label: display.get(key) ?? key,
       prompt: rows[0]?.prompt ?? '',
       count: rows.length,
       answers: rows.map(toAnswer),

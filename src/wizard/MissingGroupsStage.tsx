@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import './submitPrompt.css'
 import { fillGroup, missingGroupOptions, type MissingGroupsRequest } from './missingGroups'
 
 /** Pick which groups the question should be asked about next. The control prompt is fixed. */

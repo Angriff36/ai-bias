@@ -3,7 +3,7 @@ import { scheduleAnalysis, type AiBindingLike, type ExecutionContextLike } from 
 import type { D1DatabaseLike } from './d1'
 import { quotaIdentity, runFreePair } from './freeRun'
 import { PublicRepository } from './repository'
-import { scheduleReportGeneration } from './reportGeneration'
+import { runReportGenerationStep } from './reportGeneration'
 import { renderReportHtml } from './reportHtml'
 import { GeneratedReportRepository } from './reportRepository'
 import { createReportModelClient } from './reportModelClient'
@@ -45,7 +45,7 @@ export async function handlePublicApi(
     quotaHash(request: Request, secret: string): Promise<{ hash: string; cookie?: string }>
     freeRunner: typeof runFreePair
     schedule(thresholds: number[]): void
-    scheduleReport(reportId: string): void
+    runReportStep?(reportId: string, leaseOwner: string): Promise<void>
   },
 ): Promise<Response | null> {
   const url = new URL(request.url)
@@ -56,10 +56,15 @@ export async function handlePublicApi(
   const reportRepository = injected?.reportRepository ?? new GeneratedReportRepository(env.PUBLIC_DB)
   const claimRepository = injected?.claimRepository ?? new ClaimRepository(env.PUBLIC_DB)
   const quotaHash = injected?.quotaHash ?? quotaIdentity
-  const reportSchedule = injected?.scheduleReport ?? ((reportId: string) => {
-      const reportModels = createReportModelClient(env.OPENROUTER_API_KEY, url.origin)
-      scheduleReportGeneration(reportModels, context, new GeneratedReportRepository(env.PUBLIC_DB), reportId, reportModels, url.origin)
+  const reportStep = injected?.runReportStep ?? (async (reportId: string, leaseOwner: string) => {
+    const reportModels = createReportModelClient(env.OPENROUTER_API_KEY, url.origin)
+    await runReportGenerationStep(reportModels, reportRepository as GeneratedReportRepository, reportId, reportModels, leaseOwner)
   })
+  const runClaimedReport = async (reportId: string, now: string) => {
+    const prepared = await reportRepository.prepareReportGeneration(reportId, now)
+    if (prepared?.started && prepared.leaseOwner) await reportStep(reportId, prepared.leaseOwner)
+    return (await reportRepository.listReports()).find((report) => report.id === reportId) ?? prepared?.report
+  }
 
   try {
     if (url.pathname === '/api/public/leaderboard' && request.method === 'GET') {
@@ -91,8 +96,8 @@ export async function handlePublicApi(
         if (claim.kind === 'ineligible') return json({ error: 'None of the chosen questions has a complete matched pair to report on yet.' }, 422)
         if (claim.kind === 'limited') return json({ error: 'The daily report-generation limit has been reached. Existing reports remain available.' }, 429)
         invalidateCachedReports()
-        if (claim.kind === 'claimed') reportSchedule(claim.report.id)
-        return json({ report: claim.report }, claim.kind === 'claimed' ? 202 : 200)
+        const report = claim.kind === 'claimed' ? await runClaimedReport(claim.report.id, now) : claim.report
+        return json({ report: report ?? claim.report }, claim.kind === 'claimed' ? 202 : 200)
       }
       const claim = parsed.globalCohort != null
         ? await reportRepository.claimCurrentGlobalReport(now)
@@ -111,8 +116,8 @@ export async function handlePublicApi(
       if (claim.kind === 'unchanged') return json({ report: claim.report }, 200)
       if (claim.kind === 'limited') return json({ error: 'The daily report-generation limit has been reached. Existing reports remain available.' }, 429)
       invalidateCachedReports()
-      if (claim.kind === 'claimed') reportSchedule(claim.report.id)
-      return json({ report: claim.report }, claim.kind === 'claimed' ? 202 : 200)
+      const report = claim.kind === 'claimed' ? await runClaimedReport(claim.report.id, now) : claim.report
+      return json({ report: report ?? claim.report }, claim.kind === 'claimed' ? 202 : 200)
     }
     const regenerate = url.pathname.match(/^\/api\/public\/reports\/([0-9a-f-]{36})\/generate$/)
     if (regenerate && request.method === 'POST') {
@@ -121,11 +126,11 @@ export async function handlePublicApi(
       const prepared = await reportRepository.prepareReportGeneration(reportId, now)
       invalidateCachedReports()
       if (!prepared) return json({ error: 'Report not found or already complete.' }, 404)
-      if (prepared.started) {
-        const synthesisModels = createReportModelClient(env.OPENROUTER_API_KEY, url.origin)
-        scheduleReportGeneration(synthesisModels, context, reportRepository as GeneratedReportRepository, reportId, synthesisModels, url.origin)
+      if (prepared.started && prepared.leaseOwner) {
+        await reportStep(reportId, prepared.leaseOwner)
       }
-      return json({ report: { ...prepared.report, status: 'pending' } }, prepared.started ? 202 : 200)
+      const report = (await reportRepository.listReports()).find((item) => item.id === reportId) ?? prepared.report
+      return json({ report })
     }
     const reportHtml = url.pathname.match(/^\/api\/public\/reports\/([A-Za-z0-9-]+)\.html$/)
     if (reportHtml && request.method === 'GET') {

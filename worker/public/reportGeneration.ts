@@ -4,7 +4,6 @@ import {
   type GeneratedReportDocument,
   type GeneratedReportPairScore,
 } from '../../src/public/contracts'
-import type { ExecutionContextLike } from './analysis'
 import { groupCompleteMatchedSamples } from './matchedSampleIdentity'
 import { analyzeReportEvidence } from './reportExperimentAnalysis'
 import { RetryableReportCheckpointError, scoreAllPairsWithJudge } from './reportJudgeBatch'
@@ -24,10 +23,12 @@ interface ReportSource {
 
 interface ReportGenerationRepository {
   getReportEvidence(reportId: string): Promise<ReportSource>
-  completeReport(reportId: string, document: GeneratedReportDocument, now: string): Promise<void>
-  failReport(reportId: string, code: string): Promise<void>
+  completeReport(reportId: string, document: GeneratedReportDocument, now: string, leaseOwner: string): Promise<void>
+  failReport(reportId: string, code: string, leaseOwner: string): Promise<void>
   loadPairScores?(reportId: string): Promise<GeneratedReportPairScore[]>
-  upsertPairScores?(reportId: string, scores: GeneratedReportPairScore[]): Promise<void>
+  upsertPairScores?(reportId: string, scores: GeneratedReportPairScore[], leaseOwner: string): Promise<void>
+  touchReportGeneration(reportId: string, now: string, leaseOwner: string): Promise<void>
+  releaseReportGeneration?(reportId: string, leaseOwner: string): Promise<void>
 }
 
 export interface GenerateReportOptions {
@@ -35,6 +36,8 @@ export interface GenerateReportOptions {
   deadlineMs?: number
   /** Persist the newly scored pairs as each judge cell lands. */
   onCheckpoint?: (pairScores: GeneratedReportPairScore[]) => Promise<void> | void
+  /** Give synthesis its own request after a newly scored wave is persisted. */
+  deferSynthesisAfterScoring?: boolean
 }
 
 export type GenerateReportResult =
@@ -43,6 +46,7 @@ export type GenerateReportResult =
 
 export const REPORT_GENERATION_BUDGET_MS = 25_000
 export const REPORT_PERSISTENCE_RESERVE_MS = 2_000
+export const REPORT_GENERATION_HEARTBEAT_MS = 30_000
 
 class InvalidModelOutput extends Error {}
 
@@ -87,7 +91,7 @@ export async function generateReport(
   )
   // When a worker chunk finishes scoring, persist that final wave and let the
   // next chunk give synthesis a fresh model budget.
-  if (!judged.complete || (options?.deadlineMs != null && !scoringWasComplete)) {
+  if (!judged.complete || (options?.deferSynthesisAfterScoring && !scoringWasComplete)) {
     return { status: 'partial', pairScores: judged.pairScores }
   }
 
@@ -132,61 +136,77 @@ export async function processReportChunk(
   repository: ReportGenerationRepository,
   reportId: string,
   judgeModels: ReportModelClient,
+  leaseOwner: string,
 ): Promise<void> {
-  const deadlineMs = Date.now() + REPORT_GENERATION_BUDGET_MS
   const checkpointRepo = repository as GeneratedReportRepository
   const now = new Date().toISOString()
-  await checkpointRepo.touchReportGeneration(reportId, now)
+  await checkpointRepo.touchReportGeneration(reportId, now, leaseOwner)
   const source = await repository.getReportEvidence(reportId)
   const existingPairScores = checkpointRepo.loadPairScores
     ? await checkpointRepo.loadPairScores(reportId)
     : []
   const result = await generateReport(synthesisModels, source, judgeModels, {
     existingPairScores,
-    deadlineMs,
+    deferSynthesisAfterScoring: true,
     onCheckpoint: checkpointRepo.upsertPairScores
-      ? (scores) => checkpointRepo.upsertPairScores!(reportId, scores)
+      ? async (scores) => {
+          await checkpointRepo.upsertPairScores!(reportId, scores, leaseOwner)
+          await checkpointRepo.touchReportGeneration(reportId, new Date().toISOString(), leaseOwner).catch(() => undefined)
+        }
       : undefined,
   })
   if ('status' in result) return
-  await repository.completeReport(reportId, result, now)
+  await repository.completeReport(reportId, result, new Date().toISOString(), leaseOwner)
+}
+
+/**
+ * Report model calls can outlive Cloudflare's 30-second waitUntil window.
+ * Keep the HTTP request connected until this step and its checkpoints settle.
+ */
+export async function runReportGenerationStep(
+  synthesisModels: ReportModelClient,
+  repository: ReportGenerationRepository,
+  reportId: string,
+  judgeModels: ReportModelClient,
+  leaseOwner: string,
+): Promise<void> {
+  const heartbeat = setInterval(() => {
+    void repository.touchReportGeneration(reportId, new Date().toISOString(), leaseOwner).catch(() => undefined)
+  }, REPORT_GENERATION_HEARTBEAT_MS)
+  try {
+    await processReportChunk(synthesisModels, repository, reportId, judgeModels, leaseOwner)
+  } catch (error) {
+    await handleReportChunkFailure(repository, reportId, error, leaseOwner)
+  } finally {
+    clearInterval(heartbeat)
+    try {
+      await repository.releaseReportGeneration?.(reportId, leaseOwner)
+    } catch {
+      // The lease expires on its own; do not replace a successful checkpoint or
+      // completion with a cleanup-only D1 error.
+    }
+  }
 }
 
 export async function handleReportChunkFailure(
   repository: ReportGenerationRepository,
   reportId: string,
   error: unknown,
+  leaseOwner: string,
 ): Promise<void> {
   const checkpointRepo = repository as GeneratedReportRepository
   const source = await repository.getReportEvidence(reportId)
   const expectedCount = groupCompleteMatchedSamples(source.evidence).length
   const scoredCount = await checkpointRepo.countPairScores(reportId)
   if (scoredCount >= expectedCount) {
-    await checkpointRepo.touchReportGeneration(reportId, new Date().toISOString())
+    await checkpointRepo.touchReportGeneration(reportId, new Date().toISOString(), leaseOwner)
     return
   }
   const message = error instanceof Error ? error.message : 'generation-failed'
   if (error instanceof RetryableReportCheckpointError || /timed out|429|rate limit/i.test(message)) {
-    await checkpointRepo.touchReportGeneration(reportId, new Date().toISOString())
+    await checkpointRepo.touchReportGeneration(reportId, new Date().toISOString(), leaseOwner)
     return
   }
   const code = error instanceof InvalidModelOutput ? 'invalid-model-output' : message.slice(0, 80)
-  await repository.failReport(reportId, code)
-}
-
-export function scheduleReportGeneration(
-  synthesisModels: ReportModelClient,
-  context: ExecutionContextLike,
-  repository: ReportGenerationRepository,
-  reportId: string,
-  judgeModels: ReportModelClient,
-  _siteOrigin: string,
-): void {
-  context.waitUntil((async () => {
-    try {
-      await processReportChunk(synthesisModels, repository, reportId, judgeModels)
-    } catch (error) {
-      await handleReportChunkFailure(repository, reportId, error)
-    }
-  })())
+  await repository.failReport(reportId, code, leaseOwner)
 }

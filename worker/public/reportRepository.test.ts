@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import type { PublicEvidenceItem } from '../../src/public/contracts'
 import type { D1DatabaseLike, D1Result, D1Statement } from './d1'
 import { GeneratedReportRepository, completeQuestionCount, summarizeReportModels } from './reportRepository'
@@ -68,12 +68,14 @@ describe('generated report evidence preparation', () => {
     expect(loaded.evidence.map((item) => item.id)).toEqual(['first', 'second'])
   })
 
-  it('restarts a zero-progress pending report after the worker lease expires', async () => {
+  it('atomically starts a freshly claimed report without a 45-second delay', async () => {
     const row = {
       id: 'pending-report', scope: 'global', public_run_id: null, response_watermark: 1,
       cohort_fingerprint: null, cohort_snapshot_json: null, status: 'pending', error_code: null,
       scoring_model_id: 'z-ai/glm-5.3-flash', synthesis_model_id: 'x-ai/grok-4.6',
-      title: null, structured_json: null, created_at: '2026-08-30T15:00:00.000Z', completed_at: null,
+      title: null, structured_json: null, created_at: '2026-08-30T15:00:50.000Z', completed_at: null,
+      generation_lease_until: null,
+      generation_lease_owner: null,
     }
     const updates: unknown[][] = []
     const db: D1DatabaseLike = {
@@ -90,18 +92,125 @@ describe('generated report evidence preparation', () => {
       batch: async (statements) => statements.map(() => ({ meta: { changes: 1 } })),
     }
 
-    const dateNow = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-08-30T15:00:50.000Z'))
-    let prepared
-    try {
-      prepared = await new GeneratedReportRepository(db).prepareReportGeneration(
-        'pending-report',
-        '2026-08-30T15:00:50.000Z',
-      )
-    } finally {
-      dateNow.mockRestore()
-    }
+    const prepared = await new GeneratedReportRepository(db).prepareReportGeneration(
+      'pending-report',
+      '2026-08-30T15:00:50.000Z',
+    )
 
     expect(prepared?.started).toBe(true)
-    expect(updates).toContainEqual(['2026-08-30T15:00:50.000Z', 'pending-report'])
+    expect(prepared?.leaseOwner).toMatch(/^[0-9a-f-]{36}$/)
+    expect(updates).toContainEqual([
+      '2026-08-30T15:03:00.000Z', prepared?.leaseOwner,
+      'z-ai/glm-5.3-flash', 'x-ai/grok-4.6',
+      'pending-report', '2026-08-30T15:00:50.000Z',
+    ])
+  })
+
+  it('does not steal an active long-running generation lease from another browser', async () => {
+    const row = {
+      id: 'pending-report', scope: 'global', public_run_id: null, response_watermark: 1,
+      cohort_fingerprint: null, cohort_snapshot_json: null, status: 'pending', error_code: null,
+      scoring_model_id: 'z-ai/glm-5.3-flash', synthesis_model_id: 'x-ai/grok-4.6',
+      title: null, structured_json: null, created_at: '2026-08-30T14:00:00.000Z', completed_at: null,
+      generation_lease_until: '2026-08-30T15:03:00.000Z',
+      generation_lease_owner: 'other-browser',
+    }
+    const updates: unknown[][] = []
+    const db: D1DatabaseLike = {
+      prepare() {
+        let bindings: unknown[] = []
+        const statement: D1Statement = {
+          bind: (...args: unknown[]) => { bindings = args; return statement },
+          first: async <T>() => row as T,
+          all: async <T>() => ({ results: [] as T[] }),
+          run: async <T>() => { updates.push(bindings); return { meta: { changes: 1 } } as D1Result<T> },
+        }
+        return statement
+      },
+      batch: async (statements) => statements.map(() => ({ meta: { changes: 1 } })),
+    }
+
+    const prepared = await new GeneratedReportRepository(db).prepareReportGeneration(
+      'pending-report',
+      '2026-08-30T15:01:00.000Z',
+    )
+
+    expect(prepared?.started).toBe(false)
+    expect(updates).toHaveLength(0)
+  })
+
+  it('lets only the atomic lease winner start generation', async () => {
+    const original = {
+      id: 'pending-report', scope: 'global', public_run_id: null, response_watermark: 1,
+      cohort_fingerprint: null, cohort_snapshot_json: null, status: 'pending', error_code: null,
+      scoring_model_id: 'z-ai/glm-5.3-flash', synthesis_model_id: 'x-ai/grok-4.6',
+      title: null, structured_json: null, created_at: '2026-08-30T15:00:50.000Z', completed_at: null,
+      generation_lease_until: null, generation_lease_owner: null,
+    }
+    let firstReads = 0
+    let claims = 0
+    const db: D1DatabaseLike = {
+      prepare(sql: string) {
+        const statement: D1Statement = {
+          bind: () => statement,
+          first: async <T>() => {
+            firstReads += 1
+            if (firstReads <= 2) return original as T
+            return { ...original, generation_lease_until: '2026-08-30T15:03:00.000Z', generation_lease_owner: 'winner' } as T
+          },
+          all: async <T>() => ({ results: [] as T[] }),
+          run: async <T>() => {
+            if (sql.includes("WHERE id=? AND status IN ('pending','failed')")) claims += 1
+            return { meta: { changes: claims === 1 ? 1 : 0 } } as D1Result<T>
+          },
+        }
+        return statement
+      },
+      batch: async (statements) => statements.map(() => ({ meta: { changes: 1 } })),
+    }
+    const repo = new GeneratedReportRepository(db)
+
+    const [first, second] = await Promise.all([
+      repo.prepareReportGeneration('pending-report', '2026-08-30T15:00:50.000Z'),
+      repo.prepareReportGeneration('pending-report', '2026-08-30T15:00:50.000Z'),
+    ])
+
+    expect([first?.started, second?.started].filter(Boolean)).toHaveLength(1)
+    expect([first?.leaseOwner, second?.leaseOwner].filter(Boolean)).toHaveLength(1)
+  })
+
+  it('conditions heartbeat, release, failure, and completion on the lease owner', async () => {
+    const statements: Array<{ sql: string; bindings: unknown[] }> = []
+    const db: D1DatabaseLike = {
+      prepare(sql: string) {
+        let bindings: unknown[] = []
+        const statement: D1Statement = {
+          bind: (...args: unknown[]) => { bindings = args; return statement },
+          first: async <T>() => null as T,
+          all: async <T>() => ({ results: [] as T[] }),
+          run: async <T>() => { statements.push({ sql, bindings }); return { meta: { changes: 1 } } as D1Result<T> },
+        }
+        return statement
+      },
+      batch: async <T>(batch: D1Statement[]) => Promise.all(batch.map((statement) => statement.run<T>())),
+    }
+    const repo = new GeneratedReportRepository(db)
+    const document = {
+      schemaVersion: 1 as const, id: 'report', scope: 'global' as const, generatedAt: 'now',
+      scoringModelId: 'judge', synthesisModelId: 'writer', responseCount: 0, completePairs: 0, modelCount: 0,
+      narrative: { title: 'Title', subtitle: 'Subtitle', executiveSummary: 'Summary', keyFindings: [], methodology: 'Method', limitations: [] },
+      models: [], pairScores: [], evidence: [],
+    }
+
+    await repo.touchReportGeneration('report', '2026-08-30T15:00:00.000Z', 'owner-a')
+    await repo.releaseReportGeneration('report', 'owner-a')
+    await repo.failReport('report', 'failed', 'owner-a')
+    await repo.completeReport('report', document, '2026-08-30T15:00:00.000Z', 'owner-a')
+
+    expect(statements).toHaveLength(4)
+    for (const statement of statements) {
+      expect(statement.sql).toContain('generation_lease_owner=?')
+      expect(statement.bindings.at(-1)).toBe('owner-a')
+    }
   })
 })

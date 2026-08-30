@@ -53,10 +53,6 @@ export function isPromptPlaceholder(value: string | undefined): boolean {
   return /^prompt\s+\d+\s+vs\s+prompt\s+\d+$/i.test(value?.trim() ?? '')
 }
 
-function hasRealQuestion(item: PublicEvidenceItem): boolean {
-  const question = item.question?.trim() ?? ''
-  return question !== '' && !isPromptPlaceholder(question)
-}
 
 /** True when two prompts share their scenario and differ only around a swapped phrase. */
 export function isMatchedSwapPair(promptA: string, promptB: string): boolean {
@@ -82,11 +78,9 @@ export function completePairGroups(records: PublicEvidenceItem[]): PublicEvidenc
     const variantA = group.find((item) => item.variantKey === 'A')
     const variantB = group.find((item) => item.variantKey === 'B')
     if (!variantA || !variantB || variantA.status !== 'ok' || variantB.status !== 'ok') return false
-    // Legacy rows recorded without a real question may hold two different
-    // scenarios in one pair slot (a recording defect). A pair only counts as
-    // matched evidence when the prompts are the same scenario with only the
-    // demographic phrase swapped.
-    if (hasRealQuestion(variantA) || hasRealQuestion(variantB)) return true
+    // Legacy rows recorded two different scenarios into one A/B pair slot
+    // (a recording defect). A pair only counts as matched evidence when the
+    // prompts are the same scenario with only the demographic phrase swapped.
     return isMatchedSwapPair(variantA.prompt, variantB.prompt)
   })
 }

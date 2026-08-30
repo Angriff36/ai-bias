@@ -69,39 +69,64 @@ the type and picks the layout. Nothing guesses the type later.
 - Each answer cell shows model, time, class, and the full text on open.
 - Reports that used this question are listed.
 
-### Conclusions — the Question Leaderboard
+### Conclusions — the claims board
 
-Reference: `Leaderboard.png` (Ryan, 2026-08-29). This design is ALREADY
-BUILT in the code (`src/public/LeaderboardPage.tsx`, `conclusionsFeed.ts`)
-but it was wired to the Top Questions tab by mistake. The Conclusions tab
-shows an empty placeholder. Fix: move this design to the Conclusions tab.
+Reference: `Leaderboard.png` (Ryan, 2026-08-29).
 
-Layout, top to bottom:
+Top Questions holds the evidence. Conclusions holds what the evidence proves.
 
-1. Title "Question Leaderboard" and one line: ranks the most-tested
-   questions, updated continuously as new tests complete.
+A Conclusions row is NOT a prompt. It is a **research claim**, written as a
+question about the AI:
+
+- "Does the model treat names associated with different ethnic backgrounds
+  differently when ranking job candidates?"
+- "Does the model recommend lower salary ranges for women than men in
+  otherwise identical negotiation scenarios?"
+- "Does the model evaluate crime severity differently when the suspect's name
+  implies a specific racial background?"
+
+One claim is answered by many prompts from Top Questions. The page does not
+ask a model anything new. It reads the answers that already exist and
+concludes from them.
+
+Rule: **a person writes the claim; the system writes the answer.** The
+answer (score, verdict, numbers) is computed from the pooled evidence, never
+typed by a person, so no person can tilt it.
+
+Layout, top to bottom (as in the image):
+
+1. Title and one line: ranks the claims by how much they have been tested,
+   updated as new tests complete.
 2. Four stat tiles: questions tracked, matched tests run, reports published,
    models covered.
-3. **Published Reports** row: one card per complete report. Card shows the
-   report code (RPT-007), month, title, question count, and HTML / PDF links.
-   "View all reports" opens the Reports tab.
-4. **How this works** panel with three columns: Data collection, Ranking
-   method, Research reports.
+3. **Published Reports** row: one card per complete report with code
+   (RPT-007), month, title, question count, HTML / PDF links.
+4. **How this works** panel: Data collection, Ranking method, Research
+   reports.
 5. Controls: show top 20 / 50 / 100. Sort by Tests, Bias Score, Match Rate,
    Newest.
-6. The table. One row per question:
-   - rank, NEW badge if seen in the last 7 days
-   - question text
-   - model chips (up to three)
-   - tests count with the change since last update (+38)
-   - match rate as a bar with a percent
-   - bias score 0–1 with a band (low / med / high)
-   - report chips (RPT-005) that link to the reports that cover the question
-   - chevron to open the question page
-7. Footer: "Showing top 20 of 4,812 tracked questions" and last-updated time.
+6. The table. One row per claim:
+   - rank, NEW badge if new in the last 7 days
+   - the claim text
+   - model chips: which models the evidence covers
+   - tests: how many prompt answers were studied, with the change since last
+     update (+38)
+   - match rate: how solid the evidence is (share of usable answers)
+   - bias score 0–1 with a band (low / med / high): how strongly the evidence
+     supports the claim
+   - report chips (RPT-005): the written reports that studied this claim
+   - chevron: opens the claim page, which lists the prompts and answers behind
+     it
+7. Footer: "Showing top 20 of N claims" and last-updated time.
 
-The bias score STAYS. It must be computed from all answers for the question,
-not from the last 200 answers only (today's limit).
+Today the code (`src/public/LeaderboardPage.tsx`, `conclusionsFeed.ts`)
+draws this layout but fills the rows with raw prompts from Top Questions.
+The layout is right. The data is wrong. It also sits on the Top Questions
+tab; it belongs on Conclusions.
+
+Open (Ryan, 2026-08-29): how a prompt attaches to a claim. Options: the
+person picks the claim when building the test; the system matches prompts to
+claims later; or both. Ryan leans manual. Not decided.
 
 ### Reports
 
@@ -201,8 +226,9 @@ Publishing sends the group name, not only "A" or "B".
 
 - The A/B pair stops being the display unit on the public site. Group
   columns replace it (section 3).
-- The leaderboard design moves from the Top Questions tab to the Conclusions
-  tab. Top Questions becomes the plain most-asked list.
+- Conclusions becomes the claims board: person-written claims, system-computed
+  answers. Its layout already exists on the Top Questions tab and moves.
+  Top Questions becomes the plain most-asked prompt list.
 - The bias score stays but reads all answers, not only the last 200.
 - Report generation becomes manual (section 5).
 

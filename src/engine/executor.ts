@@ -33,13 +33,16 @@ export interface BatchExecutor {
   isPaused(): boolean
 }
 
+/** Per-request time limit. A hung or very slow model answer is recorded as a 408 and the run moves on. */
+export const REQUEST_DEADLINE_MS = 90_000
+
 export function createBatchExecutor(
   queue: RunRequest[],
   adapter: ProviderAdapter,
   callbacks: ExecutorCallbacks,
   opts: ExecutorOptions = {},
 ): BatchExecutor {
-  const concurrency = opts.concurrency ?? 3
+  const concurrency = opts.concurrency ?? 6
   const threshold = opts.consecutiveFailureThreshold ?? 5
   let cursor = 0
   let inFlight = 0
@@ -72,7 +75,22 @@ export function createBatchExecutor(
     let truncated = false
     const started = performance.now()
     try {
-      const result = await adapter.callModel(request, abort.signal)
+      // One slow model must not hold a slot for minutes: give up on a request after the deadline.
+      const deadline = new AbortController()
+      const onCancel = () => deadline.abort()
+      abort.signal.addEventListener('abort', onCancel)
+      let timedOut = false
+      const timer = setTimeout(() => { timedOut = true; deadline.abort() }, REQUEST_DEADLINE_MS)
+      let result
+      try {
+        result = await adapter.callModel(request, deadline.signal)
+      } catch (e) {
+        if (timedOut) throw { statusCode: 408, message: `No answer within ${REQUEST_DEADLINE_MS / 1000} s` }
+        throw e
+      } finally {
+        clearTimeout(timer)
+        abort.signal.removeEventListener('abort', onCancel)
+      }
       response = result.content
       statusCode = result.statusCode
       latencyMs = result.latencyMs

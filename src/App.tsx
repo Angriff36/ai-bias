@@ -269,7 +269,7 @@ function ReportsList() {
           {published.map((r) => (
             <tr key={r.id}>
               <td>
-                <a className="report-link" href={`/reports/${r.id}`}>{r.title ?? 'Untitled research report'}</a>
+                <a className="report-link" href={`/api/public/reports/${r.id}.html`}>{r.title ?? 'Untitled research report'}</a>
                 <span className="muted"> {r.responseCount.toLocaleString()} responses · {r.modelCount.toLocaleString()} {r.modelCount === 1 ? 'model' : 'models'}</span>
               </td>
               <td>{new Date(r.completedAt ?? r.createdAt).toLocaleDateString()}</td>

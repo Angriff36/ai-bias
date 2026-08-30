@@ -77,7 +77,7 @@ describe('application navigation', () => {
 
     expect(await screen.findByRole('tab', { name: 'Reports' })).toBeTruthy()
     const link = await screen.findByRole('link', { name: /The race-swap audit/ })
-    expect(link.getAttribute('href')).toBe('/reports/race-swap-audit-2026-08-26')
+    expect(link.getAttribute('href')).toBe('/api/public/reports/race-swap-audit-2026-08-26.html')
   })
 
   it('exposes an about section describing what is published and what stays private', async () => {

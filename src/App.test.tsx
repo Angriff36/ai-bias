@@ -32,7 +32,14 @@ vi.mock('./public/client', () => ({
     totals: { runs: 0, responses: 0, completePairs: 0, models: 0, questions: 0 },
     topQuestions: [], models: [], latestAnalysis: null, analysisPending: false, latestReport: null, reportPending: false, recentEvidence: [],
   }),
-  listGeneratedReports: vi.fn().mockResolvedValue([]),
+  listGeneratedReports: vi.fn().mockResolvedValue([
+    {
+      id: 'race-swap-audit-2026-08-26', scope: 'global', status: 'complete',
+      title: 'The race-swap audit — Google AI Overview and three frontier LLMs',
+      responseCount: 1450, completePairs: 125, modelCount: 4,
+      createdAt: '2026-08-26T10:50:25.000Z', completedAt: '2026-08-26T10:50:25.000Z',
+    },
+  ]),
 }))
 
 describe('application navigation', () => {
@@ -61,6 +68,16 @@ describe('application navigation', () => {
     expect(await screen.findByRole('tab', { name: 'Top Questions' })).toBeTruthy()
     expect(screen.getByRole('tab', { name: 'Conclusions' })).toBeTruthy()
     expect(await screen.findByRole('heading', { name: 'Top Questions' })).toBeTruthy()
+  })
+
+  it('shows the public research reports the same in every browser', async () => {
+    window.history.replaceState({}, '', '/#/reports')
+    window.location.hash = '#/reports'
+    render(<App />)
+
+    expect(await screen.findByRole('tab', { name: 'Reports' })).toBeTruthy()
+    const link = await screen.findByRole('link', { name: /The race-swap audit/ })
+    expect(link.getAttribute('href')).toBe('/reports/race-swap-audit-2026-08-26')
   })
 
   it('exposes an about section describing what is published and what stays private', async () => {

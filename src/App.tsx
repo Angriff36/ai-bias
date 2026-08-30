@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, type ReportRow } from './api'
-import { getPublicLeaderboard } from './public/client'
+import { getPublicLeaderboard, listGeneratedReports } from './public/client'
+import type { GeneratedReportSummary } from './public/contracts'
 import { readPublicCache } from './public/publicApiCache'
 import { EmptyState, SkeletonRows } from './components/EmptyState'
 import { ReadOnlyBadge, RecordedHashBadge } from './components/StatusBadge'
@@ -206,11 +207,15 @@ function ReportsRoute() {
 function ReportsList() {
   const [rows, setRows] = useState<ReportRow[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [publicReports, setPublicReports] = useState<GeneratedReportSummary[] | null>(null)
   useEffect(() => {
     let cancelled = false
     api.listReports()
       .then((list) => { if (!cancelled) setRows(list) })
       .catch((e: unknown) => { if (!cancelled) setError(e instanceof Error ? e.message : 'The reports could not be loaded.') })
+    listGeneratedReports()
+      .then((list) => { if (!cancelled) setPublicReports(list) })
+      .catch(() => { if (!cancelled) setPublicReports([]) })
     return () => { cancelled = true }
   }, [])
 
@@ -223,10 +228,42 @@ function ReportsList() {
       </div>
     </div>
   )
+  const publicSection = publicReports === null ? null : (
+    <section className="panel" aria-labelledby="public-reports-title">
+      <div className="panel-split">
+        <h3 id="public-reports-title">Research reports</h3>
+        <span className="muted">Published on ai-tests.com — the same list in every browser.</span>
+      </div>
+      {publicReports.length === 0 ? (
+        <p className="muted">No research reports have been published yet.</p>
+      ) : (
+        <table>
+          <caption>Research reports</caption>
+          <thead><tr><th scope="col">Title</th><th scope="col">Published</th></tr></thead>
+          <tbody>
+            {[...publicReports]
+              .filter((r) => r.status === 'complete')
+              .sort((a, b) => (b.completedAt ?? b.createdAt).localeCompare(a.completedAt ?? a.createdAt))
+              .map((r) => (
+                <tr key={r.id}>
+                  <td>
+                    <a className="report-link" href={`/reports/${r.id}`}>{r.title ?? 'Untitled research report'}</a>
+                    <span className="muted"> {r.responseCount.toLocaleString()} responses · {r.modelCount.toLocaleString()} {r.modelCount === 1 ? 'model' : 'models'}</span>
+                  </td>
+                  <td>{new Date(r.completedAt ?? r.createdAt).toLocaleDateString()}</td>
+                </tr>
+              ))}
+          </tbody>
+        </table>
+      )}
+    </section>
+  )
+
   if (error) {
     return (
       <section className="report-list">
         {header}
+        {publicSection}
         <div className="banner error" role="alert"><span>{error}</span></div>
       </section>
     )
@@ -235,6 +272,7 @@ function ReportsList() {
     return (
       <section className="report-list">
         {header}
+        {publicSection}
         <table>
           <caption>Reports</caption>
           <thead><tr><th scope="col">Title</th><th scope="col">Evidence</th></tr></thead>
@@ -247,9 +285,10 @@ function ReportsList() {
     return (
       <section className="report-list">
         {header}
+        {publicSection}
         <EmptyState
-          heading="No reports yet"
-          body="Complete a run on an experiment and its report appears here."
+          heading="No run reports in this browser yet"
+          body="Complete a run on an experiment and its report appears here. Run reports stay in the browser that made them."
           actionLabel="Go to experiments"
           onAction={() => { window.location.hash = '#/experiments' }}
         />
@@ -259,6 +298,7 @@ function ReportsList() {
   return (
     <section className="report-list">
       {header}
+      {publicSection}
       <table>
         <caption>Reports</caption>
         <thead><tr><th scope="col">Title</th><th scope="col">Evidence</th></tr></thead>

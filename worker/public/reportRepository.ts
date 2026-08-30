@@ -19,7 +19,7 @@ import {
 import { parseStoredReportDocument } from './reportDocumentParse'
 import { comparisonIdentity, groupCompleteMatchedSamples } from './matchedSampleIdentity'
 import { filterEvidenceByQuestionKeys } from './questionLeaderboard'
-import { invalidateCachedReports } from './readCache'
+import { invalidateCachedReports, writeCachedClaims } from './readCache'
 import { normalizeQuestionKey } from '../../src/public/questionKeys'
 
 const JUDGE_MODEL = 'z-ai/glm-5.3-flash'
@@ -233,6 +233,7 @@ export class GeneratedReportRepository {
       await this.db.batch([...legacyScoreStatements, update])
     }
     invalidateCachedReports()
+    writeCachedClaims(null)
   }
 
   async failReport(reportId: string, code: string): Promise<void> {

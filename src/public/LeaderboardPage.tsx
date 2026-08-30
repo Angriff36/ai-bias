@@ -5,6 +5,14 @@ import { evidenceTime } from './leaderboardUi'
 import { questionLeaderboardHref } from './questionKeys'
 import { PROMPT_PAGE_SIZES, type PromptPageSize } from './submittedPromptFeed'
 import { usePublicFetch } from './usePublicFetch'
+import { MISSING_GROUPS_KEY, type MissingGroupsRequest } from '../wizard/missingGroups'
+
+/** Open the experiment wizard on this question so the user can pick the groups it has not asked about. */
+function addMissingGroups(question: PublicQuestionSummary) {
+  const request: MissingGroupsRequest = { question: question.questionText, existingGroups: question.groupLabels }
+  sessionStorage.setItem(MISSING_GROUPS_KEY, JSON.stringify(request))
+  window.location.hash = '#/experiments'
+}
 
 function shortModelCount(question: PublicQuestionSummary): string {
   return `${question.modelCount.toLocaleString()} ${question.modelCount === 1 ? 'model' : 'models'}`
@@ -100,6 +108,7 @@ export function LeaderboardPage({
                 <span>Answers</span>
                 <span>Models</span>
                 <span>Last seen</span>
+                <span />
               </div>
               {visible.map((question, index) => (
                 <div key={question.questionKey} className="top-questions-row">
@@ -117,6 +126,16 @@ export function LeaderboardPage({
                   <strong className="tabular-nums">{question.answerCount.toLocaleString()}</strong>
                   <span>{shortModelCount(question)}</span>
                   <time dateTime={question.lastSeenAt}>{evidenceTime(question.lastSeenAt)}</time>
+                  {question.questionText.includes('[group]') ? (
+                    <button
+                      type="button"
+                      className="secondary top-questions-add"
+                      aria-label={`Add missing groups for ${question.questionText}`}
+                      onClick={() => addMissingGroups(question)}
+                    >
+                      + Groups
+                    </button>
+                  ) : <span />}
                 </div>
               ))}
             </div>

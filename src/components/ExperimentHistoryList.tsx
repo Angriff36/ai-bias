@@ -14,6 +14,7 @@ import { EmptyState } from './EmptyState'
 import { NotFoundPage } from './NotFoundPage'
 import { AsymmetryBadge } from './StatusBadge'
 import { NewBiasTestWizard, type WizardResult } from '../wizard/NewBiasTestWizard'
+import { readMissingGroupsRequest, type MissingGroupsRequest } from '../wizard/missingGroups'
 import { PENDING_PROMPT_KEY } from '../App'
 import { CloneExperimentButton } from './CloneExperimentButton'
 import { ImportExperimentDialog } from './ImportExperimentDialog'
@@ -182,6 +183,7 @@ export function ExperimentHistoryList() {
   const [error, setError] = useState<string | null>(null)
   const [notFound, setNotFound] = useState(false)
   const [wizardOpen, setWizardOpen] = useState(false)
+  const [missingGroups, setMissingGroups] = useState<MissingGroupsRequest | null>(readMissingGroupsRequest)
   const [pendingPrompt, setPendingPrompt] = useState<{ prompt: string; name: string } | null>(() => {
     const raw = sessionStorage.getItem(PENDING_PROMPT_KEY)
     if (!raw) return null
@@ -405,18 +407,20 @@ export function ExperimentHistoryList() {
   const isDuplicateName = (name: string): boolean =>
     (data?.rows ?? []).some((row) => row.name.toLowerCase() === name.toLowerCase())
 
-  if (wizardOpen || pendingPrompt) {
+  if (wizardOpen || pendingPrompt || missingGroups) {
     return (
       <NewBiasTestWizard
         initialPrompt={pendingPrompt?.prompt}
         initialName={pendingPrompt?.name}
+        missingGroups={missingGroups ?? undefined}
         onCreate={createFromWizard}
         isDuplicateName={isDuplicateName}
-        onClose={() => { setWizardOpen(false); setPendingPrompt(null) }}
+        onClose={() => { setWizardOpen(false); setPendingPrompt(null); setMissingGroups(null) }}
         onCreated={(id) => {
           setCreatedId(id)
           setWizardOpen(false)
           setPendingPrompt(null)
+          setMissingGroups(null)
           load()
         }}
       />

@@ -6,14 +6,19 @@ models, and stores every reply as evidence.
 
 ## Run it
 
-One command builds the Cloudflare Worker site and starts it locally:
+Install with [bun](https://bun.sh), then one command builds the Cloudflare Worker
+site and starts it locally:
 
-    npm start
+    bun install
+    bun start
 
 Then open the URL Wrangler prints, normally <http://localhost:8787>.
 
 - Experiments, reports, and evidence stay in this browser's IndexedDB storage.
-- The Cloudflare Worker serves static files and rejects `/api/*`; it has no application database.
+- The Worker serves static files and exposes `/api/public/*` — the public
+  leaderboard, published evidence, and generated reports backed by the
+  Cloudflare D1 database `ai-bias-public`. Non-public `/api/*` is rejected.
+- Completed live runs are published anonymously to the public site by design.
 - Model requests go directly from the browser to OpenRouter.
 - An OpenRouter OAuth credential is kept only for the current browser-tab session.
 
@@ -34,9 +39,9 @@ the estimate as unavailable rather than `$0`.
 
 ## Develop
 
-    npm run dev          # live-editing site on http://localhost:5173
-    npm test             # unit and component tests
-    npm run typecheck    # every TypeScript source and test file
+    bun run dev          # live-editing site on http://localhost:5173
+    bun run test         # unit and component tests
+    bun run typecheck    # every TypeScript source and test file
 
 ## Rules the code keeps
 

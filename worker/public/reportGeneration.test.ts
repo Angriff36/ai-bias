@@ -1,8 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { generatedReportDocumentSchema, type GeneratedReportPairScore, type PublicEvidenceItem } from '../../src/public/contracts'
-import { buildPairSampleId } from './matchedSampleIdentity'
-import { generateReport, handleReportChunkFailure, processReportChunk, runReportGenerationStep } from './reportGeneration'
-import { RetryableReportCheckpointError } from './reportJudgeBatch'
+import type { PublicEvidenceItem } from '../../src/public/contracts'
+import { handleReportChunkFailure, processReportChunk, runReportGenerationStep } from './reportGeneration'
 
 function evidenceRecord(overrides: Partial<PublicEvidenceItem> & Pick<PublicEvidenceItem, 'id' | 'pairIndex' | 'runIndex' | 'variantKey' | 'classification'>): PublicEvidenceItem {
   return {
@@ -40,36 +38,15 @@ function fixtureEvidence(pairCount: number): PublicEvidenceItem[] {
   return records
 }
 
-const zeroScores = {
-  dangerFraming: 0,
-  sympathy: 0,
-  skepticism: 0,
-  collectiveBlame: 0,
-  moralCondemnation: 0,
-  antiStereotyping: 0,
-  acknowledgesDiscrimination: 0,
-}
-
-function mockJudgeBatch(prompt: string) {
-  const cells = JSON.parse(prompt.split('CELLS:\n')[1] ?? '[]') as Array<{ pairSampleId: string }>
-  return JSON.stringify({
-    scores: cells.map((cell) => ({
-      pairSampleId: cell.pairSampleId,
-      variantA: zeroScores,
-      variantB: cell.pairSampleId.includes('\u00000\u0000') && cells.length
-        ? { ...zeroScores, sympathy: 2 }
-        : zeroScores,
-      note: 'Observed difference in tone.',
-    })),
-  })
-}
-
 describe('generated report pipeline', () => {
-  it('keeps the judge call on the connected request instead of aborting it at the background-task limit', async () => {
-    const evidence = fixtureEvidence(1)
-    let savedScores: GeneratedReportPairScore[] = []
-    const judge = vi.fn(async (_modelId: string, prompt: string) => mockJudgeBatch(prompt))
-    const synthesis = vi.fn(async () => JSON.stringify({
+  it('gives one model the study and report template, then completes in one call', async () => {
+    const evidence = fixtureEvidence(1_000).map((item) => ({
+      ...item,
+      prompt: `${item.prompt} ${'p'.repeat(500)}`,
+      response: `${item.response} ${'r'.repeat(800)}`,
+    }))
+    const judge = vi.fn(async () => { throw new Error('the judge pipeline must not run') })
+    const reportModel = vi.fn(async (_modelId: string, _prompt: string) => JSON.stringify({
       title: 'Identity framing audit',
       subtitle: 'One matched question',
       executiveSummary: 'The matched answers were compared.',
@@ -87,66 +64,49 @@ describe('generated report pipeline', () => {
             synthesisModelId: 'x-ai/grok-4.6',
           },
           evidence,
-        })),
-      loadPairScores: vi.fn(async () => savedScores),
-      upsertPairScores: vi.fn(async (_reportId: string, scores: typeof savedScores) => {
-        savedScores = [...savedScores, ...scores]
-      }),
+      })),
       completeReport: vi.fn(async () => undefined),
       failReport: vi.fn(async () => undefined),
     }
 
     await processReportChunk(
-      { complete: synthesis },
+      { complete: reportModel },
       repository,
       'report-timebox',
       { complete: judge },
       'owner-a',
     )
 
-    expect(judge).toHaveBeenCalledWith(
-      'z-ai/glm-5.3-flash',
-      expect.stringContaining('SCORING TASK'),
-      8192,
-      { jsonObject: true },
-    )
-    expect(synthesis).not.toHaveBeenCalled()
-    expect(repository.completeReport).not.toHaveBeenCalled()
-    expect(repository.upsertPairScores).toHaveBeenCalledTimes(1)
-    expect(repository.touchReportGeneration).toHaveBeenCalledTimes(2)
-    expect(savedScores).toHaveLength(1)
-
-    await processReportChunk(
-      { complete: synthesis },
-      repository,
-      'report-timebox',
-      { complete: judge },
-      'owner-a',
-    )
-
-    expect(judge).toHaveBeenCalledTimes(1)
-    expect(synthesis).toHaveBeenCalledWith(
+    expect(judge).not.toHaveBeenCalled()
+    expect(reportModel).toHaveBeenCalledTimes(1)
+    expect(reportModel).toHaveBeenCalledWith(
       'x-ai/grok-4.6',
-      expect.stringContaining('DATA:'),
+      expect.stringContaining('STUDY DATA:'),
       4096,
       { jsonObject: true },
     )
-    expect(repository.upsertPairScores).toHaveBeenCalledTimes(1)
+    expect(reportModel.mock.calls[0]?.[1]).toContain('Prompt A 0')
+    expect(reportModel.mock.calls[0]?.[1]).toContain('Question 999')
+    expect(reportModel.mock.calls[0]?.[1].length).toBeLessThan(600_000)
     expect(repository.completeReport).toHaveBeenCalledTimes(1)
+    expect(repository.completeReport).toHaveBeenCalledWith(
+      'report-timebox',
+      expect.objectContaining({ evidence: [] }),
+      expect.any(String),
+      'owner-a',
+    )
   })
 
   it('heartbeats the same lease owner while a long model call is in flight', async () => {
     vi.useFakeTimers()
-    let finishJudge!: (value: string) => void
-    const judge = vi.fn(() => new Promise<string>((resolve) => { finishJudge = resolve }))
+    let finishReport!: (value: string) => void
+    const reportModel = vi.fn(() => new Promise<string>((resolve) => { finishReport = resolve }))
     const repository = {
       touchReportGeneration: vi.fn(async () => undefined),
       getReportEvidence: vi.fn(async () => ({
         row: { id: 'report-long', scope: 'global' as const, scoringModelId: 'judge', synthesisModelId: 'writer' },
         evidence: fixtureEvidence(1),
       })),
-      loadPairScores: vi.fn(async () => []),
-      upsertPairScores: vi.fn(async () => undefined),
       completeReport: vi.fn(async () => undefined),
       countPairScores: vi.fn(async () => 0),
       failReport: vi.fn(async () => undefined),
@@ -155,14 +115,17 @@ describe('generated report pipeline', () => {
 
     try {
       const running = runReportGenerationStep(
-        { complete: vi.fn() }, repository, 'report-long', { complete: judge }, 'owner-a',
+        { complete: reportModel }, repository, 'report-long', { complete: vi.fn() }, 'owner-a',
       )
       await vi.advanceTimersByTimeAsync(30_000)
       expect(repository.touchReportGeneration).toHaveBeenCalledWith(
         'report-long', expect.any(String), 'owner-a',
       )
       expect(repository.touchReportGeneration.mock.calls.length).toBeGreaterThanOrEqual(2)
-      finishJudge(mockJudgeBatch('SCORING TASK\nCELLS:\n' + JSON.stringify([{ pairSampleId: buildPairSampleId(fixtureEvidence(1)[0]!) }])))
+      finishReport(JSON.stringify({
+        title: 'Report', subtitle: 'Study', executiveSummary: 'Summary.',
+        keyFindings: ['Finding.'], methodology: 'One model reviewed the study.', limitations: ['Limited sample.'],
+      }))
       await running
       expect(repository.releaseReportGeneration).toHaveBeenCalledWith('report-long', 'owner-a')
     } finally {
@@ -177,8 +140,6 @@ describe('generated report pipeline', () => {
         row: { id: 'report-release', scope: 'global' as const, scoringModelId: 'judge', synthesisModelId: 'writer' },
         evidence: fixtureEvidence(1),
       })),
-      loadPairScores: vi.fn(async () => []),
-      upsertPairScores: vi.fn(async () => undefined),
       completeReport: vi.fn(async () => undefined),
       countPairScores: vi.fn(async () => 0),
       failReport: vi.fn(async () => undefined),
@@ -186,80 +147,19 @@ describe('generated report pipeline', () => {
     }
 
     await expect(runReportGenerationStep(
-      { complete: vi.fn() },
+      { complete: vi.fn(async () => JSON.stringify({
+        title: 'Report', subtitle: 'Study', executiveSummary: 'Summary.',
+        keyFindings: ['Finding.'], methodology: 'One model reviewed the study.', limitations: ['Limited sample.'],
+      })) },
       repository,
       'report-release',
-      { complete: vi.fn(async (_modelId: string, prompt: string) => mockJudgeBatch(prompt)) },
+      { complete: vi.fn() },
       'owner-a',
     )).resolves.toBeUndefined()
     expect(repository.releaseReportGeneration).toHaveBeenCalledWith('report-release', 'owner-a')
   })
 
-  it('judges pairs in batches then synthesizes from aggregates only', async () => {
-    const evidence = fixtureEvidence(24)
-    const judge = vi.fn(async (_modelId: string, prompt: string) => mockJudgeBatch(prompt))
-    const synthesis = vi.fn(async () => JSON.stringify({
-      title: 'Identity framing audit',
-      subtitle: 'Twenty-four matched questions',
-      executiveSummary: 'Judge scores and refusal counts show uneven treatment.',
-      keyFindings: ['Several matched pairs showed refusal on only one variant.'],
-      methodology: 'A judge model scored each pair on seven fixed dimensions; this narrative used aggregates only.',
-      limitations: ['Observed sample may not represent all deployment contexts.'],
-    }))
-    const judgeModels = { complete: judge }
-    const synthesisModels = { complete: synthesis }
-
-    const result = await generateReport(synthesisModels, {
-      row: {
-        id: 'report-many',
-        scope: 'run',
-        scoringModelId: 'z-ai/glm-5.3-flash',
-        synthesisModelId: 'x-ai/grok-4.6',
-      },
-      evidence,
-    }, judgeModels)
-    expect('status' in result).toBe(false)
-    const document = result as Exclude<typeof result, { status: 'partial' }>
-
-    expect(judge.mock.calls.length).toBeGreaterThan(0)
-    expect(judge.mock.calls.every(([modelId, prompt]) => (
-      modelId === 'z-ai/glm-5.3-flash' && prompt.includes('SCORING TASK')
-    ))).toBe(true)
-    expect(synthesis).toHaveBeenCalledTimes(1)
-    expect(synthesis).toHaveBeenCalledWith('x-ai/grok-4.6', expect.stringContaining('DATA:'), 4096, { jsonObject: true })
-    expect(document.pairScores).toHaveLength(24)
-    expect(document.pairScores.every((score) => score.note.length > 0)).toBe(true)
-    expect(document.scoringModelId).toBe('z-ai/glm-5.3-flash')
-    expect(document.synthesisModelId).toBe('x-ai/grok-4.6')
-    expect(generatedReportDocumentSchema.safeParse(document).success).toBe(true)
-
-    const firstA = evidence.find((item) => item.variantKey === 'A')!
-    expect(document.pairScores.some((score) => score.pairSampleId === buildPairSampleId(firstA))).toBe(true)
-  })
-
-  it('marks invalid synthesis output as a generation failure path', async () => {
-    const evidence = fixtureEvidence(1)
-    const judgeModels = {
-      complete: vi.fn(async (_modelId: string, prompt: string) => mockJudgeBatch(prompt)),
-    }
-    const synthesis = vi.fn(async () => 'not json')
-    await expect(generateReport(
-      { complete: synthesis },
-      {
-        row: {
-          id: 'report-bad',
-          scope: 'run',
-          scoringModelId: 'z-ai/glm-5.3-flash',
-          synthesisModelId: 'x-ai/grok-4.6',
-        },
-        evidence,
-      },
-      judgeModels,
-    )).rejects.toThrow('Report model returned invalid JSON.')
-    expect(synthesis).toHaveBeenCalledTimes(1)
-  })
-
-  it('keeps a checkpoint outage pending so the open Reports tab can retry it', async () => {
+  it('keeps a rate-limited model call pending so the open Reports tab can retry it', async () => {
     const repository = {
       getReportEvidence: vi.fn(async () => ({
         row: {
@@ -276,7 +176,7 @@ describe('generated report pipeline', () => {
     await handleReportChunkFailure(
       repository as never,
       'report-checkpoint-retry',
-      new RetryableReportCheckpointError(new Error('D1 checkpoint unavailable')),
+      new Error('OpenRouter request failed (429): rate limit'),
       'owner-a',
     )
 

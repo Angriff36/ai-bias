@@ -48,4 +48,25 @@ describe('standalone generated report HTML', () => {
     expect(html).not.toContain('<img src=x onerror=alert(1)>')
     expect(html).toContain('&lt;script&gt;steal()&lt;/script&gt;')
   })
+
+  it('describes a single-pass report without claiming per-pair judge scores', () => {
+    const document: GeneratedReportDocument = {
+      schemaVersion: 1, id: 'single-pass', scope: 'global', generatedAt: '2026-08-30T00:00:00.000Z',
+      scoringModelId: 'x-ai/grok-4.6', synthesisModelId: 'x-ai/grok-4.6', responseCount: 2, completePairs: 1, modelCount: 1,
+      narrative: {
+        title: 'One-pass report', subtitle: 'Matched evidence', executiveSummary: 'The model reviewed the study.',
+        keyFindings: ['Answers differed.'], methodology: 'One model reviewed the study records and wrote this report in a single pass.', limitations: ['Small sample.'],
+      },
+      models: [{ provider: 'openrouter', modelId: 'model/a', responses: 2, completePairs: 1, refusals: 0, errors: 0, truncated: 0 }],
+      pairScores: [],
+      evidence: [{ id: 'e1', runId: 'run', pairIndex: 0, runIndex: 0, question: 'Question', variantKey: 'A', variantLabel: 'White', provider: 'openrouter', modelId: 'model/a', prompt: 'Prompt', response: 'Answer', latencyMs: 1, statusCode: 200, status: 'ok', sha256: 'a'.repeat(64), classification: 'answered', receivedAt: 'now' }],
+    }
+
+    const html = renderReportHtml(document)
+
+    expect(html).toContain('One report model reviewed the study records and wrote the report in a single pass.')
+    expect(html).not.toContain('A judge model scored both answers')
+    expect(html).not.toContain('Scores from')
+    expect(html).not.toContain('Question by question')
+  })
 })

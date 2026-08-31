@@ -145,27 +145,60 @@ export function renderPairEvidenceSection(
   return rankedPairs.map(([pairIndex, groupsBySample]) => {
     const groups = [...groupsBySample.values()]
     const question = groups[0]?.[0]?.question ?? `Question ${pairIndex + 1}`
-    const modelRows = groups.map((group) => {
+    const scoredGroups = groups.map((group) => {
       const first = group[0]
       const sampleKey = matchedSampleKey(first)
       const score = scoreIndex.get(sampleKey)
       const variants = group.sort((a, b) => a.variantKey.localeCompare(b.variantKey))
+      return { first, score, variants }
+    }).sort((left, right) => (
+      pairDivergence(right.score ?? ({ magnitude: -1 } as GeneratedReportPairScore))
+      - pairDivergence(left.score ?? ({ magnitude: -1 } as GeneratedReportPairScore))
+    ))
+    const scoreRows = scoredGroups.map(({ first, score }) => (
+      `<tr><td>${escapeHtml(first.modelId)}</td>${dimensionCells(score)}<td class="n">${escapeHtml(formatSampleDivergence(score))}</td></tr>`
+    )).join('')
+    const modelEvidence = scoredGroups.map(({ first, score, variants }) => {
       const body = variants.map((item) => `<div class="col ${item.variantKey === 'A' ? 'a' : 'b'}"><h5>${escapeHtml(item.variantLabel)}</h5>`
         + `<div class="raw">${escapeHtml(item.response || item.errorMessage || '(No response)')}</div></div>`).join('')
       return `<details class="mod"><summary><span>${escapeHtml(first.modelId)}</span><span class="rf">${formatSampleDivergence(score)}</span></summary>`
-        + `<div class="inner"><table class="dimtab"><tr><th style="text-align:left">Model</th>`
-        + `${REPORT_DIMENSIONS.map((dimension) => `<th>${escapeHtml(dimension.label.split(' ')[0])}</th>`).join('')}</tr>`
-        + `<tr><td>${escapeHtml(first.modelId)}</td>${dimensionCells(score)}</tr></table>`
-        + `<div class="two">${body}</div>${score?.note ? `<p class="note"><span class="mn">Scoring note</span>${escapeHtml(score.note)}</p>` : ''}</div></details>`
+        + `<div class="inner"><div class="two">${body}</div>`
+        + `${score?.note ? `<p class="note"><span class="mn">Scoring note</span>${escapeHtml(score.note)}</p>` : ''}</div></details>`
     }).join('')
-    const pairScoresForQuestion = groups
-      .map((group) => scoreIndex.get(matchedSampleKey(group[0])))
+    const pairScoresForQuestion = scoredGroups
+      .map(({ score }) => score)
       .filter((score): score is GeneratedReportPairScore => Boolean(score))
       .sort((left, right) => pairDivergence(right) - pairDivergence(left))
     const divergenceLabel = pairScoresForQuestion.length
       ? formatDivergenceLabel(pairScoresForQuestion[0])
       : 'Not rated'
-    return `<details class="pair"><summary><span class="qn">Q${pairIndex + 1}</span><span class="qt">${escapeHtml(question)}</span><span class="dv2">${divergenceLabel}</span></summary><div class="body">${modelRows}</div></details>`
+    const scoreTable = `<table class="dimtab model-score-grid"><tr><th style="text-align:left">Model</th>`
+      + `${REPORT_DIMENSIONS.map((dimension) => `<th>${escapeHtml(dimension.label.split(' ')[0])}</th>`).join('')}<th>Result</th></tr>${scoreRows}</table>`
+    return `<details class="pair"><summary><span class="qn">Q${pairIndex + 1}</span><span class="qt">${escapeHtml(question)}</span><span class="dv2">${divergenceLabel}</span></summary>`
+      + `<div class="body">${scoreTable}${modelEvidence}</div></details>`
+  }).join('')
+}
+
+export function renderReferencedEvidence(
+  pairSampleIds: string[],
+  pairScores: GeneratedReportPairScore[],
+  evidence: PublicEvidenceItem[],
+): string {
+  const scores = new Map(pairScores.map((score) => [score.pairSampleId, score]))
+  const records = new Map<string, PublicEvidenceItem[]>()
+  for (const item of evidence) {
+    const key = matchedSampleKey(item)
+    records.set(key, [...(records.get(key) ?? []), item])
+  }
+  return [...new Set(pairSampleIds)].flatMap((pairSampleId) => {
+    const score = scores.get(pairSampleId)
+    const variants = records.get(pairSampleId)?.sort((left, right) => left.variantKey.localeCompare(right.variantKey))
+    if (!score || !variants?.length) return []
+    const question = variants[0]?.question ?? `Question ${score.pairIndex + 1}`
+    const answers = variants.map((item) => `<div class="col ${item.variantKey === 'A' ? 'a' : 'b'}"><h5>${escapeHtml(item.variantLabel)}</h5>`
+      + `<div class="raw">${escapeHtml(item.response || item.errorMessage || '(No response)')}</div></div>`).join('')
+    return [`<article class="case-evidence"><h4>${escapeHtml(question)}</h4><p class="case-meta">${escapeHtml(score.modelId)} · ${escapeHtml(formatSampleDivergence(score))}</p>`
+      + `<p class="note"><span class="mn">Judge evidence</span>${escapeHtml(score.note)}</p><div class="two">${answers}</div></article>`]
   }).join('')
 }
 

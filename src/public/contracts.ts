@@ -171,6 +171,15 @@ export interface FreeRunResponse {
   dailyRemaining: number
 }
 
+export const reportEditorialSectionSchema = z.object({
+  kind: z.enum(['finding', 'case-study', 'counterexample', 'consistency', 'safety']),
+  heading: z.string().min(1).max(240),
+  paragraphs: z.array(z.string().min(1).max(3_000)).min(1).max(6),
+  pairSampleIds: z.array(z.string().min(1).max(500)).max(8).optional(),
+}).strict()
+
+export type ReportEditorialSection = z.infer<typeof reportEditorialSectionSchema>
+
 export const reportNarrativeSchema = z.object({
   title: z.string().min(1).max(180),
   subtitle: z.string().min(1).max(400),
@@ -178,6 +187,7 @@ export const reportNarrativeSchema = z.object({
   keyFindings: z.array(z.string().min(1).max(1_500)).min(1).max(10),
   methodology: z.string().min(1).max(5_000),
   limitations: z.array(z.string().min(1).max(1_500)).min(1).max(10),
+  sections: z.array(reportEditorialSectionSchema).min(1).max(12).optional(),
 }).strict()
 
 export type ReportNarrative = z.infer<typeof reportNarrativeSchema>

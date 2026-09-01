@@ -1,11 +1,13 @@
-import { useCallback, useState } from 'react'
-import type { PublicLeaderboard, PublicQuestionSummary } from './contracts'
-import { getPublicLeaderboard, requestQuestionSetReport } from './client'
+import { useCallback, useEffect, useState } from 'react'
+import type { GeneratedReportSummary, PublicLeaderboard, PublicQuestionSummary } from './contracts'
+import { getPublicLeaderboard, listGeneratedReports, requestQuestionSetReport } from './client'
 import { evidenceTime } from './leaderboardUi'
 import { questionLeaderboardHref } from './questionKeys'
 import { PROMPT_PAGE_SIZES, type PromptPageSize } from './submittedPromptFeed'
 import { usePublicFetch } from './usePublicFetch'
 import { MISSING_GROUPS_KEY, type MissingGroupsRequest } from '../wizard/missingGroups'
+import { invalidatePublicCache } from './publicApiCache'
+import { ReportGenerationProgress } from './ReportGenerationProgress'
 
 /** Open the experiment wizard on this question so the user can pick the groups it has not asked about. */
 function addMissingGroups(question: PublicQuestionSummary) {
@@ -22,9 +24,11 @@ function shortModelCount(question: PublicQuestionSummary): string {
 export function LeaderboardPage({
   load = getPublicLeaderboard,
   startReport = requestQuestionSetReport,
+  loadReports = listGeneratedReports,
 }: {
   load?: () => Promise<PublicLeaderboard>
-  startReport?: (questionKeys: string[]) => Promise<{ id: string }>
+  startReport?: (questionKeys: string[]) => Promise<GeneratedReportSummary>
+  loadReports?: () => Promise<GeneratedReportSummary[]>
 }) {
   const loadLeaderboard = useCallback(() => load(), [load])
   const { data, error, loading, refreshing, retry } = usePublicFetch('leaderboard', loadLeaderboard)
@@ -32,21 +36,55 @@ export function LeaderboardPage({
   const [selected, setSelected] = useState<string[]>([])
   const [starting, setStarting] = useState(false)
   const [startError, setStartError] = useState<string | null>(null)
+  const [statusError, setStatusError] = useState<string | null>(null)
+  const [progressOpen, setProgressOpen] = useState(false)
+  const [reportQuestionCount, setReportQuestionCount] = useState(0)
+  const [activeReport, setActiveReport] = useState<GeneratedReportSummary | null>(null)
 
   const questions = data?.topQuestions ?? []
   const visible = questions.slice(0, pageSize)
+  const reportInFlight = starting || activeReport?.status === 'pending'
+
+  useEffect(() => {
+    if (!activeReport || activeReport.status !== 'pending') return
+    let mounted = true
+    const refresh = async () => {
+      try {
+        invalidatePublicCache('reports')
+        const reports = await loadReports()
+        const updated = reports.find((report) => report.id === activeReport.id)
+        if (mounted && updated) setActiveReport(updated)
+        if (mounted) setStatusError(null)
+      } catch {
+        if (mounted) setStatusError('Status update delayed.')
+      }
+    }
+    const timer = window.setInterval(refresh, 5_000)
+    return () => {
+      mounted = false
+      window.clearInterval(timer)
+    }
+  }, [activeReport?.id, activeReport?.status, loadReports])
 
   function toggle(key: string) {
     setSelected((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key])
   }
 
   async function start() {
+    if (reportInFlight || (activeReport?.status === 'complete' && selected.length === 0)) {
+      setProgressOpen(true)
+      return
+    }
     setStarting(true)
     setStartError(null)
+    setStatusError(null)
+    setActiveReport(null)
+    setReportQuestionCount(selected.length)
+    setProgressOpen(true)
     try {
-      await startReport(selected)
+      const report = await startReport(selected)
+      setActiveReport(report)
       setSelected([])
-      window.location.hash = '#/reports'
     } catch (cause) {
       setStartError(cause instanceof Error ? cause.message : 'The report could not be started.')
     } finally {
@@ -90,8 +128,10 @@ export function LeaderboardPage({
             </fieldset>
             <div className="top-questions-report">
               <span className="muted">{selected.length} selected for a report</span>
-              <button type="button" className="secondary" disabled={selected.length === 0 || starting} onClick={start}>
-                {starting ? 'Starting…' : 'Generate report from selected'}
+              <button type="button" className="secondary" disabled={selected.length === 0 && !activeReport && !starting} onClick={start}>
+                {reportInFlight || (activeReport?.status === 'complete' && selected.length === 0)
+                  ? 'View report progress'
+                  : 'Generate report from selected'}
               </button>
             </div>
           </div>
@@ -144,6 +184,16 @@ export function LeaderboardPage({
             <p>Showing top {visible.length.toLocaleString()} of {data.totals.questions.toLocaleString()} tracked questions.</p>
           </div>
         </>
+      )}
+      {progressOpen && (
+        <ReportGenerationProgress
+          report={activeReport}
+          starting={starting}
+          questionCount={reportQuestionCount}
+          error={startError}
+          statusError={statusError}
+          onClose={() => setProgressOpen(false)}
+        />
       )}
     </main>
   )

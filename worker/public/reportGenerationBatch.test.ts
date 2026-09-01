@@ -63,13 +63,14 @@ describe('generated report OpenRouter Batch orchestration', () => {
     expect(repository.getReportEvidence).not.toHaveBeenCalled()
   })
 
-  it('checkpoints at most one completed batch analysis per invocation', async () => {
-    const evidence = groupedEvidence([2, 3, 4])
+  it('checkpoints every completed batch analysis in one invocation', async () => {
+    const repetitions = Array.from({ length: 12 }, (_, index) => (index % 3) + 2)
+    const evidence = groupedEvidence(repetitions)
     const request = await buildOpenRouterJudgeBatchRequest(
       'report-batch', 'z-ai/glm-5.3-flash', groupPolarJudgeCells(evidence),
     )
     let savedScores: GeneratedReportPairScore[] = []
-    let activeBatch: { id: string; status: string } | null = { id: 'batch-complete', status: 'completed:0' }
+    let activeBatch: { id: string; status: string } | null = { id: 'batch-complete', status: 'completed' }
     const repository = {
       touchReportGeneration: vi.fn(async () => undefined),
       getReportEvidence: vi.fn(async () => ({ row: {
@@ -79,6 +80,7 @@ describe('generated report OpenRouter Batch orchestration', () => {
       upsertPairScores: vi.fn(async (_id: string, scores: GeneratedReportPairScore[]) => { savedScores.push(...scores) }),
       loadJudgeBatch: vi.fn(async () => activeBatch),
       updateJudgeBatchStatus: vi.fn(async (_id: string, status: string) => { if (activeBatch) activeBatch.status = status }),
+      updateReportAnalysisProgress: vi.fn(async () => undefined),
       clearJudgeBatch: vi.fn(async () => { activeBatch = null }),
       completeReport: vi.fn(async () => undefined),
       failReport: vi.fn(async () => undefined),
@@ -92,12 +94,16 @@ describe('generated report OpenRouter Batch orchestration', () => {
 
     await processReportChunk({ complete: vi.fn() }, repository, 'report-batch', batchClient, 'owner')
 
-    expect(savedScores).toHaveLength(2)
-    expect(activeBatch).toEqual({ id: 'batch-complete', status: 'completed:1' })
-    expect(repository.clearJudgeBatch).not.toHaveBeenCalled()
+    expect(savedScores).toHaveLength(repetitions.reduce((sum, count) => sum + count, 0))
+    expect(new Set(savedScores.map((score) => score.pairSampleId)).size).toBe(savedScores.length)
+    expect(repository.updateReportAnalysisProgress).toHaveBeenCalledWith(
+      'report-batch', { completedAnalyses: 12, expectedAnalyses: 12 }, 'owner',
+    )
+    expect(activeBatch).toBeNull()
+    expect(repository.clearJudgeBatch).toHaveBeenCalledTimes(1)
   })
 
-  it('submits once, polls without inference, checkpoints successes, retries only failures, then synthesizes', async () => {
+  it('submits once, polls without inference, avoids duplicate scores, retries only failures, then synthesizes', async () => {
     const evidence = groupedEvidence([2, 3, 4])
     let savedScores: GeneratedReportPairScore[] = []
     let activeBatch: { id: string; status: string } | null = null
@@ -158,39 +164,25 @@ describe('generated report OpenRouter Batch orchestration', () => {
     expect(savedScores).toHaveLength(0)
     expect(reportModel).not.toHaveBeenCalled()
 
-    // Record the terminal status, then checkpoint one returned analysis per
-    // invocation so a completed batch cannot exhaust the Worker CPU budget.
-    await processReportChunk({ complete: reportModel }, repository, 'report-batch', batchClient, 'owner')
-    expect(savedScores).toHaveLength(0)
-
-    await processReportChunk({ complete: reportModel }, repository, 'report-batch', batchClient, 'owner')
-    expect(savedScores).toHaveLength(2)
-
+    // One terminal poll persists every successful analysis and immediately
+    // replaces the finished batch with a retry containing only the failure.
     await processReportChunk({ complete: reportModel }, repository, 'report-batch', batchClient, 'owner')
     expect(savedScores).toHaveLength(5)
-
-    await processReportChunk({ complete: reportModel }, repository, 'report-batch', batchClient, 'owner')
-    expect(savedScores).toHaveLength(5)
-
-    await processReportChunk({ complete: reportModel }, repository, 'report-batch', batchClient, 'owner')
-    expect(activeBatch).toBeNull()
-
-    await processReportChunk({ complete: reportModel }, repository, 'report-batch', batchClient, 'owner')
+    expect(new Set(savedScores.map((score) => score.pairSampleId)).size).toBe(5)
+    expect(reportModel).not.toHaveBeenCalled()
     expect(batchClient.submit).toHaveBeenCalledTimes(2)
     expect(submitted[1]?.requests).toHaveLength(1)
     expect(submitted[1]?.requests[0]?.custom_id).toBe(submitted[0]?.requests[2]?.custom_id)
+    expect(activeBatch).toEqual({ id: 'batch-2', status: 'validating' })
 
-    await processReportChunk({ complete: reportModel }, repository, 'report-batch', batchClient, 'owner')
-    expect(savedScores).toHaveLength(5)
-
+    // Its terminal poll persists the entire retry and clears the batch.
     await processReportChunk({ complete: reportModel }, repository, 'report-batch', batchClient, 'owner')
     expect(savedScores).toHaveLength(9)
     expect(new Set(savedScores.map((score) => score.pairSampleId)).size).toBe(9)
     expect(reportModel).not.toHaveBeenCalled()
-
-    await processReportChunk({ complete: reportModel }, repository, 'report-batch', batchClient, 'owner')
     expect(activeBatch).toBeNull()
 
+    // Synthesis remains a separate subsequent invocation.
     await processReportChunk({ complete: reportModel }, repository, 'report-batch', batchClient, 'owner')
     expect(reportModel).toHaveBeenCalledTimes(1)
     expect(repository.completeReport).toHaveBeenCalledWith('report-batch', expect.objectContaining({

@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { api } from './api'
-import { continueReportGeneration, listGeneratedReports } from './public/client'
+import { listGeneratedReports } from './public/client'
 import type { GeneratedReportSummary } from './public/contracts'
 import { EmptyState, SkeletonRows } from './components/EmptyState'
 import { ExperimentHistoryList } from './components/ExperimentHistoryList'
@@ -15,6 +15,7 @@ import { ClaimDetailPage } from './public/ClaimDetailPage'
 import { AboutPage } from './components/AboutPage'
 import { LeaderboardPage } from './public/LeaderboardPage'
 import { QuestionDetailPage } from './public/QuestionDetailPage'
+import { invalidatePublicCache } from './public/publicApiCache'
 
 type ServerState =
   | { phase: 'connecting' }
@@ -206,8 +207,7 @@ function ReportsRoute() {
   return match ? <ReportDetailView reportId={Number(match[1])} /> : <ReportsList />
 }
 
-/** While this tab is open, poll the server-side OpenRouter Batch job. */
-const REPORT_STEP_INTERVAL_MS = 50_000
+const REPORT_STATUS_INTERVAL_MS = 5_000
 
 function reportProgressLabel(r: GeneratedReportSummary): string {
   const scored = r.progress ? `${r.progress.completedAnalyses} of ${r.progress.expectedAnalyses} analyses complete` : null
@@ -219,56 +219,20 @@ function reportProgressLabel(r: GeneratedReportSummary): string {
 function ReportsList() {
   const [reports, setReports] = useState<GeneratedReportSummary[] | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [stepping, setStepping] = useState<string | null>(null)
-  const lastStepAt = useRef(new Map<string, number>())
-  const stepsInFlight = useRef(new Set<string>())
 
-  const reload = useCallback(() => listGeneratedReports()
+  const reload = useCallback(() => {
+    invalidatePublicCache('reports')
+    return listGeneratedReports()
     .then((list) => { setReports(list); setError(null) })
-    .catch((e: unknown) => setError(e instanceof Error ? e.message : 'The reports could not be loaded.')), [])
+    .catch((e: unknown) => setError(e instanceof Error ? e.message : 'The reports could not be loaded.'))
+  }, [])
 
   useEffect(() => { void reload() }, [reload])
 
-  const pending = (reports ?? []).filter((r) => r.status === 'pending')
-  const pendingIds = pending.map((r) => r.id).join(',')
-
-  const step = useCallback(async (reportId: string) => {
-    setStepping(reportId)
-    try {
-      await continueReportGeneration(reportId)
-      await reload()
-    } catch (e: unknown) {
-      // A 404 here means the report finished between steps; the fresh list shows it.
-      if ((e as { statusCode?: number }).statusCode === 404) { await reload(); return }
-      setError(e instanceof Error ? e.message : 'The report could not continue.')
-    } finally {
-      setStepping(null)
-    }
-  }, [reload])
-
-  const attemptStep = useCallback(async (reportId: string, force = false) => {
-    if (stepsInFlight.current.has(reportId)) return
-    const now = Date.now()
-    const lastAttempt = lastStepAt.current.get(reportId)
-    if (!force && lastAttempt != null && now - lastAttempt < REPORT_STEP_INTERVAL_MS) return
-    lastStepAt.current.set(reportId, now)
-    stepsInFlight.current.add(reportId)
-    try {
-      await step(reportId)
-    } finally {
-      stepsInFlight.current.delete(reportId)
-    }
-  }, [step])
-
   useEffect(() => {
-    if (!pendingIds) return
-    // Step at once when the page opens, then wait beyond the worker's 45-second lease.
-    for (const id of pendingIds.split(',')) void attemptStep(id)
-    const timer = window.setInterval(() => {
-      for (const id of pendingIds.split(',')) void attemptStep(id)
-    }, REPORT_STEP_INTERVAL_MS)
+    const timer = window.setInterval(() => { void reload() }, REPORT_STATUS_INTERVAL_MS)
     return () => window.clearInterval(timer)
-  }, [attemptStep, pendingIds])
+  }, [reload])
 
   const header = (
     <div className="page-header">
@@ -311,9 +275,6 @@ function ReportsList() {
         {inProgress.map((r) => (
           <li key={r.id}>
             <span>{r.title ?? 'Report'} · {reportProgressLabel(r)} · started {new Date(r.createdAt).toLocaleString()}</span>
-            {r.status === 'failed' && <>{' '}<button type="button" className="secondary" disabled={stepping === r.id} onClick={() => { void attemptStep(r.id, true) }}>
-              {stepping === r.id ? 'Working…' : 'Retry'}
-            </button></>}
           </li>
         ))}
       </ul>

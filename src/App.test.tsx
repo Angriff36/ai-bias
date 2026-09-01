@@ -6,7 +6,6 @@ import App from './App'
 
 const completeOAuth = vi.hoisted(() => vi.fn())
 const listGeneratedReports = vi.hoisted(() => vi.fn())
-const continueReportGeneration = vi.hoisted(() => vi.fn())
 const getPublicLeaderboard = vi.hoisted(() => vi.fn())
 
 vi.mock('./openrouter/oauth', async (importOriginal) => {
@@ -36,7 +35,6 @@ vi.mock('./public/client', () => ({
   listClaims: vi.fn().mockResolvedValue([]),
   createClaim: vi.fn(),
   requestQuestionSetReport: vi.fn(),
-  continueReportGeneration,
 }))
 
 describe('application navigation', () => {
@@ -46,8 +44,6 @@ describe('application navigation', () => {
     vi.useRealTimers()
     completeOAuth.mockReset()
     completeOAuth.mockResolvedValue({ connected: false, returnHash: '' })
-    continueReportGeneration.mockReset()
-    continueReportGeneration.mockResolvedValue(undefined)
     listGeneratedReports.mockReset()
     getPublicLeaderboard.mockReset()
     getPublicLeaderboard.mockResolvedValue({
@@ -101,7 +97,7 @@ describe('application navigation', () => {
     expect(getPublicLeaderboard).not.toHaveBeenCalled()
   })
 
-  it('does not retry a pending report before its 45-second server lease expires', async () => {
+  it('polls pending report status without invoking report generation', async () => {
     vi.useFakeTimers()
     listGeneratedReports.mockResolvedValue([
       {
@@ -117,21 +113,16 @@ describe('application navigation', () => {
     })
     expect(screen.getByText(/6 of 12 analyses complete/)).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Continue' })).toBeNull()
-    expect(continueReportGeneration).toHaveBeenCalledTimes(1)
-    await act(async () => { await vi.advanceTimersByTimeAsync(45_000) })
-    expect(continueReportGeneration).toHaveBeenCalledTimes(1)
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(5_000)
-    })
-    expect(continueReportGeneration).toHaveBeenCalledTimes(2)
+    expect(listGeneratedReports).toHaveBeenCalledTimes(1)
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000) })
+    expect(listGeneratedReports).toHaveBeenCalledTimes(2)
     await act(async () => {
       unmount()
       await vi.advanceTimersByTimeAsync(100_000)
     })
-    expect(continueReportGeneration).toHaveBeenCalledTimes(2)
   })
 
-  it('does not immediately retry remaining reports when the pending list changes', async () => {
+  it('refreshes a changing pending list through GET polling only', async () => {
     vi.useFakeTimers()
     const reportA = {
       id: 'pending-a', scope: 'global', status: 'pending', title: 'Pending A',
@@ -151,11 +142,10 @@ describe('application navigation', () => {
     await act(async () => {
       render(<App />)
     })
-    expect(continueReportGeneration).toHaveBeenCalledTimes(2)
-    await act(async () => { await vi.advanceTimersByTimeAsync(49_999) })
-    expect(continueReportGeneration).toHaveBeenCalledTimes(2)
-    await act(async () => { await vi.advanceTimersByTimeAsync(1) })
-    expect(continueReportGeneration).toHaveBeenCalledTimes(3)
+    expect(listGeneratedReports).toHaveBeenCalledTimes(1)
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000) })
+    expect(listGeneratedReports).toHaveBeenCalledTimes(2)
+    expect(screen.queryByText('Pending A')).toBeNull()
   })
 
   it('clears a transient status error after the next successful poll', async () => {
@@ -167,12 +157,12 @@ describe('application navigation', () => {
       createdAt: '2026-08-30T15:00:00.000Z', completedAt: null,
     }
     listGeneratedReports.mockResolvedValue([pending])
-    continueReportGeneration.mockRejectedValueOnce(new Error('Request failed (503).')).mockResolvedValue(pending)
+    listGeneratedReports.mockRejectedValueOnce(new Error('Request failed (503).')).mockResolvedValue([pending])
 
     await act(async () => { render(<App />) })
     expect(screen.getByRole('alert').textContent).toContain('Request failed (503).')
 
-    await act(async () => { await vi.advanceTimersByTimeAsync(50_000) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000) })
     expect(screen.queryByRole('alert')).toBeNull()
     expect(screen.getByText(/0 of 20 analyses complete/)).toBeTruthy()
   })

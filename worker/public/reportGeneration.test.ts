@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { PublicEvidenceItem } from '../../src/public/contracts'
-import { handleReportChunkFailure, runReportGenerationStep } from './reportGeneration'
+import type { GeneratedReportPairScore, PublicEvidenceItem } from '../../src/public/contracts'
+import { buildPairSampleId } from './matchedSampleIdentity'
+import { runReportFinalizationStep } from './reportGeneration'
 
 function fixtureEvidence(): PublicEvidenceItem[] {
   const base = {
@@ -14,80 +15,45 @@ function fixtureEvidence(): PublicEvidenceItem[] {
   ]
 }
 
-describe('generated report pipeline leases', () => {
-  it('heartbeats the same lease owner while a Batch API request is in flight', async () => {
-    vi.useFakeTimers()
-    let finishSubmit!: () => void
-    const submit = vi.fn(() => new Promise<{ id: string; status: string }>((resolve) => {
-      finishSubmit = () => resolve({ id: 'batch-1', status: 'validating' })
-    }))
+function score(evidence: PublicEvidenceItem[]): GeneratedReportPairScore {
+  const dimensions = {
+    dangerFraming: 0, sympathy: 0, skepticism: 0, collectiveBlame: 0,
+    moralCondemnation: 0, antiStereotyping: 0, acknowledgesDiscrimination: 0,
+  }
+  return {
+    pairSampleId: buildPairSampleId(evidence[0]!), variantAEvidenceId: 'a', variantBEvidenceId: 'b',
+    pairIndex: 0, runIndex: 0, provider: 'openrouter', modelId: 'model/a',
+    variantA: dimensions, variantB: dimensions, note: 'The paired answers are substantively consistent.',
+    direction: 'even', magnitude: 0,
+  }
+}
+
+describe('generated report queue finalization', () => {
+  it('uses stored judge scores for Grok synthesis and completes the existing rich report document', async () => {
+    const evidence = fixtureEvidence()
     const repository = {
       touchReportGeneration: vi.fn(async () => undefined),
-      getReportEvidence: vi.fn(async () => ({
-        row: { id: 'report-long', scope: 'global' as const, scoringModelId: 'judge', synthesisModelId: 'writer' },
-        evidence: fixtureEvidence(),
-      })),
-      loadPairScores: vi.fn(async () => []),
-      loadJudgeBatch: vi.fn(async () => null),
-      saveJudgeBatch: vi.fn(async () => undefined),
+      getReportEvidence: vi.fn(async () => ({ row: {
+        id: 'report-final', scope: 'run' as const, scoringModelId: 'openai/gpt-5.6-luna', synthesisModelId: 'x-ai/grok-4.6',
+      }, evidence })),
+      loadPairScores: vi.fn(async () => [score(evidence)]),
       completeReport: vi.fn(async () => undefined),
-      countPairScores: vi.fn(async () => 0),
       failReport: vi.fn(async () => undefined),
       releaseReportGeneration: vi.fn(async () => undefined),
     }
+    const synthesis = { complete: vi.fn(async () => JSON.stringify({
+      title: 'Audit', subtitle: 'Paired evidence', executiveSummary: 'Summary.', keyFindings: ['Finding.'],
+      methodology: 'Method.', limitations: ['Limit.'],
+      sections: [{ kind: 'case-study', heading: 'Case', paragraphs: ['Evidence-led case.'], pairSampleIds: [buildPairSampleId(evidence[0]!)] }],
+    })) }
 
-    try {
-      const running = runReportGenerationStep(
-        { complete: vi.fn() }, repository, 'report-long', { submit, retrieve: vi.fn() }, 'owner-a',
-      )
-      await vi.advanceTimersByTimeAsync(30_000)
-      expect(repository.touchReportGeneration).toHaveBeenCalledWith('report-long', expect.any(String), 'owner-a')
-      expect(repository.touchReportGeneration.mock.calls.length).toBeGreaterThanOrEqual(2)
-      finishSubmit()
-      await running
-      expect(repository.releaseReportGeneration).toHaveBeenCalledWith('report-long', 'owner-a')
-    } finally {
-      vi.useRealTimers()
-    }
-  })
+    await runReportFinalizationStep(synthesis, repository, 'report-final', 'final-owner')
 
-  it('does not turn a successful step into an error when best-effort lease release fails', async () => {
-    const repository = {
-      touchReportGeneration: vi.fn(async () => undefined),
-      getReportEvidence: vi.fn(async () => ({
-        row: { id: 'report-release', scope: 'global' as const, scoringModelId: 'judge', synthesisModelId: 'writer' },
-        evidence: fixtureEvidence(),
-      })),
-      loadPairScores: vi.fn(async () => []),
-      loadJudgeBatch: vi.fn(async () => null),
-      saveJudgeBatch: vi.fn(async () => undefined),
-      completeReport: vi.fn(async () => undefined),
-      countPairScores: vi.fn(async () => 0),
-      failReport: vi.fn(async () => undefined),
-      releaseReportGeneration: vi.fn(async () => { throw new Error('temporary D1 outage') }),
-    }
-
-    await expect(runReportGenerationStep(
-      { complete: vi.fn() }, repository, 'report-release',
-      { submit: vi.fn(async () => ({ id: 'batch-1', status: 'validating' })), retrieve: vi.fn() }, 'owner-a',
-    )).resolves.toBeUndefined()
-    expect(repository.releaseReportGeneration).toHaveBeenCalledWith('report-release', 'owner-a')
-  })
-
-  it('keeps a rate-limited Batch API call pending so status polling can retry it', async () => {
-    const repository = {
-      getReportEvidence: vi.fn(async () => ({
-        row: { id: 'report-retry', scope: 'global' as const, scoringModelId: 'judge', synthesisModelId: 'writer' },
-        evidence: fixtureEvidence(),
-      })),
-      countPairScores: vi.fn(async () => 0),
-      touchReportGeneration: vi.fn(async () => undefined),
-      failReport: vi.fn(async () => undefined),
-    }
-
-    await handleReportChunkFailure(repository as never, 'report-retry', new Error('OpenRouter Batch request failed (429)'), 'owner-a')
-
-    expect(repository.touchReportGeneration).toHaveBeenCalledWith('report-retry', expect.any(String), 'owner-a')
-    expect(repository.failReport).not.toHaveBeenCalled()
+    expect(synthesis.complete).toHaveBeenCalledWith('x-ai/grok-4.6', expect.stringContaining('pairSampleId'), 4096, expect.any(Object))
+    expect(repository.completeReport).toHaveBeenCalledWith('report-final', expect.objectContaining({
+      scoringModelId: 'openai/gpt-5.6-luna', synthesisModelId: 'x-ai/grok-4.6',
+      pairScores: [expect.objectContaining({ pairSampleId: buildPairSampleId(evidence[0]!) })], evidence,
+    }), expect.any(String), 'final-owner')
+    expect(repository.releaseReportGeneration).toHaveBeenCalledWith('report-final', 'final-owner')
   })
 })

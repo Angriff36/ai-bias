@@ -115,13 +115,6 @@ export async function requestQuestionSetReport(questionKeys: string[], fetcher: 
   return generatedReportStateSchema.parse(await responseJson(response)).report
 }
 
-/** Run the next generation step of a pending report. Returns the report state; call again while it is pending. */
-export async function continueReportGeneration(reportId: string, fetcher: Fetcher = fetch): Promise<GeneratedReportSummary> {
-  const response = await fetcher(`/api/public/reports/${encodeURIComponent(reportId)}/generate`, { method: 'POST', credentials: 'same-origin' })
-  invalidatePublicCache('reports')
-  return generatedReportStateSchema.parse(await responseJson(response)).report
-}
-
 export async function listClaims(fetcher: Fetcher = fetch): Promise<PublicClaim[]> {
   const cached = readPublicCache<PublicClaim[]>('claims')
   if (cached?.status === 'fresh') return cached.data

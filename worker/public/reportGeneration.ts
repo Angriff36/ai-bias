@@ -6,15 +6,7 @@ import {
 } from '../../src/public/contracts'
 import { buildPairSampleId, groupCompleteMatchedSamples } from './matchedSampleIdentity'
 import { analyzeReportEvidence } from './reportExperimentAnalysis'
-import { groupPolarJudgeCells, RetryableReportCheckpointError, type PolarJudgeCell } from './reportJudgeBatch'
-import {
-  buildOpenRouterJudgeBatchRequest,
-  buildReportJudgeCustomId,
-  parseOpenRouterJudgeResult,
-  type OpenRouterJudgeBatchClient,
-} from './reportJudgeBatchApi'
 import type { ReportModelClient } from './reportModelClient'
-import type { GeneratedReportRepository } from './reportRepository'
 import { buildSynthesisPrompt } from './reportSynthesisPrompt'
 
 interface ReportSource {
@@ -32,12 +24,6 @@ interface ReportGenerationRepository {
   completeReport(reportId: string, document: GeneratedReportDocument, now: string, leaseOwner: string): Promise<void>
   failReport(reportId: string, code: string, leaseOwner: string): Promise<void>
   loadPairScores?(reportId: string): Promise<GeneratedReportPairScore[]>
-  upsertPairScores?(reportId: string, scores: GeneratedReportPairScore[], leaseOwner: string): Promise<void>
-  loadJudgeBatch?(reportId: string): Promise<{ id: string; status: string; progress?: { completedAnalyses: number; expectedAnalyses: number } } | null>
-  saveJudgeBatch?(reportId: string, batch: { id: string; status: string }, leaseOwner: string, progress?: { completedAnalyses: number; expectedAnalyses: number }): Promise<void>
-  updateJudgeBatchStatus?(reportId: string, status: string, leaseOwner: string): Promise<void>
-  updateReportAnalysisProgress?(reportId: string, progress: { completedAnalyses: number; expectedAnalyses: number }, leaseOwner: string): Promise<void>
-  clearJudgeBatch?(reportId: string, leaseOwner: string): Promise<void>
   touchReportGeneration(reportId: string, now: string, leaseOwner: string): Promise<void>
   releaseReportGeneration?(reportId: string, leaseOwner: string): Promise<void>
 }
@@ -66,8 +52,6 @@ function parseJson(value: string): unknown {
 function existingScoreMap(scores: GeneratedReportPairScore[] | undefined): Map<string, GeneratedReportPairScore> {
   return new Map((scores ?? []).map((score) => [score.pairSampleId, score]))
 }
-
-const TERMINAL_BATCH_STATUSES = new Set(['completed', 'failed', 'cancelled', 'expired'])
 
 export async function generateReport(
   synthesisModels: ReportModelClient,
@@ -120,119 +104,25 @@ export async function generateReport(
   return validated.data
 }
 
-export async function processReportChunk(
+export async function runReportFinalizationStep(
   synthesisModels: ReportModelClient,
   repository: ReportGenerationRepository,
   reportId: string,
-  judgeBatches: OpenRouterJudgeBatchClient,
-  leaseOwner: string,
-): Promise<void> {
-  const checkpointRepo = repository as GeneratedReportRepository
-  await checkpointRepo.touchReportGeneration(reportId, new Date().toISOString(), leaseOwner)
-  const active = await checkpointRepo.loadJudgeBatch?.(reportId) ?? null
-  const batch = active ? await judgeBatches.retrieve(active.id) : null
-  if (batch) {
-    const remoteTotal = Number(batch.request_counts?.total ?? 0)
-    if (remoteTotal > 0) {
-      const completedAnalyses = active?.progress?.completedAnalyses ?? 0
-      await checkpointRepo.updateReportAnalysisProgress?.(reportId, {
-        completedAnalyses,
-        expectedAnalyses: Math.max(active?.progress?.expectedAnalyses ?? 0, completedAnalyses + remoteTotal),
-      }, leaseOwner)
-    }
-    if (!TERMINAL_BATCH_STATUSES.has(batch.status)) {
-      await checkpointRepo.updateJudgeBatchStatus?.(reportId, batch.status, leaseOwner)
-      return
-    }
-  }
-  const source = await repository.getReportEvidence(reportId)
-  const existingPairScores = checkpointRepo.loadPairScores ? await checkpointRepo.loadPairScores(reportId) : []
-  const existingScores = existingScoreMap(existingPairScores)
-  const judgeCells = groupPolarJudgeCells(source.evidence)
-  const pendingCells = judgeCells.filter((cell) => cell.groups.some((group) => {
-    const variantA = group.find((item) => item.variantKey === 'A')!
-    return !existingScores.has(buildPairSampleId(variantA))
-  }))
-  const progress = {
-    completedAnalyses: judgeCells.length - pendingCells.length,
-    expectedAnalyses: judgeCells.length,
-  }
-
-  if (pendingCells.length > 0) {
-    if (!active) {
-      const created = await judgeBatches.submit(await buildOpenRouterJudgeBatchRequest(
-        reportId, source.row.scoringModelId, pendingCells,
-      ))
-      await checkpointRepo.saveJudgeBatch?.(reportId, { id: created.id, status: created.status }, leaseOwner, progress)
-      return
-    }
-
-    if (batch?.status !== 'completed') {
-      await checkpointRepo.clearJudgeBatch?.(reportId, leaseOwner)
-      return
-    }
-
-    const cellsByCustomId = new Map<string, PolarJudgeCell>(await Promise.all(pendingCells.map(async (cell) => [
-      await buildReportJudgeCustomId(reportId, cell), cell,
-    ] as const)))
-    const successfulScores: GeneratedReportPairScore[] = []
-    let completedAnalyses = 0
-    for (const result of batch.results ?? []) {
-      const cell = cellsByCustomId.get(result.custom_id)
-      if (!cell) continue
-      try {
-        successfulScores.push(...parseOpenRouterJudgeResult(cell, result))
-        completedAnalyses += 1
-        cellsByCustomId.delete(result.custom_id)
-      } catch {
-        // This cell remains unscored and is the only work resubmitted on the
-        // next invocation.
-      }
-    }
-    await checkpointRepo.upsertPairScores?.(reportId, successfulScores, leaseOwner)
-    const updatedProgress = {
-      completedAnalyses: progress.completedAnalyses + completedAnalyses,
-      expectedAnalyses: progress.expectedAnalyses,
-    }
-    await checkpointRepo.updateReportAnalysisProgress?.(reportId, updatedProgress, leaseOwner)
-    await checkpointRepo.clearJudgeBatch?.(reportId, leaseOwner)
-    const retryCells = [...cellsByCustomId.values()]
-    if (retryCells.length > 0) {
-      const created = await judgeBatches.submit(await buildOpenRouterJudgeBatchRequest(
-        reportId, source.row.scoringModelId, retryCells,
-      ))
-      await checkpointRepo.saveJudgeBatch?.(reportId, { id: created.id, status: created.status }, leaseOwner, updatedProgress)
-    }
-    return
-  }
-
-  if (active) {
-    await checkpointRepo.clearJudgeBatch?.(reportId, leaseOwner)
-    return
-  }
-  const result = await generateReport(synthesisModels, source, synthesisModels, { existingPairScores })
-  if ('status' in result) return
-  await repository.completeReport(reportId, result, new Date().toISOString(), leaseOwner)
-}
-
-/**
- * Report model calls can outlive Cloudflare's 30-second waitUntil window.
- * Keep the HTTP request connected until this step and its checkpoints settle.
- */
-export async function runReportGenerationStep(
-  synthesisModels: ReportModelClient,
-  repository: ReportGenerationRepository,
-  reportId: string,
-  judgeBatches: OpenRouterJudgeBatchClient,
   leaseOwner: string,
 ): Promise<void> {
   const heartbeat = setInterval(() => {
     void repository.touchReportGeneration(reportId, new Date().toISOString(), leaseOwner).catch(() => undefined)
   }, REPORT_GENERATION_HEARTBEAT_MS)
   try {
-    await processReportChunk(synthesisModels, repository, reportId, judgeBatches, leaseOwner)
+    await repository.touchReportGeneration(reportId, new Date().toISOString(), leaseOwner)
+    const source = await repository.getReportEvidence(reportId)
+    const existingPairScores = await repository.loadPairScores?.(reportId) ?? []
+    const result = await generateReport(synthesisModels, source, synthesisModels, { existingPairScores })
+    if ('status' in result) throw new Error('Report finalization started before all analyses were stored.')
+    await repository.completeReport(reportId, result, new Date().toISOString(), leaseOwner)
   } catch (error) {
-    await handleReportChunkFailure(repository, reportId, error, leaseOwner)
+    await repository.touchReportGeneration(reportId, new Date().toISOString(), leaseOwner)
+    throw error
   } finally {
     clearInterval(heartbeat)
     try {
@@ -242,27 +132,4 @@ export async function runReportGenerationStep(
       // completion with a cleanup-only D1 error.
     }
   }
-}
-
-export async function handleReportChunkFailure(
-  repository: ReportGenerationRepository,
-  reportId: string,
-  error: unknown,
-  leaseOwner: string,
-): Promise<void> {
-  const checkpointRepo = repository as GeneratedReportRepository
-  const source = await repository.getReportEvidence(reportId)
-  const expectedCount = groupCompleteMatchedSamples(source.evidence).length
-  const scoredCount = await checkpointRepo.countPairScores(reportId)
-  if (scoredCount >= expectedCount) {
-    await checkpointRepo.touchReportGeneration(reportId, new Date().toISOString(), leaseOwner)
-    return
-  }
-  const message = error instanceof Error ? error.message : 'generation-failed'
-  if (error instanceof RetryableReportCheckpointError || /OpenRouter Batch|timed out|429|rate limit/i.test(message)) {
-    await checkpointRepo.touchReportGeneration(reportId, new Date().toISOString(), leaseOwner)
-    return
-  }
-  const code = error instanceof InvalidModelOutput ? 'invalid-model-output' : message.slice(0, 80)
-  await repository.failReport(reportId, code, leaseOwner)
 }

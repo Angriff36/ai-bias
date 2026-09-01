@@ -27,6 +27,23 @@
   "ai": {
     "binding": "AI"
   },
+  "queues": {
+    "producers": [
+      {
+        "binding": "REPORT_GENERATION_QUEUE",
+        "queue": "report-generation"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "report-generation",
+        "max_batch_size": 1,
+        "max_batch_timeout": 0,
+        "max_retries": 3,
+        "max_concurrency": 20
+      }
+    ]
+  },
   "observability": {
     "enabled": false
   }

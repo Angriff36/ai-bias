@@ -22,8 +22,9 @@ import { filterEvidenceByQuestionKeys } from './questionLeaderboard'
 import { invalidateCachedReports, writeCachedClaims } from './readCache'
 import { normalizeQuestionKey } from '../../src/public/questionKeys'
 import { groupPolarJudgeCells } from './reportJudgeBatch'
+import { REPORT_JUDGE_MODEL } from './reportJudgeClient'
 
-const JUDGE_MODEL = 'z-ai/glm-5.3-flash'
+const JUDGE_MODEL = REPORT_JUDGE_MODEL
 const SYNTHESIS_MODEL = 'x-ai/grok-4.6'
 const SCORING_MODEL = JUDGE_MODEL
 const DAILY_REPORT_JOB_LIMIT = 20
@@ -258,86 +259,91 @@ export class GeneratedReportRepository {
     invalidateCachedReports()
   }
 
-  async countPairScores(reportId: string): Promise<number> {
-    const row = await this.db.prepare('SELECT COUNT(*) AS count FROM report_pair_scores WHERE report_id = ?')
-      .bind(reportId).first<{ count: number }>()
-    return n(row?.count)
-  }
-
-  async clearPairScores(reportId: string): Promise<void> {
-    await this.db.prepare('DELETE FROM report_pair_scores WHERE report_id = ?').bind(reportId).run()
-  }
-
   async loadPairScores(reportId: string): Promise<GeneratedReportPairScore[]> {
     const rows = (await this.db.prepare('SELECT score_json FROM report_pair_scores WHERE report_id = ?')
       .bind(reportId).all()).results ?? []
     return rows.map((row) => JSON.parse(s(String((row as { score_json: string }).score_json))) as GeneratedReportPairScore)
   }
 
-  async upsertPairScores(reportId: string, scores: GeneratedReportPairScore[], leaseOwner: string): Promise<void> {
-    if (scores.length === 0) return
-    const statements = scores.map((score) => this.db.prepare(`INSERT OR REPLACE INTO report_pair_scores
+  async registerQueuedAnalyses(reportId: string, analysisIds: string[], leaseOwner: string): Promise<string[]> {
+    if (analysisIds.length === 0) return []
+    await this.db.batch(analysisIds.map((analysisId) => this.db.prepare(`INSERT OR IGNORE INTO report_analysis_checkpoints
+      (report_id, analysis_id, status)
+      SELECT ?, ?, 'pending' WHERE EXISTS (
+        SELECT 1 FROM generated_reports WHERE id=? AND status='pending' AND generation_lease_owner=?
+      )`).bind(reportId, analysisId, reportId, leaseOwner)))
+    await this.db.prepare(`UPDATE generated_reports SET
+      analysis_completed=(SELECT COUNT(*) FROM report_analysis_checkpoints WHERE report_id=? AND status='complete'),
+      analysis_total=(SELECT COUNT(*) FROM report_analysis_checkpoints WHERE report_id=?),
+      judge_batch_id=NULL, judge_batch_status=NULL
+      WHERE id=? AND status='pending' AND generation_lease_owner=?`)
+      .bind(reportId, reportId, reportId, leaseOwner).run()
+    const rows = (await this.db.prepare(`SELECT analysis_id FROM report_analysis_checkpoints
+      WHERE report_id=? AND status='pending' AND enqueued_at IS NULL`).bind(reportId).all<{ analysis_id: string }>()).results ?? []
+    return rows.map((row) => s(row.analysis_id))
+  }
+
+  async markQueuedAnalysesEnqueued(reportId: string, analysisIds: string[], now: string, leaseOwner: string): Promise<void> {
+    if (analysisIds.length === 0) return
+    await this.db.batch(analysisIds.map((analysisId) => this.db.prepare(`UPDATE report_analysis_checkpoints
+      SET enqueued_at=? WHERE report_id=? AND analysis_id=? AND status='pending' AND EXISTS (
+        SELECT 1 FROM generated_reports WHERE id=? AND status='pending' AND generation_lease_owner=?
+      )`).bind(now, reportId, analysisId, reportId, leaseOwner)))
+  }
+
+  async getQueuedAnalysisStatus(reportId: string, analysisId: string): Promise<'pending' | 'complete' | 'failed' | null> {
+    const row = await this.db.prepare(`SELECT c.status FROM report_analysis_checkpoints c
+      JOIN generated_reports r ON r.id=c.report_id WHERE c.report_id=? AND c.analysis_id=? AND r.status='pending'`)
+      .bind(reportId, analysisId).first<{ status: 'pending' | 'complete' | 'failed' }>()
+    return row?.status ?? null
+  }
+
+  async completeQueuedAnalysis(
+    reportId: string,
+    analysisId: string,
+    scores: GeneratedReportPairScore[],
+    now: string,
+  ): Promise<{ allComplete: boolean }> {
+    const scoreStatements = scores.map((score) => this.db.prepare(`INSERT OR REPLACE INTO report_pair_scores
       (report_id, pair_sample_id, pair_index, run_index, provider, model_id, score_json)
       SELECT ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (
-        SELECT 1 FROM generated_reports WHERE id=? AND status='pending' AND generation_lease_owner=?
-      )`)
-      .bind(reportId, score.pairSampleId, score.pairIndex, score.runIndex, score.provider, score.modelId, JSON.stringify(score), reportId, leaseOwner))
-    try {
-      await this.db.batch(statements)
-    } catch {
-      await this.db.batch(scores.map((score) => this.db.prepare(`INSERT OR REPLACE INTO report_pair_scores
-        (report_id, pair_index, run_index, provider, model_id, score_json)
-        SELECT ?, ?, ?, ?, ?, ? WHERE EXISTS (
-          SELECT 1 FROM generated_reports WHERE id=? AND status='pending' AND generation_lease_owner=?
-        )`)
-        .bind(reportId, score.pairIndex, score.runIndex, score.provider, score.modelId, JSON.stringify(score), reportId, leaseOwner)))
-    }
+        SELECT 1 FROM report_analysis_checkpoints WHERE report_id=? AND analysis_id=? AND status='pending'
+      )`).bind(reportId, score.pairSampleId, score.pairIndex, score.runIndex, score.provider, score.modelId,
+        JSON.stringify(score), reportId, analysisId))
+    await this.db.batch([
+      ...scoreStatements,
+      this.db.prepare(`UPDATE report_analysis_checkpoints SET status='complete', completed_at=?, error_code=NULL
+        WHERE report_id=? AND analysis_id=? AND status='pending'`).bind(now, reportId, analysisId),
+      this.db.prepare(`UPDATE generated_reports SET
+        analysis_completed=(SELECT COUNT(*) FROM report_analysis_checkpoints WHERE report_id=? AND status='complete'),
+        analysis_total=(SELECT COUNT(*) FROM report_analysis_checkpoints WHERE report_id=?),
+        generation_lease_until=NULL, generation_lease_owner=NULL
+        WHERE id=? AND status='pending'`).bind(reportId, reportId, reportId),
+    ])
+    invalidateCachedReports()
+    const progress = await this.db.prepare(`SELECT analysis_completed, analysis_total FROM generated_reports WHERE id=? AND status='pending'`)
+      .bind(reportId).first<{ analysis_completed: number; analysis_total: number }>()
+    return { allComplete: n(progress?.analysis_total) > 0 && n(progress?.analysis_completed) >= n(progress?.analysis_total) }
   }
 
-  async loadJudgeBatch(reportId: string): Promise<{ id: string; status: string; progress?: { completedAnalyses: number; expectedAnalyses: number } } | null> {
-    const row = await this.db.prepare('SELECT judge_batch_id, judge_batch_status, analysis_completed, analysis_total FROM generated_reports WHERE id=?')
-      .bind(reportId).first<{ judge_batch_id: string | null; judge_batch_status: string | null; analysis_completed: number; analysis_total: number }>()
-    if (!row?.judge_batch_id) return null
-    const expectedAnalyses = n(row.analysis_total)
-    return {
-      id: s(row.judge_batch_id),
-      status: s(row.judge_batch_status),
-      ...(expectedAnalyses > 0 ? { progress: { completedAnalyses: n(row.analysis_completed), expectedAnalyses } } : {}),
-    }
+  async failQueuedAnalysis(reportId: string, analysisId: string, code: string, now: string): Promise<void> {
+    await this.db.batch([
+      this.db.prepare(`UPDATE report_analysis_checkpoints SET status='failed', completed_at=?, error_code=?
+        WHERE report_id=? AND analysis_id=? AND status='pending'`).bind(now, code.slice(0, 80), reportId, analysisId),
+      this.db.prepare(`UPDATE generated_reports SET status='failed', error_code=?, generation_lease_until=NULL, generation_lease_owner=NULL
+        WHERE id=? AND status='pending'`).bind(code.slice(0, 80), reportId),
+    ])
+    invalidateCachedReports()
   }
 
-  async saveJudgeBatch(
-    reportId: string,
-    batch: { id: string; status: string },
-    leaseOwner: string,
-    progress?: { completedAnalyses: number; expectedAnalyses: number },
-  ): Promise<void> {
-    await this.db.prepare(`UPDATE generated_reports SET judge_batch_id=?, judge_batch_status=?,
-      analysis_completed=COALESCE(?, analysis_completed), analysis_total=COALESCE(?, analysis_total)
-      WHERE id=? AND status='pending' AND generation_lease_owner=? AND judge_batch_id IS NULL`)
-      .bind(batch.id, batch.status, progress?.completedAnalyses ?? null, progress?.expectedAnalyses ?? null, reportId, leaseOwner).run()
-  }
-
-  async updateJudgeBatchStatus(reportId: string, status: string, leaseOwner: string): Promise<void> {
-    await this.db.prepare(`UPDATE generated_reports SET judge_batch_status=?
-      WHERE id=? AND status='pending' AND generation_lease_owner=?`)
-      .bind(status, reportId, leaseOwner).run()
-  }
-
-  async updateReportAnalysisProgress(
-    reportId: string,
-    progress: { completedAnalyses: number; expectedAnalyses: number },
-    leaseOwner: string,
-  ): Promise<void> {
-    await this.db.prepare(`UPDATE generated_reports SET analysis_completed=?, analysis_total=?
-      WHERE id=? AND status='pending' AND generation_lease_owner=?`)
-      .bind(progress.completedAnalyses, progress.expectedAnalyses, reportId, leaseOwner).run()
-  }
-
-  async clearJudgeBatch(reportId: string, leaseOwner: string): Promise<void> {
-    await this.db.prepare(`UPDATE generated_reports SET judge_batch_id=NULL, judge_batch_status=NULL
-      WHERE id=? AND status='pending' AND generation_lease_owner=?`)
-      .bind(reportId, leaseOwner).run()
+  async claimReportFinalization(reportId: string, now: string): Promise<string | null> {
+    const leaseOwner = crypto.randomUUID()
+    const leaseUntil = new Date(Date.parse(now) + REPORT_GENERATION_LEASE_MS).toISOString()
+    const result = await this.db.prepare(`UPDATE generated_reports SET generation_lease_until=?, generation_lease_owner=?
+      WHERE id=? AND status='pending' AND analysis_total>0 AND analysis_completed>=analysis_total
+        AND (generation_lease_owner IS NULL OR generation_lease_until IS NULL OR generation_lease_until<=?)`)
+      .bind(leaseUntil, leaseOwner, reportId, now).run()
+    return (result.meta?.changes ?? 0) > 0 ? leaseOwner : null
   }
 
   async prepareReportGeneration(reportId: string, now: string): Promise<{ report: GeneratedReportSummary; started: boolean; leaseOwner?: string } | null> {

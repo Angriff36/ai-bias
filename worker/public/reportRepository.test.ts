@@ -155,7 +155,7 @@ describe('generated report evidence preparation', () => {
     expect(prepared?.leaseOwner).toMatch(/^[0-9a-f-]{36}$/)
     expect(updates).toContainEqual([
       '2026-08-30T15:03:00.000Z', prepared?.leaseOwner,
-      'z-ai/glm-5.3-flash', 'x-ai/grok-4.6',
+      'openai/gpt-5.6-luna', 'x-ai/grok-4.6',
       'pending-report', '2026-08-30T15:00:50.000Z',
     ])
   })
@@ -268,33 +268,4 @@ describe('generated report evidence preparation', () => {
     }
   })
 
-  it('persists one active OpenRouter batch and guards its status changes with the generation lease', async () => {
-    const statements: Array<{ sql: string; bindings: unknown[] }> = []
-    const db: D1DatabaseLike = {
-      prepare(sql: string) {
-        let bindings: unknown[] = []
-        const statement: D1Statement = {
-          bind: (...args: unknown[]) => { bindings = args; return statement },
-          first: async <T>() => ({ judge_batch_id: 'batch-1', judge_batch_status: 'in_progress' }) as T,
-          all: async <T>() => ({ results: [] as T[] }),
-          run: async <T>() => { statements.push({ sql, bindings }); return { meta: { changes: 1 } } as D1Result<T> },
-        }
-        return statement
-      },
-      batch: async (batch) => batch.map(() => ({ meta: { changes: 1 } })),
-    }
-    const repo = new GeneratedReportRepository(db)
-
-    await repo.saveJudgeBatch('report', { id: 'batch-1', status: 'validating' }, 'owner-a')
-    expect(await repo.loadJudgeBatch('report')).toEqual({ id: 'batch-1', status: 'in_progress' })
-    await repo.updateJudgeBatchStatus('report', 'in_progress', 'owner-a')
-    await repo.clearJudgeBatch('report', 'owner-a')
-
-    expect(statements[0]?.sql).toContain('judge_batch_id IS NULL')
-    expect(statements).toHaveLength(3)
-    for (const statement of statements) {
-      expect(statement.sql).toContain('generation_lease_owner=?')
-      expect(statement.bindings.at(-1)).toBe('owner-a')
-    }
-  })
 })

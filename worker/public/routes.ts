@@ -3,11 +3,9 @@ import { scheduleAnalysis, type AiBindingLike, type ExecutionContextLike } from 
 import type { D1DatabaseLike } from './d1'
 import { quotaIdentity, runFreePair } from './freeRun'
 import { PublicRepository } from './repository'
-import { runReportGenerationStep } from './reportGeneration'
 import { renderReportHtml } from './reportHtml'
 import { GeneratedReportRepository } from './reportRepository'
-import { createReportModelClient } from './reportModelClient'
-import { createOpenRouterJudgeBatchClient } from './reportJudgeBatchApi'
+import { enqueueReportAnalyses, type ReportQueueProducer } from './reportQueue'
 import { CURATED_REPORTS } from './curatedReports'
 import { invalidateCachedReports, readCachedReports, writeCachedReports } from './readCache'
 import { ClaimRepository } from './claimRepository'
@@ -19,6 +17,7 @@ export interface PublicWorkerEnv {
   AI: AiBindingLike
   QUOTA_HMAC_SECRET: string
   OPENROUTER_API_KEY: string
+  REPORT_GENERATION_QUEUE: ReportQueueProducer
 }
 
 const json = (body: unknown, status = 200, extraHeaders?: HeadersInit) => new Response(JSON.stringify(body), {
@@ -46,7 +45,7 @@ export async function handlePublicApi(
     quotaHash(request: Request, secret: string): Promise<{ hash: string; cookie?: string }>
     freeRunner: typeof runFreePair
     schedule(thresholds: number[]): void
-    runReportStep?(reportId: string, leaseOwner: string): Promise<void>
+    enqueueReport?(reportId: string, leaseOwner: string): Promise<void>
   },
 ): Promise<Response | null> {
   const url = new URL(request.url)
@@ -57,14 +56,12 @@ export async function handlePublicApi(
   const reportRepository = injected?.reportRepository ?? new GeneratedReportRepository(env.PUBLIC_DB)
   const claimRepository = injected?.claimRepository ?? new ClaimRepository(env.PUBLIC_DB)
   const quotaHash = injected?.quotaHash ?? quotaIdentity
-  const reportStep = injected?.runReportStep ?? (async (reportId: string, leaseOwner: string) => {
-    const reportModels = createReportModelClient(env.OPENROUTER_API_KEY, url.origin)
-    const judgeBatches = createOpenRouterJudgeBatchClient(env.OPENROUTER_API_KEY, url.origin)
-    await runReportGenerationStep(reportModels, reportRepository as GeneratedReportRepository, reportId, judgeBatches, leaseOwner)
+  const enqueueReport = injected?.enqueueReport ?? (async (reportId: string, leaseOwner: string) => {
+    await enqueueReportAnalyses(env.REPORT_GENERATION_QUEUE, reportRepository as GeneratedReportRepository, reportId, leaseOwner)
   })
   const runClaimedReport = async (reportId: string, now: string) => {
     const prepared = await reportRepository.prepareReportGeneration(reportId, now)
-    if (prepared?.started && prepared.leaseOwner) await reportStep(reportId, prepared.leaseOwner)
+    if (prepared?.started && prepared.leaseOwner) await enqueueReport(reportId, prepared.leaseOwner)
     return (await reportRepository.listReports()).find((report) => report.id === reportId) ?? prepared?.report
   }
 
@@ -129,7 +126,7 @@ export async function handlePublicApi(
       invalidateCachedReports()
       if (!prepared) return json({ error: 'Report not found or already complete.' }, 404)
       if (prepared.started && prepared.leaseOwner) {
-        await reportStep(reportId, prepared.leaseOwner)
+        await enqueueReport(reportId, prepared.leaseOwner)
       }
       const report = (await reportRepository.listReports()).find((item) => item.id === reportId) ?? prepared.report
       return json({ report })

@@ -85,6 +85,18 @@ describe('public API routes', () => {
     expect(response?.status).toBe(200)
   })
 
+  it('does not run another generation step after a report is complete', async () => {
+    const deps = dependencies()
+    deps.reportRepository.prepareReportGeneration.mockResolvedValue(null as never)
+
+    const response = await handlePublicApi(new Request('https://ai-tests.com/api/public/reports/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/generate', {
+      method: 'POST', headers: { origin: 'https://ai-tests.com' },
+    }), {} as never, { waitUntil: vi.fn() }, deps as never)
+
+    expect(response?.status).toBe(404)
+    expect(deps.runReportStep).not.toHaveBeenCalled()
+  })
+
   it('lists claims and lets a person write one; the answer is computed, never typed', async () => {
     const deps = dependencies()
     const list = await handlePublicApi(new Request('https://ai-tests.com/api/public/claims'), {} as never, { waitUntil: vi.fn() }, deps as never)

@@ -4,7 +4,7 @@ import {
   type GeneratedReportDocument,
   type GeneratedReportPairScore,
 } from '../../src/public/contracts'
-import { groupCompleteMatchedSamples } from './matchedSampleIdentity'
+import { buildPairSampleId, groupCompleteMatchedSamples } from './matchedSampleIdentity'
 import { analyzeReportEvidence } from './reportExperimentAnalysis'
 import { RetryableReportCheckpointError, scoreAllPairsWithJudge } from './reportJudgeBatch'
 import type { ReportModelClient } from './reportModelClient'
@@ -67,19 +67,27 @@ export async function generateReport(
   const completeGroups = groupCompleteMatchedSamples(source.evidence)
   if (completeGroups.length === 0) throw new InvalidModelOutput('No complete evidence groups.')
   const existingScores = existingScoreMap(options?.existingPairScores)
-  const scoringWasComplete = existingScores.size >= completeGroups.length
   const modelDeadlineMs = options?.deadlineMs == null ? undefined : options.deadlineMs - REPORT_PERSISTENCE_RESERVE_MS
-  const judged = await scoreAllPairsWithJudge(judgeModels, source.row.scoringModelId, source.evidence, {
-    existingScores,
-    shouldStop: modelDeadlineMs == null ? undefined : () => Date.now() >= modelDeadlineMs,
-    deadlineMs: modelDeadlineMs,
-    onCheckpoint: options?.onCheckpoint,
+  const nextGroup = completeGroups.find((group) => {
+    const variantA = group.find((item) => item.variantKey === 'A')!
+    return !existingScores.has(buildPairSampleId(variantA))
   })
-  if (!judged.complete || (options?.deferSynthesisAfterScoring && !scoringWasComplete)) {
-    return { status: 'partial', pairScores: judged.pairScores }
+  if (nextGroup) {
+    const judged = await scoreAllPairsWithJudge(judgeModels, source.row.scoringModelId, nextGroup, {
+      shouldStop: modelDeadlineMs == null ? undefined : () => Date.now() >= modelDeadlineMs,
+      deadlineMs: modelDeadlineMs,
+      concurrency: 1,
+      onCheckpoint: options?.onCheckpoint,
+    })
+    for (const score of judged.pairScores) existingScores.set(score.pairSampleId, score)
+    return { status: 'partial', pairScores: [...existingScores.values()] }
   }
 
-  const analysis = analyzeReportEvidence(source.evidence, judged.pairScores)
+  const pairScores = completeGroups.map((group) => {
+    const variantA = group.find((item) => item.variantKey === 'A')!
+    return existingScores.get(buildPairSampleId(variantA))!
+  })
+  const analysis = analyzeReportEvidence(source.evidence, pairScores)
   const synthesisTimeoutMs = modelDeadlineMs == null ? undefined : Math.max(1, modelDeadlineMs - Date.now())
   const raw = await synthesisModels.complete(
     source.row.synthesisModelId,

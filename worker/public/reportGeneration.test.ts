@@ -62,8 +62,8 @@ function mockJudgeBatch(prompt: string): string {
 }
 
 describe('generated report pipeline', () => {
-  it('checkpoints judge scores, then synthesizes a rich report from scored analysis', async () => {
-    const evidence = fixtureEvidence(1)
+  it('checkpoints exactly one new pair per invocation before a later invocation synthesizes', async () => {
+    const evidence = fixtureEvidence(3)
     let savedScores: GeneratedReportPairScore[] = []
     const judge = vi.fn(async (_modelId: string, prompt: string) => mockJudgeBatch(prompt))
     const reportModel = vi.fn(async (_modelId: string, _prompt: string) => JSON.stringify({
@@ -93,7 +93,9 @@ describe('generated report pipeline', () => {
       })),
       loadPairScores: vi.fn(async () => savedScores),
       upsertPairScores: vi.fn(async (_reportId: string, scores: GeneratedReportPairScore[]) => {
-        savedScores = [...savedScores, ...scores]
+        const byId = new Map(savedScores.map((score) => [score.pairSampleId, score]))
+        for (const score of scores) byId.set(score.pairSampleId, score)
+        savedScores = [...byId.values()]
       }),
       completeReport: vi.fn(async () => undefined),
       failReport: vi.fn(async () => undefined),
@@ -109,6 +111,7 @@ describe('generated report pipeline', () => {
 
     expect(judge).toHaveBeenCalledWith('z-ai/glm-5.3-flash', expect.stringContaining('SCORING TASK'), 8192, { jsonObject: true })
     expect(savedScores).toHaveLength(1)
+    expect(JSON.parse((judge.mock.calls[0]?.[1] ?? '').split('CELLS:\n')[1] ?? '[]')).toHaveLength(1)
     expect(reportModel).not.toHaveBeenCalled()
     expect(repository.completeReport).not.toHaveBeenCalled()
 
@@ -116,7 +119,26 @@ describe('generated report pipeline', () => {
       { complete: reportModel }, repository, 'report-timebox', { complete: judge }, 'owner-a',
     )
 
-    expect(judge).toHaveBeenCalledTimes(1)
+    expect(judge).toHaveBeenCalledTimes(2)
+    expect(savedScores).toHaveLength(2)
+    expect(new Set(savedScores.map((score) => score.pairSampleId)).size).toBe(2)
+    expect(reportModel).not.toHaveBeenCalled()
+
+    await processReportChunk(
+      { complete: reportModel }, repository, 'report-timebox', { complete: judge }, 'owner-a',
+    )
+
+    expect(judge).toHaveBeenCalledTimes(3)
+    expect(savedScores).toHaveLength(3)
+    expect(new Set(savedScores.map((score) => score.pairSampleId)).size).toBe(3)
+    expect(reportModel).not.toHaveBeenCalled()
+    expect(repository.completeReport).not.toHaveBeenCalled()
+
+    await processReportChunk(
+      { complete: reportModel }, repository, 'report-timebox', { complete: judge }, 'owner-a',
+    )
+
+    expect(judge).toHaveBeenCalledTimes(3)
     expect(reportModel).toHaveBeenCalledWith(
       'x-ai/grok-4.6', expect.stringContaining('"pooledDimensions"'), 4096, { jsonObject: true },
     )

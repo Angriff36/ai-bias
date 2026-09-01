@@ -1,4 +1,6 @@
 import { useCallback } from 'react'
+import './submittedPrompts.css'
+import './conclusions.css'
 import type { ClaimFinding, PublicClaim, PublicLeaderboard } from './contracts'
 import { getPublicLeaderboard, listClaims } from './client'
 import { verdictLabel } from './conclusionsRow'

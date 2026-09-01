@@ -7,6 +7,7 @@ import App from './App'
 const completeOAuth = vi.hoisted(() => vi.fn())
 const listGeneratedReports = vi.hoisted(() => vi.fn())
 const getPublicLeaderboard = vi.hoisted(() => vi.fn())
+const health = vi.hoisted(() => vi.fn())
 
 vi.mock('./openrouter/oauth', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./openrouter/oauth')>()
@@ -19,11 +20,7 @@ vi.mock('./api', async (importOriginal) => {
     ...actual,
     api: {
       ...actual.api,
-      health: vi.fn().mockResolvedValue({
-        ok: true,
-        schemaVersion: 10,
-        runtime: 'browser-local',
-      }),
+      health,
       listReports: vi.fn().mockResolvedValue([]),
     },
   }
@@ -46,6 +43,8 @@ describe('application navigation', () => {
     completeOAuth.mockResolvedValue({ connected: false, returnHash: '' })
     listGeneratedReports.mockReset()
     getPublicLeaderboard.mockReset()
+    health.mockReset()
+    health.mockResolvedValue({ ok: true, schemaVersion: 10, runtime: 'browser-local' })
     getPublicLeaderboard.mockResolvedValue({
       totals: { runs: 0, responses: 0, completePairs: 0, models: 0, questions: 0 },
       topQuestions: [], models: [], latestAnalysis: null, analysisPending: false, latestReport: null, reportPending: false, recentEvidence: [],
@@ -97,6 +96,16 @@ describe('application navigation', () => {
     expect(getPublicLeaderboard).not.toHaveBeenCalled()
   })
 
+  it('opens a public route without initializing the private SQL workspace', async () => {
+    window.history.replaceState({}, '', '/#/conclusions')
+    window.location.hash = '#/conclusions'
+
+    render(<App />)
+
+    await screen.findByRole('heading', { name: 'Conclusions' })
+    expect(health).not.toHaveBeenCalled()
+  })
+
   it('polls pending report status without invoking report generation', async () => {
     vi.useFakeTimers()
     listGeneratedReports.mockResolvedValue([
@@ -120,6 +129,15 @@ describe('application navigation', () => {
       unmount()
       await vi.advanceTimersByTimeAsync(100_000)
     })
+  })
+
+  it('stops report polling when every report is complete', async () => {
+    vi.useFakeTimers()
+    await act(async () => { render(<App />) })
+
+    expect(listGeneratedReports).toHaveBeenCalledTimes(1)
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000) })
+    expect(listGeneratedReports).toHaveBeenCalledTimes(1)
   })
 
   it('refreshes a changing pending list through GET polling only', async () => {

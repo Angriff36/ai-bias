@@ -1,4 +1,6 @@
 import { useCallback, useMemo, useState, type FormEvent } from 'react'
+import './submittedPrompts.css'
+import './conclusions.css'
 import type { GeneratedReportSummary, PublicClaim, PublicClaimRequest, PublicLeaderboard, PublicQuestionSummary } from './contracts'
 import { createClaim, getPublicLeaderboard, listClaims, listGeneratedReports } from './client'
 import {

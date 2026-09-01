@@ -117,6 +117,43 @@ describe('public API routes', () => {
     expect(deps.claimRepository.create).toHaveBeenCalledWith('Does the model recommend lower salaries for women?', ['salary'], expect.any(String))
   })
 
+  it('hands stale claim reevaluation to the Worker background context', async () => {
+    const deps = dependencies()
+    const background = Promise.resolve()
+    deps.claimRepository.list.mockImplementation(async (options?: { deferEvaluation?: (run: () => Promise<void>) => void }) => {
+      options?.deferEvaluation?.(() => background)
+      return []
+    })
+    const waitUntil = vi.fn()
+
+    const response = await handlePublicApi(
+      new Request('https://ai-tests.com/api/public/claims'),
+      {} as never,
+      { waitUntil },
+      deps as never,
+    )
+
+    expect(response?.status).toBe(200)
+    expect(waitUntil).toHaveBeenCalledWith(background)
+  })
+
+  it('prevents an in-progress report list from being cached between progress polls', async () => {
+    const deps = dependencies()
+    deps.reportRepository.listReports.mockResolvedValue([{
+      id: 'report-1', scope: 'run', status: 'pending', title: null, responseCount: 0, completePairs: 0, modelCount: 0,
+      progress: { completedAnalyses: 4, expectedAnalyses: 10 }, createdAt: 'now', completedAt: null,
+    }] as never)
+
+    const response = await handlePublicApi(
+      new Request('https://ai-tests.com/api/public/reports'),
+      {} as never,
+      { waitUntil: vi.fn() },
+      deps as never,
+    )
+
+    expect(response?.headers.get('Cache-Control')).toBe('no-store')
+  })
+
   it('claims eligible reports, lists them, and serves safe standalone HTML', async () => {
     const deps = dependencies()
     const post = await handlePublicApi(new Request('https://ai-tests.com/api/public/reports', {

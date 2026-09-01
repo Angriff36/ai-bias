@@ -9,6 +9,7 @@ import { enqueueReportAnalyses, type ReportQueueProducer } from './reportQueue'
 import { CURATED_REPORTS } from './curatedReports'
 import { invalidateCachedReports, readCachedReports, writeCachedReports } from './readCache'
 import { ClaimRepository } from './claimRepository'
+import type { ClaimListOptions } from './claimRepository'
 import { createOpenRouterClaimEvaluator } from './claimAdjudication'
 
 const PUBLIC_CACHE_CONTROL = 'public, max-age=60, stale-while-revalidate=300'
@@ -42,7 +43,9 @@ export async function handlePublicApi(
   injected?: {
     repository: Pick<PublicRepository, 'publish' | 'getLeaderboard' | 'getQuestionDetail' | 'getAllowance'>
     reportRepository: Pick<GeneratedReportRepository, 'claimRunReport' | 'claimCurrentGlobalReport' | 'claimQuestionSetReport' | 'listReports' | 'getReportDocument' | 'prepareReportGeneration'>
-    claimRepository?: Pick<ClaimRepository, 'list' | 'create'>
+    claimRepository?: Pick<ClaimRepository, 'create'> & {
+      list(options?: ClaimListOptions): ReturnType<ClaimRepository['list']>
+    }
     quotaHash(request: Request, secret: string): Promise<{ hash: string; cookie?: string }>
     freeRunner: typeof runFreePair
     schedule(thresholds: number[]): void
@@ -88,7 +91,7 @@ export async function handlePublicApi(
       const reports = cached ?? [...CURATED_REPORTS, ...await reportRepository.listReports()]
       if (!cached) writeCachedReports(reports)
       const response = json({ reports })
-      response.headers.set('Cache-Control', PUBLIC_CACHE_CONTROL)
+      response.headers.set('Cache-Control', reports.some((report) => report.status !== 'complete') ? 'no-store' : PUBLIC_CACHE_CONTROL)
       return response
     }
     if (url.pathname === '/api/public/reports' && request.method === 'POST') {
@@ -165,7 +168,8 @@ export async function handlePublicApi(
       return json({ runId: result.runId, duplicate: result.duplicate }, result.duplicate ? 200 : 201)
     }
     if (url.pathname === '/api/public/claims' && request.method === 'GET') {
-      return json({ claims: await claimRepository.list() }, 200, { 'Cache-Control': PUBLIC_CACHE_CONTROL })
+      const claims = await claimRepository.list({ deferEvaluation: (run) => context.waitUntil(run()) })
+      return json({ claims }, 200, { 'Cache-Control': PUBLIC_CACHE_CONTROL })
     }
     if (url.pathname === '/api/public/claims' && request.method === 'POST') {
       const parsed = publicClaimRequestSchema.parse(await readJson(request))

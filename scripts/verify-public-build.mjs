@@ -24,12 +24,32 @@ async function filesBelow(directory) {
 }
 
 const failures = []
-for (const file of await filesBelow(root)) {
+const files = await filesBelow(root)
+for (const file of files) {
   if (!textExtensions.has(extname(file).toLowerCase())) continue
   const contents = await readFile(file, 'utf8')
   for (const check of forbidden) {
     if (check.pattern.test(contents)) failures.push(`${check.label}: ${relative(root, file)}`)
   }
+}
+
+const indexHtml = await readFile(join(root, 'index.html'), 'utf8')
+const entryMatch = indexHtml.match(/<script[^>]+src="([^"]+\.js)"/)
+if (!entryMatch) {
+  failures.push('Initial JavaScript entry was not found in index.html')
+} else {
+  const entryPath = join(root, entryMatch[1].replace(/^\//, ''))
+  const entryBytes = (await readFile(entryPath)).byteLength
+  if (entryBytes > 250_000) failures.push(`Initial JavaScript exceeds 250000-byte budget: ${relative(root, entryPath)} (${entryBytes} bytes)`)
+}
+const styleTag = indexHtml.match(/<link[^>]+rel="stylesheet"[^>]*>/)?.[0]
+const styleMatch = styleTag?.match(/href="([^"]+\.css)"/)
+if (!styleMatch) {
+  failures.push('Initial stylesheet was not found in index.html')
+} else {
+  const stylePath = join(root, styleMatch[1].replace(/^\//, ''))
+  const styleBytes = (await readFile(stylePath)).byteLength
+  if (styleBytes > 90_000) failures.push(`Initial stylesheet exceeds 90000-byte budget: ${relative(root, stylePath)} (${styleBytes} bytes)`)
 }
 
 if (failures.length > 0) {

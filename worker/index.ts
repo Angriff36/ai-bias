@@ -4,6 +4,7 @@ import { createOpenRouterReportJudgeClient } from './public/reportJudgeClient'
 import { processReportQueueMessage, type ReportQueueDelivery, type ReportQueueMessage } from './public/reportQueue'
 import { createReportModelClient } from './public/reportModelClient'
 import { runReportFinalizationStep } from './public/reportGeneration'
+import type { PublicEdgeCache } from './public/edgeCache'
 
 interface QueueBatchLike {
   messages: Array<ReportQueueDelivery & { body: ReportQueueMessage }>
@@ -11,7 +12,8 @@ interface QueueBatchLike {
 
 export default {
   fetch(request: Request, env: WorkerEnv, context: { waitUntil(promise: Promise<unknown>): void }): Promise<Response> {
-    return routeWorkerRequest(request, env, context)
+    const runtime = globalThis as typeof globalThis & { caches?: { default?: PublicEdgeCache } }
+    return routeWorkerRequest(request, env, context, runtime.caches?.default)
   },
   async queue(batch: QueueBatchLike, env: WorkerEnv): Promise<void> {
     if (!env.PUBLIC_DB || !env.OPENROUTER_API_KEY) throw new Error('Report queue bindings are unavailable.')

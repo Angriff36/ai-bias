@@ -33,6 +33,7 @@ interface Props {
   missingGroups?: MissingGroupsRequest
   mode?: 'create' | 'edit'
   embedded?: boolean
+  purpose?: 'experiment' | 'proposal'
 }
 
 interface PromptVariant {
@@ -82,8 +83,9 @@ function canonicalMatchedQuestion(reference: string, comparison: string): string
 
 export function NewBiasTestWizard({
   onCreate, isDuplicateName, onClose, onCreated, initialPrompt, initialName,
-  initialValue, missingGroups, mode = 'create', embedded = false,
+  initialValue, missingGroups, mode = 'create', embedded = false, purpose = 'experiment',
 }: Props) {
+  const proposing = purpose === 'proposal'
   const initialVariants = useMemo<PromptVariant[]>(() => {
     if (!initialValue?.pairs.length) return []
     return [
@@ -217,7 +219,7 @@ export function NewBiasTestWizard({
       className={embedded ? 'wizard wizard-embedded' : 'wizard'}
       role={embedded ? undefined : 'dialog'}
       aria-modal={embedded ? undefined : true}
-      aria-label={mode === 'edit' ? 'Edit experiment prompts' : 'New bias test wizard'}
+      aria-label={proposing ? 'Propose a public question' : (mode === 'edit' ? 'Edit experiment prompts' : 'New bias test wizard')}
     >
       <div className="wizard-body">
         {mode === 'create' && missingGroups && variants.length < 2 && (
@@ -238,9 +240,9 @@ export function NewBiasTestWizard({
         {mode === 'create' && !(missingGroups && variants.length < 2) && (
           <section className="wz-stage wz-stage-prompt" aria-labelledby="wz-source-title">
             <header className="wz-stage-header">
-              <p className="wz-stage-eyebrow">NEW EXPERIMENT / SETUP</p>
-              <h2 id="wz-source-title" ref={headingRef} tabIndex={-1}>Set up your experiment</h2>
-              <p>Start with the exact source material you want to test. AI Bias Lab will detect useful replacement shortcuts.</p>
+              <p className="wz-stage-eyebrow">{proposing ? 'PROPOSE A QUESTION / SETUP' : 'NEW EXPERIMENT / SETUP'}</p>
+              <h2 id="wz-source-title" ref={headingRef} tabIndex={-1}>{proposing ? 'Propose a matched question' : 'Set up your experiment'}</h2>
+              <p>{proposing ? 'Write the exact prompt and define every group comparison you want the community to test.' : 'Start with the exact source material you want to test. AI Bias Lab will detect useful replacement shortcuts.'}</p>
             </header>
 
             <div className="wz-source-workspace" role="group" aria-label="Source prompt">
@@ -257,8 +259,9 @@ export function NewBiasTestWizard({
                 aria-describedby="wz-prompt-help wz-count"
               />
               <div className="wz-source-tools">
-                <p id="wz-prompt-help">No API key needed to complete setup.</p>
+                <p id="wz-prompt-help">{proposing ? 'No API key needed to propose a question.' : 'No API key needed to complete setup.'}</p>
                 <div className="wz-source-actions">
+                  <button type="button" className="secondary" onClick={onClose}>Cancel</button>
                   <button
                     type="button"
                     className="secondary"
@@ -280,7 +283,7 @@ export function NewBiasTestWizard({
         {variants.length >= 2 && (
           <section className="wz-stage wz-stage-match" aria-labelledby="wz-match-title">
             <header className="wz-stage-header">
-              <p className="wz-stage-eyebrow">{mode === 'edit' ? 'EDIT EXPERIMENT / MATCHED PROMPTS' : 'NEW EXPERIMENT / MATCHED PROMPTS'}</p>
+              <p className="wz-stage-eyebrow">{proposing ? 'PROPOSE A QUESTION / MATCHED PROMPTS' : (mode === 'edit' ? 'EDIT EXPERIMENT / MATCHED PROMPTS' : 'NEW EXPERIMENT / MATCHED PROMPTS')}</p>
               <h2 id="wz-match-title" ref={mode === 'edit' ? headingRef : undefined} tabIndex={-1}>Create matched prompts</h2>
               <p>Prompt 2 starts as an exact copy. Click any highlighted variable to replace it, or edit any prompt directly.</p>
             </header>
@@ -389,8 +392,8 @@ export function NewBiasTestWizard({
 
             <section className="wz-experiment-details" aria-labelledby="wz-details-title">
               <div className="wz-details-heading">
-                <p id="wz-details-title" className="wz-section-label">Experiment details</p>
-                <span>Used to identify this study in your research archive.</span>
+                <p id="wz-details-title" className="wz-section-label">{proposing ? 'Proposal details' : 'Experiment details'}</p>
+                <span>{proposing ? 'Shown publicly while the question waits for evidence.' : 'Used to identify this study in your research archive.'}</span>
               </div>
 
               <fieldset className="wz-sampling-mode" aria-labelledby="wz-sampling-title">
@@ -421,7 +424,7 @@ export function NewBiasTestWizard({
                 </label>
               </fieldset>
 
-              <label htmlFor="wz-name" className="wz-label">Experiment name</label>
+              <label htmlFor="wz-name" className="wz-label">{proposing ? 'Proposal name' : 'Experiment name'}</label>
               <input
                 id="wz-name"
                 className="wz-input"
@@ -461,7 +464,7 @@ export function NewBiasTestWizard({
             <div className="wz-create-actions">
               <button type="button" className="secondary" onClick={onClose}>Cancel</button>
               <button type="button" className="primary wz-create" onClick={create} disabled={creating || !promptsReady}>
-                {creating ? (mode === 'edit' ? 'Saving…' : 'Creating…') : (mode === 'edit' ? 'Save changes' : 'Create Experiment')}
+                {creating ? (proposing ? 'Publishing…' : (mode === 'edit' ? 'Saving…' : 'Creating…')) : (proposing ? 'Publish question' : (mode === 'edit' ? 'Save changes' : 'Create Experiment'))}
               </button>
             </div>
           </section>

@@ -1,4 +1,4 @@
-import { freeRunRequestSchema, generatedReportRequestSchema, publicClaimRequestSchema, publicQuestionDetailSchema, publicSubmissionSchema } from '../../src/public/contracts'
+import { freeRunRequestSchema, generatedReportRequestSchema, publicClaimRequestSchema, publicQuestionDetailSchema, publicQuestionProposalRequestSchema, publicSubmissionSchema } from '../../src/public/contracts'
 import { scheduleAnalysis, type AiBindingLike, type ExecutionContextLike } from './analysis'
 import type { D1DatabaseLike } from './d1'
 import { quotaIdentity, runFreePair } from './freeRun'
@@ -11,6 +11,7 @@ import { invalidateCachedReports, readCachedReports, writeCachedReports } from '
 import { ClaimRepository } from './claimRepository'
 import type { ClaimListOptions } from './claimRepository'
 import { createOpenRouterClaimEvaluator } from './claimAdjudication'
+import { QuestionProposalRepository } from './questionProposalRepository'
 
 const PUBLIC_CACHE_CONTROL = 'public, max-age=60, stale-while-revalidate=300'
 
@@ -46,6 +47,7 @@ export async function handlePublicApi(
     claimRepository?: Pick<ClaimRepository, 'create'> & {
       list(options?: ClaimListOptions): ReturnType<ClaimRepository['list']>
     }
+    questionProposalRepository?: Pick<QuestionProposalRepository, 'create' | 'list' | 'get' | 'reconcilePublishedRun'>
     quotaHash(request: Request, secret: string): Promise<{ hash: string; cookie?: string }>
     freeRunner: typeof runFreePair
     schedule(thresholds: number[]): void
@@ -62,6 +64,7 @@ export async function handlePublicApi(
     env.PUBLIC_DB,
     createOpenRouterClaimEvaluator(env.OPENROUTER_API_KEY, url.origin),
   )
+  const questionProposalRepository = injected?.questionProposalRepository ?? new QuestionProposalRepository(env.PUBLIC_DB)
   const quotaHash = injected?.quotaHash ?? quotaIdentity
   const enqueueReport = injected?.enqueueReport ?? (async (reportId: string, leaseOwner: string) => {
     await enqueueReportAnalyses(env.REPORT_GENERATION_QUEUE, reportRepository as GeneratedReportRepository, reportId, leaseOwner)
@@ -75,6 +78,25 @@ export async function handlePublicApi(
   try {
     if (url.pathname === '/api/public/leaderboard' && request.method === 'GET') {
       const response = json(await repository.getLeaderboard())
+      response.headers.set('Cache-Control', PUBLIC_CACHE_CONTROL)
+      return response
+    }
+    if (url.pathname === '/api/public/question-proposals' && request.method === 'GET') {
+      const status = url.searchParams.get('status') === 'answered' ? 'answered' : 'unanswered'
+      const response = json({ proposals: await questionProposalRepository.list(status) })
+      response.headers.set('Cache-Control', PUBLIC_CACHE_CONTROL)
+      return response
+    }
+    if (url.pathname === '/api/public/question-proposals' && request.method === 'POST') {
+      const parsed = publicQuestionProposalRequestSchema.parse(await readJson(request))
+      const created = await questionProposalRepository.create(parsed, new Date().toISOString())
+      return json({ proposal: created.proposal }, created.kind === 'duplicate' ? 200 : 201)
+    }
+    const proposalDetail = url.pathname.match(/^\/api\/public\/question-proposals\/([0-9a-f-]{36})$/)
+    if (proposalDetail && request.method === 'GET') {
+      const proposal = await questionProposalRepository.get(proposalDetail[1])
+      if (!proposal) return json({ error: 'Question proposal not found.' }, 404)
+      const response = json({ proposal })
       response.headers.set('Cache-Control', PUBLIC_CACHE_CONTROL)
       return response
     }
@@ -161,7 +183,9 @@ export async function handlePublicApi(
     if (url.pathname === '/api/public/submissions' && request.method === 'POST') {
       const parsed = publicSubmissionSchema.parse(await readJson(request))
       if (parsed.source !== 'visitor-provider') return json({ error: 'Free-trial evidence is recorded by the server.' }, 400)
-      const result = await repository.publish(parsed, new Date().toISOString())
+      const receivedAt = new Date().toISOString()
+      const result = await repository.publish(parsed, receivedAt)
+      await questionProposalRepository.reconcilePublishedRun(result.runId, receivedAt)
       const runSchedule = injected?.schedule ?? ((thresholds: number[]) => scheduleAnalysis(env.AI, context, repository as PublicRepository, thresholds))
       if (result.crossedThresholds.length) runSchedule(result.crossedThresholds)
       // Reports are started by a person (VISION.md §5); publishing never starts one.

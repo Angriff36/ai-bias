@@ -4,6 +4,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { api, type ExperimentPage } from '../api'
 import { ExperimentHistoryList } from './ExperimentHistoryList'
+import { PENDING_QUESTION_FUNDING_KEY } from '../public/questionProposalFunding'
 
 vi.mock('../api', () => ({
   api: {
@@ -55,6 +56,26 @@ afterEach(() => {
 })
 
 describe('experiments evidence dashboard', () => {
+  it('imports a funded question exactly as proposed, then opens its local experiment', async () => {
+    const proposal = {
+      id: 'proposal', questionKey: 'support [group]', questionText: 'Support [group]', name: 'Community support', description: 'Compare support.', samplingMode: 'shared-anchor',
+      status: 'unanswered', createdAt: 'now', answeredAt: null, firstRunId: null,
+      pairs: [{ id: 'pair', question: 'Support [group]', variantA: { label: 'White', prompt: 'Support White' }, variantB: { label: 'Black', prompt: 'Support Black' } }],
+    }
+    sessionStorage.setItem(PENDING_QUESTION_FUNDING_KEY, JSON.stringify(proposal))
+    vi.mocked(api.importExperiment).mockResolvedValue({ id: 73, name: proposal.name } as never)
+
+    render(<ExperimentHistoryList />)
+
+    expect(await screen.findByRole('heading', { name: /Adding this question/ })).toBeTruthy()
+    await vi.waitFor(() => expect(window.location.hash).toBe('#/experiments/73'))
+    expect(api.importExperiment).toHaveBeenCalledOnce()
+    expect(api.importExperiment).toHaveBeenCalledWith({
+      schemaVersion: 1, name: proposal.name, description: proposal.description, repeats: 1,
+      samplingMode: proposal.samplingMode, pairs: proposal.pairs,
+    })
+  })
+
   it('leads with real research evidence instead of CRUD status columns', async () => {
     render(<ExperimentHistoryList />)
 

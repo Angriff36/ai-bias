@@ -9,6 +9,7 @@ export interface PublicEdgeCache {
 const CACHEABLE_PUBLIC_PATHS = [
   /^\/api\/public\/leaderboard$/,
   /^\/api\/public\/claims$/,
+  /^\/api\/public\/question-proposals(?:\/[0-9a-f-]{36})?$/,
   /^\/api\/public\/questions\/[^/]+$/,
   /^\/api\/public\/reports\/[A-Za-z0-9-]+(?:\.html)?$/,
 ]
@@ -33,10 +34,18 @@ function invalidatedUrls(request: Request): string[] {
   if (request.method === 'GET') return []
   const url = new URL(request.url)
   if (url.pathname === '/api/public/claims') return [new URL('/api/public/claims', url).toString()]
+  if (url.pathname === '/api/public/question-proposals') {
+    return [
+      new URL('/api/public/question-proposals?status=unanswered', url).toString(),
+      new URL('/api/public/question-proposals?status=answered', url).toString(),
+    ]
+  }
   if (url.pathname === '/api/public/submissions') {
     return [
       new URL('/api/public/leaderboard', url).toString(),
       new URL('/api/public/claims', url).toString(),
+      new URL('/api/public/question-proposals?status=unanswered', url).toString(),
+      new URL('/api/public/question-proposals?status=answered', url).toString(),
     ]
   }
   if (url.pathname === '/api/public/reports' || /^\/api\/public\/reports\/[A-Za-z0-9-]+\/generate$/.test(url.pathname)) {

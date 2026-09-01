@@ -78,4 +78,25 @@ describe('public edge cache', () => {
     expect(await refreshed.json()).toEqual({ version: 2 })
     expect(refreshed.headers.get('X-AI-Bias-Cache')).toBe('MISS')
   })
+
+  it('invalidates unanswered proposals after a proposal is created or evidence answers one', async () => {
+    const cache = memoryCache()
+    const waits: Promise<unknown>[] = []
+    const context = { waitUntil: (promise: Promise<unknown>) => waits.push(promise) }
+    const url = 'https://ai-tests.com/api/public/question-proposals?status=unanswered'
+    const response = () => new Response('{"proposals":[]}', { headers: { 'Cache-Control': 'public, max-age=60' } })
+
+    await serveCachedPublicRead(new Request(url), cache, context, async () => response())
+    await Promise.all(waits.splice(0))
+    await serveCachedPublicRead(new Request('https://ai-tests.com/api/public/question-proposals', { method: 'POST' }), cache, context, async () => new Response('created', { status: 201 }))
+    await Promise.all(waits.splice(0))
+    const afterCreate = await serveCachedPublicRead(new Request(url), cache, context, async () => response())
+    expect(afterCreate.headers.get('X-AI-Bias-Cache')).toBe('MISS')
+
+    await Promise.all(waits.splice(0))
+    await serveCachedPublicRead(new Request('https://ai-tests.com/api/public/submissions', { method: 'POST' }), cache, context, async () => new Response('created', { status: 201 }))
+    await Promise.all(waits.splice(0))
+    const afterEvidence = await serveCachedPublicRead(new Request(url), cache, context, async () => response())
+    expect(afterEvidence.headers.get('X-AI-Bias-Cache')).toBe('MISS')
+  })
 })

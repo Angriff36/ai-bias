@@ -30,6 +30,8 @@ vi.mock('./public/client', () => ({
   getPublicLeaderboard,
   listGeneratedReports,
   listClaims: vi.fn().mockResolvedValue([]),
+  listQuestionProposals: vi.fn().mockResolvedValue([]),
+  createQuestionProposal: vi.fn(),
   createClaim: vi.fn(),
   requestQuestionSetReport: vi.fn(),
 }))

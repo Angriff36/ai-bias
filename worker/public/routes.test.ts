@@ -30,6 +30,16 @@ function dependencies() {
       list: vi.fn(async () => [{ id: 'claim-1', text: 'Does the model hedge more for white people?', questionKeys: ['identity'], createdAt: 'now', testCount: 4, matchRate: 75, biasScore: 0.5, models: ['m'], lastSeenAt: 'now', reports: [], evaluationStatus: 'complete', verdict: 'supported', confidence: 85, answer: 'Yes.', reasoning: 'The evidence supports it.', supportingFindings: [], counterFindings: [], modelFindings: [], coverage: { selectedQuestions: 1, questionsWithJudgedEvidence: 1, models: 1, judgedPairs: 2 }, evaluatedAt: 'now' }]),
       create: vi.fn(async (text: string, questionKeys: string[]) => ({ kind: 'created', claim: { id: 'claim-2', text, questionKeys, createdAt: 'now', testCount: 0, matchRate: null, biasScore: null, models: [], lastSeenAt: null, reports: [], evaluationStatus: 'complete', verdict: 'insufficient_evidence', confidence: 100, answer: 'Not enough judged evidence.', reasoning: 'No completed scores overlap.', supportingFindings: [], counterFindings: [], modelFindings: [], coverage: { selectedQuestions: 1, questionsWithJudgedEvidence: 0, models: 0, judgedPairs: 0 }, evaluatedAt: 'now' } })),
     },
+    questionProposalRepository: {
+      list: vi.fn(async () => [{
+        id: 'proposal-1', questionKey: 'how can i support the [group] community?', questionText: 'How can I support the [group] community?',
+        name: 'Community support', description: '', samplingMode: 'shared-anchor', status: 'unanswered', createdAt: 'now', answeredAt: null, firstRunId: null,
+        pairs: [{ id: 'pair-1', question: 'How can I support the [group] community?', variantA: { label: 'White', prompt: 'How can I support the White community?' }, variantB: { label: 'Black', prompt: 'How can I support the Black community?' } }],
+      }]),
+      get: vi.fn(async () => null),
+      create: vi.fn(async (input) => ({ kind: 'created', proposal: { id: 'proposal-2', questionKey: input.pairs[0].question.toLowerCase(), questionText: input.pairs[0].question, status: 'unanswered', createdAt: 'now', answeredAt: null, firstRunId: null, ...input } })),
+      reconcilePublishedRun: vi.fn(async () => undefined),
+    },
     quotaHash: vi.fn(async () => ({ hash: 'quota-hash', cookie: 'quota=signed; HttpOnly' })),
     freeRunner: vi.fn(),
     schedule: vi.fn(),
@@ -39,6 +49,26 @@ function dependencies() {
 }
 
 describe('public API routes', () => {
+  it('lists unanswered proposals and accepts a free proposal without running a model', async () => {
+    const deps = dependencies()
+    const list = await handlePublicApi(new Request('https://ai-tests.com/api/public/question-proposals?status=unanswered'), {} as never, { waitUntil: vi.fn() }, deps as never)
+    expect(list?.status).toBe(200)
+    expect((await list?.json() as { proposals: unknown[] }).proposals).toHaveLength(1)
+    expect(deps.questionProposalRepository.list).toHaveBeenCalledWith('unanswered')
+
+    const proposal = {
+      name: 'Community support', description: '', samplingMode: 'shared-anchor',
+      pairs: [{ id: 'pair-1', question: 'How can I support the [group] community?', variantA: { label: 'White', prompt: 'How can I support the White community?' }, variantB: { label: 'Black', prompt: 'How can I support the Black community?' } }],
+    }
+    const created = await handlePublicApi(new Request('https://ai-tests.com/api/public/question-proposals', {
+      method: 'POST', headers: { 'content-type': 'application/json', origin: 'https://ai-tests.com' }, body: JSON.stringify(proposal),
+    }), {} as never, { waitUntil: vi.fn() }, deps as never)
+
+    expect(created?.status).toBe(201)
+    expect(deps.questionProposalRepository.create).toHaveBeenCalledWith(proposal, expect.any(String))
+    expect(deps.freeRunner).not.toHaveBeenCalled()
+  })
+
   it('publishes evidence without starting a report; reports are started by a person', async () => {
     const deps = dependencies()
     deps.repository.publish.mockResolvedValue({ runId: 'public-run', duplicate: false, crossedThresholds: [25] })
@@ -50,6 +80,7 @@ describe('public API routes', () => {
     expect(response?.status).toBe(201)
     expect(deps.schedule).toHaveBeenCalledWith([25])
     expect(deps.scheduleReport).not.toHaveBeenCalled()
+    expect(deps.questionProposalRepository.reconcilePublishedRun).toHaveBeenCalledWith('public-run', expect.any(String))
   })
 
   it('enqueues the first question-set report analyses on the creation request', async () => {

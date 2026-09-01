@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import './submittedPrompts.css'
 import './conclusions.css'
-import type { GeneratedReportSummary, PublicLeaderboard, PublicQuestionSummary } from './contracts'
-import { getPublicLeaderboard, listGeneratedReports, requestQuestionSetReport } from './client'
+import type { GeneratedReportSummary, PublicLeaderboard, PublicQuestionProposal, PublicQuestionSummary } from './contracts'
+import { getPublicLeaderboard, listGeneratedReports, listQuestionProposals, requestQuestionSetReport } from './client'
 import { evidenceTime } from './leaderboardUi'
 import { questionLeaderboardHref } from './questionKeys'
 import { PROMPT_PAGE_SIZES, type PromptPageSize } from './submittedPromptFeed'
@@ -10,6 +10,8 @@ import { usePublicFetch } from './usePublicFetch'
 import { MISSING_GROUPS_KEY, type MissingGroupsRequest } from '../wizard/missingGroups'
 import { invalidatePublicCache } from './publicApiCache'
 import { ReportGenerationProgress } from './ReportGenerationProgress'
+import { QuestionProposalComposer } from './QuestionProposalComposer'
+import { beginQuestionFunding } from './questionProposalFunding'
 
 /** Open the experiment wizard on this question so the user can pick the groups it has not asked about. */
 function addMissingGroups(question: PublicQuestionSummary) {
@@ -27,10 +29,12 @@ export function LeaderboardPage({
   load = getPublicLeaderboard,
   startReport = requestQuestionSetReport,
   loadReports = listGeneratedReports,
+  loadProposals = listQuestionProposals,
 }: {
   load?: () => Promise<PublicLeaderboard>
   startReport?: (questionKeys: string[]) => Promise<GeneratedReportSummary>
   loadReports?: () => Promise<GeneratedReportSummary[]>
+  loadProposals?: (status: 'unanswered' | 'answered') => Promise<PublicQuestionProposal[]>
 }) {
   const loadLeaderboard = useCallback(() => load(), [load])
   const { data, error, loading, refreshing, retry } = usePublicFetch('leaderboard', loadLeaderboard)
@@ -42,10 +46,28 @@ export function LeaderboardPage({
   const [progressOpen, setProgressOpen] = useState(false)
   const [reportQuestionCount, setReportQuestionCount] = useState(0)
   const [activeReport, setActiveReport] = useState<GeneratedReportSummary | null>(null)
+  const [questionTab, setQuestionTab] = useState<'answered' | 'unanswered'>('answered')
+  const [proposals, setProposals] = useState<PublicQuestionProposal[]>([])
+  const [proposalLoading, setProposalLoading] = useState(false)
+  const [proposalError, setProposalError] = useState<string | null>(null)
+  const [proposalComposerOpen, setProposalComposerOpen] = useState(false)
+  const [proposalRefresh, setProposalRefresh] = useState(0)
 
   const questions = data?.topQuestions ?? []
   const visible = questions.slice(0, pageSize)
   const reportInFlight = starting || activeReport?.status === 'pending'
+
+  useEffect(() => {
+    if (questionTab !== 'unanswered') return
+    let mounted = true
+    setProposalLoading(true)
+    setProposalError(null)
+    loadProposals('unanswered')
+      .then((items) => { if (mounted) setProposals(items) })
+      .catch((cause: unknown) => { if (mounted) setProposalError(cause instanceof Error ? cause.message : 'Unanswered questions could not be loaded.') })
+      .finally(() => { if (mounted) setProposalLoading(false) })
+    return () => { mounted = false }
+  }, [loadProposals, proposalRefresh, questionTab])
 
   useEffect(() => {
     if (!activeReport || activeReport.status !== 'pending') return
@@ -94,6 +116,18 @@ export function LeaderboardPage({
     }
   }
 
+  if (proposalComposerOpen) {
+    return (
+      <QuestionProposalComposer
+        onClose={() => setProposalComposerOpen(false)}
+        onComplete={() => {
+          setQuestionTab('unanswered')
+          setProposalRefresh((value) => value + 1)
+        }}
+      />
+    )
+  }
+
   return (
     <main className="leaderboard-page top-questions-page">
       <div className="submitted-prompts-header">
@@ -102,9 +136,55 @@ export function LeaderboardPage({
           <p>The most-asked questions across all ai-tests.com experiments, with every answer each group got. Open one to read the answers by group.</p>
         </div>
         <div className="submitted-prompts-actions">
-          <button type="button" className="primary" onClick={() => { window.location.hash = '#/experiments' }}>Submit a Prompt</button>
+          <button type="button" className="secondary" onClick={() => { window.location.hash = '#/experiments' }}>Run your own test</button>
+          <button type="button" className="primary" onClick={() => setProposalComposerOpen(true)}>Propose a question</button>
         </div>
       </div>
+      <div className="question-tabs" role="tablist" aria-label="Question status">
+        <button type="button" role="tab" aria-selected={questionTab === 'answered'} className={questionTab === 'answered' ? 'is-active' : undefined} onClick={() => setQuestionTab('answered')}>Answered</button>
+        <button type="button" role="tab" aria-selected={questionTab === 'unanswered'} className={questionTab === 'unanswered' ? 'is-active' : undefined} onClick={() => setQuestionTab('unanswered')}>Unanswered</button>
+      </div>
+      {questionTab === 'unanswered' && (
+        <section className="question-proposals" aria-label="Unanswered community questions">
+          <div className="question-proposals-intro">
+            <div>
+              <p className="eyebrow">COMMUNITY QUESTIONS</p>
+              <h3>Questions waiting for evidence</h3>
+              <p>Anyone can fund a question by running its exact comparisons with their own connected OpenRouter account.</p>
+            </div>
+            <button type="button" className="primary" onClick={() => setProposalComposerOpen(true)}>Propose for free</button>
+          </div>
+          {proposalLoading && <p role="status">Loading unanswered questions…</p>}
+          {proposalError && <div className="banner error" role="alert">{proposalError}</div>}
+          {!proposalLoading && !proposalError && proposals.length === 0 && (
+            <div className="question-proposal-empty">
+              <h3>No unanswered questions yet</h3>
+              <p>Propose the first one. Publishing a proposal is free.</p>
+            </div>
+          )}
+          <div className="question-proposal-grid">
+            {proposals.map((proposal) => (
+              <article key={proposal.id} className="question-proposal-card">
+                <div className="question-proposal-card-copy">
+                  <span className="question-proposal-status">Waiting for evidence</span>
+                  <h3>{proposal.name}</h3>
+                  <p className="question-proposal-question">{proposal.questionText}</p>
+                  {proposal.description && <p className="muted">{proposal.description}</p>}
+                  <div className="question-proposal-pairs" aria-label="Proposed comparisons">
+                    {proposal.pairs.map((pair) => <span key={pair.id}>{pair.variantA.label} vs {pair.variantB.label}</span>)}
+                  </div>
+                </div>
+                <div className="question-proposal-fund">
+                  <strong>{proposal.pairs.length} {proposal.pairs.length === 1 ? 'comparison' : 'comparisons'}</strong>
+                  <p>You choose the models and pay OpenRouter directly.</p>
+                  <button type="button" className="primary" onClick={() => beginQuestionFunding(proposal)}>Fund this question</button>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+      {questionTab === 'answered' && <>
       {error && (
         <div className="banner error" role="alert">
           <span>{error}</span>
@@ -197,6 +277,7 @@ export function LeaderboardPage({
           onClose={() => setProgressOpen(false)}
         />
       )}
+      </>}
     </main>
   )
 }

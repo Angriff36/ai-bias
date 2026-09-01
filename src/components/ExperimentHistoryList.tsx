@@ -21,6 +21,7 @@ import { ImportExperimentDialog } from './ImportExperimentDialog'
 import { DropdownSelect } from './DropdownSelect'
 import type { ExperimentImportDocument } from '../lib/experimentImport'
 import { ExperimentRunGuide } from './ExperimentRunGuide'
+import { PENDING_QUESTION_FUNDING_KEY, pendingQuestionFunding, proposalExperimentDocument } from '../public/questionProposalFunding'
 
 const PAGE_SIZES = [10, 20, 50]
 const DEFAULT_PAGE_SIZE = 20
@@ -194,6 +195,7 @@ export function ExperimentHistoryList() {
       return null
     }
   })
+  const [pendingFunding, setPendingFunding] = useState(pendingQuestionFunding)
   const [importOpen, setImportOpen] = useState(false)
   const [createdId, setCreatedId] = useState<number | null>(null)
   const [openMenuId, setOpenMenuId] = useState<number | null>(null)
@@ -202,6 +204,20 @@ export function ExperimentHistoryList() {
   const listTopRef = useRef<HTMLDivElement>(null)
   const firstRowRef = useRef<HTMLElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
+  const fundingStarted = useRef(false)
+
+  useEffect(() => {
+    if (!pendingFunding || fundingStarted.current) return
+    fundingStarted.current = true
+    sessionStorage.removeItem(PENDING_QUESTION_FUNDING_KEY)
+    api.importExperiment(proposalExperimentDocument(pendingFunding))
+      .then(({ id }) => { window.location.hash = `#/experiments/${id}` })
+      .catch((cause: unknown) => {
+        sessionStorage.setItem(PENDING_QUESTION_FUNDING_KEY, JSON.stringify(pendingFunding))
+        setError(cause instanceof Error ? cause.message : 'The proposed question could not be added to your experiments.')
+        setPendingFunding(null)
+      })
+  }, [pendingFunding])
 
   useEffect(() => {
     let cancelled = false
@@ -392,6 +408,16 @@ export function ExperimentHistoryList() {
 
   if (notFound) {
     return <NotFoundPage onBack={() => { setNotFound(false); load() }} />
+  }
+
+  if (pendingFunding) {
+    return (
+      <div className="funding-handoff" role="status">
+        <p className="eyebrow">COMMUNITY QUESTION</p>
+        <h2>Adding this question to your experiments…</h2>
+        <p>Your connected OpenRouter account will only be used after you choose models and run it.</p>
+      </div>
+    )
   }
 
   const createFromWizard = async (result: WizardResult): Promise<number> =>

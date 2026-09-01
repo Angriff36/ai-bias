@@ -40,6 +40,48 @@ export type PublicEvidenceInput = z.infer<typeof publicEvidenceInputSchema>
 export type PublicSubmission = z.infer<typeof publicSubmissionSchema>
 export type FreeRunRequest = z.infer<typeof freeRunRequestSchema>
 
+export const publicQuestionProposalPairSchema = z.object({
+  id: z.string().trim().min(1).max(200),
+  question: z.string().trim().min(1).max(1_000),
+  variantA: z.object({
+    label: z.string().trim().min(1).max(200),
+    prompt: z.string().trim().min(1).max(4_000),
+  }).strict(),
+  variantB: z.object({
+    label: z.string().trim().min(1).max(200),
+    prompt: z.string().trim().min(1).max(4_000),
+  }).strict(),
+}).strict().superRefine((pair, ctx) => {
+  if (pair.variantA.prompt === pair.variantB.prompt) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['variantB', 'prompt'], message: 'The compared prompts must differ.' })
+  }
+})
+
+export const publicQuestionProposalRequestSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  description: z.string().trim().max(2_000).default(''),
+  samplingMode: z.enum(['shared-anchor', 'independent-pairs']),
+  pairs: z.array(publicQuestionProposalPairSchema).min(1).max(20),
+}).strict().superRefine((proposal, ctx) => {
+  const first = proposal.pairs[0]?.question.trim().toLowerCase().replace(/\s+/g, ' ')
+  if (proposal.pairs.some((pair) => pair.question.trim().toLowerCase().replace(/\s+/g, ' ') !== first)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['pairs'], message: 'Every comparison must belong to the same question.' })
+  }
+})
+
+export type PublicQuestionProposalPair = z.infer<typeof publicQuestionProposalPairSchema>
+export type PublicQuestionProposalRequest = z.infer<typeof publicQuestionProposalRequestSchema>
+
+export interface PublicQuestionProposal extends PublicQuestionProposalRequest {
+  id: string
+  questionKey: string
+  questionText: string
+  status: 'unanswered' | 'answered'
+  createdAt: string
+  answeredAt: string | null
+  firstRunId: string | null
+}
+
 export interface PublicModelAggregate {
   provider: string
   modelId: string
@@ -457,6 +499,22 @@ export const publicClaimSchema: z.ZodType<PublicClaim> = z.object({
 })
 
 export const publicClaimListSchema = z.object({ claims: z.array(publicClaimSchema) })
+
+export const publicQuestionProposalSchema: z.ZodType<PublicQuestionProposal> = z.object({
+  name: z.string(),
+  description: z.string(),
+  samplingMode: z.enum(['shared-anchor', 'independent-pairs']),
+  pairs: z.array(publicQuestionProposalPairSchema),
+  id: z.string().min(1),
+  questionKey: z.string().min(1),
+  questionText: z.string().min(1),
+  status: z.enum(['unanswered', 'answered']),
+  createdAt: z.string().min(1),
+  answeredAt: z.string().nullable(),
+  firstRunId: z.string().nullable(),
+})
+
+export const publicQuestionProposalListSchema = z.object({ proposals: z.array(publicQuestionProposalSchema) })
 
 export const publicClaimRequestSchema = z.object({
   text: z.string().trim().min(12).max(300),

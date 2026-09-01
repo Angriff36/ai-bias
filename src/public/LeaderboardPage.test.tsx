@@ -2,7 +2,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { GeneratedReportSummary, PublicLeaderboard } from './contracts'
+import type { GeneratedReportSummary, PublicLeaderboard, PublicQuestionProposal } from './contracts'
 import { LeaderboardPage } from './LeaderboardPage'
 import { invalidatePublicCache } from './publicApiCache'
 
@@ -20,11 +20,18 @@ const data: PublicLeaderboard = {
   recentEvidence: [],
 }
 
+const proposal: PublicQuestionProposal = {
+  id: 'proposal-1', questionKey: 'support [group]', questionText: 'How can I support the [group] community?', name: 'Community support', description: 'Compare useful support advice.',
+  samplingMode: 'shared-anchor', status: 'unanswered', createdAt: '2026-09-01', answeredAt: null, firstRunId: null,
+  pairs: [{ id: 'pair', question: 'How can I support the [group] community?', variantA: { label: 'White', prompt: 'How can I support the White community?' }, variantB: { label: 'Black', prompt: 'How can I support the Black community?' } }],
+}
+
 describe('LeaderboardPage (Top Questions)', () => {
   afterEach(() => vi.useRealTimers())
 
   beforeEach(() => {
     invalidatePublicCache()
+    sessionStorage.clear()
     window.location.hash = '#/leaderboard'
   })
 
@@ -35,6 +42,31 @@ describe('LeaderboardPage (Top Questions)', () => {
     expect(screen.getByText('Asian')).toBeTruthy()
     expect(screen.getByText('42')).toBeTruthy()
     expect(screen.queryByText('Bias Score')).toBeNull()
+  })
+
+  it('shows free proposals in an Unanswered tab and lets any visitor fund one with their own account', async () => {
+    const loadProposals = vi.fn(async () => [proposal])
+    render(<LeaderboardPage load={vi.fn(async () => data)} loadProposals={loadProposals} />)
+    await screen.findByRole('heading', { name: 'Top Questions' })
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Unanswered' }))
+    expect(await screen.findByRole('heading', { name: 'Community support' })).toBeTruthy()
+    expect(screen.getByText('How can I support the [group] community?')).toBeTruthy()
+    expect(screen.getByText('White vs Black')).toBeTruthy()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Fund this question' }))
+    expect(window.location.hash).toBe('#/experiments')
+    expect(sessionStorage.getItem('ai-bias-pending-question-funding')).toContain('proposal-1')
+  })
+
+  it('opens a proposal composer without requiring a model or API key', async () => {
+    render(<LeaderboardPage load={vi.fn(async () => data)} />)
+    await screen.findByRole('heading', { name: 'Top Questions' })
+    await userEvent.click(screen.getByRole('button', { name: 'Propose a question' }))
+    expect(screen.getByRole('dialog', { name: 'Propose a public question' })).toBeTruthy()
+    expect(screen.getByText('No API key needed to propose a question.')).toBeTruthy()
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.getByRole('heading', { name: 'Top Questions' })).toBeTruthy()
   })
 
   it('starts a report without leaving Top Questions and opens live progress', async () => {

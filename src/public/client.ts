@@ -8,6 +8,8 @@ import {
   publicClaimSchema,
   publicLeaderboardSchema,
   publicQuestionDetailSchema,
+  publicQuestionProposalListSchema,
+  publicQuestionProposalSchema,
   publishResultSchema,
   type FreeRunRequest,
   type FreeRunResponse,
@@ -16,6 +18,8 @@ import {
   type PublicClaimRequest,
   type PublicLeaderboard,
   type PublicQuestionDetail,
+  type PublicQuestionProposal,
+  type PublicQuestionProposalRequest,
 } from './contracts'
 import { invalidatePublicCache, readPublicCache, writePublicCache } from './publicApiCache'
 import { PublicSubmissionChunks, truncateForPublication } from './publishChunks'
@@ -88,6 +92,25 @@ export async function getPublicQuestionDetail(questionKey: string, fetcher: Fetc
   const detail = publicQuestionDetailSchema.parse(body.question)
   writePublicCache(cacheKey, detail)
   return detail
+}
+
+export async function listQuestionProposals(status: 'unanswered' | 'answered' = 'unanswered', fetcher: Fetcher = fetch): Promise<PublicQuestionProposal[]> {
+  const cacheKey = `question-proposals:${status}`
+  const cached = readPublicCache<PublicQuestionProposal[]>(cacheKey)
+  if (cached?.status === 'fresh') return cached.data
+  const response = await fetcher(`/api/public/question-proposals?status=${status}`, { credentials: 'same-origin' })
+  const proposals = publicQuestionProposalListSchema.parse(await responseJson(response)).proposals
+  writePublicCache(cacheKey, proposals)
+  return proposals
+}
+
+export async function createQuestionProposal(input: PublicQuestionProposalRequest, fetcher: Fetcher = fetch): Promise<PublicQuestionProposal> {
+  const response = await fetcher('/api/public/question-proposals', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input), credentials: 'same-origin',
+  })
+  const body = await responseJson(response) as { proposal?: unknown }
+  invalidatePublicCache('question-proposals:')
+  return publicQuestionProposalSchema.parse(body.proposal)
 }
 
 export async function listGeneratedReports(fetcher: Fetcher = fetch): Promise<GeneratedReportSummary[]> {

@@ -28,6 +28,12 @@ describe('OpenRouter requests', () => {
         },
       }),
     )
+
+    const request = fetchMock.mock.calls[0]?.[1] as RequestInit
+    expect(JSON.parse(String(request.body))).toMatchObject({
+      model: 'openai/gpt-4o-mini',
+      reasoning: { exclude: true },
+    })
   })
 
   it('preserves the provider error message for a rejected request', async () => {

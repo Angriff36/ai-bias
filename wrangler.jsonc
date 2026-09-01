@@ -3,6 +3,9 @@
   "name": "ai-bias-lab",
   "main": "worker/index.ts",
   "compatibility_date": "2026-08-26",
+  "limits": {
+    "cpu_ms": 30000
+  },
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",

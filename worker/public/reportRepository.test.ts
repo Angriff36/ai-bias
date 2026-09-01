@@ -55,6 +55,38 @@ describe('generated report evidence preparation', () => {
       .toEqual({ completedAnalyses: 1, expectedAnalyses: 2 })
   })
 
+  it('lists stored analysis progress without loading report evidence', async () => {
+    const row = {
+      id: 'pending-report', scope: 'global', public_run_id: null, response_watermark: null,
+      cohort_fingerprint: 'cohort', cohort_snapshot_json: '{}', status: 'pending', error_code: null,
+      scoring_model_id: 'z-ai/glm-5.3-flash', synthesis_model_id: 'x-ai/grok-4.6',
+      title: null, structured_json: null, created_at: '2026-08-31T00:00:00.000Z', completed_at: null,
+      generation_lease_until: null, generation_lease_owner: null, judge_batch_id: 'batch-1',
+      judge_batch_status: 'in_progress', analysis_completed: 3, analysis_total: 8,
+    }
+    const db: D1DatabaseLike = {
+      prepare(sql: string) {
+        const statement: D1Statement = {
+          bind: () => statement,
+          first: async <T>() => null as T,
+          all: async <T>() => {
+            if (!sql.includes('FROM generated_reports')) throw new Error('report evidence must not load while listing')
+            return { results: [row] as T[] }
+          },
+          run: async <T>() => ({ meta: { changes: 0 } }) as D1Result<T>,
+        }
+        return statement
+      },
+      batch: async (statements) => statements.map(() => ({ meta: { changes: 0 } })),
+    }
+
+    const reports = await new GeneratedReportRepository(db).listReports()
+
+    expect(reports).toEqual([expect.objectContaining({
+      id: 'pending-report', progress: { completedAnalyses: 3, expectedAnalyses: 8 },
+    })])
+  })
+
   it('loads legacy watermark global evidence when cohort snapshot is absent', async () => {
     const evidenceRows = [
       record({ id: 'first', receivedAt: '2026-08-26T00:00:00.000Z' }),

@@ -7,6 +7,7 @@ import App from './App'
 const completeOAuth = vi.hoisted(() => vi.fn())
 const listGeneratedReports = vi.hoisted(() => vi.fn())
 const continueReportGeneration = vi.hoisted(() => vi.fn())
+const getPublicLeaderboard = vi.hoisted(() => vi.fn())
 
 vi.mock('./openrouter/oauth', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./openrouter/oauth')>()
@@ -30,10 +31,7 @@ vi.mock('./api', async (importOriginal) => {
 })
 
 vi.mock('./public/client', () => ({
-  getPublicLeaderboard: vi.fn().mockResolvedValue({
-    totals: { runs: 0, responses: 0, completePairs: 0, models: 0, questions: 0 },
-    topQuestions: [], models: [], latestAnalysis: null, analysisPending: false, latestReport: null, reportPending: false, recentEvidence: [],
-  }),
+  getPublicLeaderboard,
   listGeneratedReports,
   listClaims: vi.fn().mockResolvedValue([]),
   createClaim: vi.fn(),
@@ -51,6 +49,11 @@ describe('application navigation', () => {
     continueReportGeneration.mockReset()
     continueReportGeneration.mockResolvedValue(undefined)
     listGeneratedReports.mockReset()
+    getPublicLeaderboard.mockReset()
+    getPublicLeaderboard.mockResolvedValue({
+      totals: { runs: 0, responses: 0, completePairs: 0, models: 0, questions: 0 },
+      topQuestions: [], models: [], latestAnalysis: null, analysisPending: false, latestReport: null, reportPending: false, recentEvidence: [],
+    })
     listGeneratedReports.mockResolvedValue([
       {
         id: 'race-swap-audit-2026-08-26', scope: 'global', status: 'complete',
@@ -89,6 +92,13 @@ describe('application navigation', () => {
     expect(await screen.findByRole('tab', { name: 'Reports' })).toBeTruthy()
     const link = await screen.findByRole('link', { name: /The race-swap audit/ })
     expect(link.getAttribute('href')).toBe('/api/public/reports/race-swap-audit-2026-08-26.html')
+  })
+
+  it('does not prefetch the unrelated leaderboard while opening Reports', async () => {
+    render(<App />)
+
+    await screen.findByRole('heading', { name: 'Reports' })
+    expect(getPublicLeaderboard).not.toHaveBeenCalled()
   })
 
   it('does not retry a pending report before its 45-second server lease expires', async () => {

@@ -79,6 +79,7 @@ export interface OpenRouterBatchResult {
 export interface OpenRouterBatch {
   id: string
   status: string
+  request_counts?: { total?: number; completed?: number; failed?: number; [key: string]: unknown } | null
   results?: OpenRouterBatchResult[] | null
 }
 

@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from './api'
-import { continueReportGeneration, getPublicLeaderboard, listGeneratedReports } from './public/client'
+import { continueReportGeneration, listGeneratedReports } from './public/client'
 import type { GeneratedReportSummary } from './public/contracts'
-import { readPublicCache } from './public/publicApiCache'
 import { EmptyState, SkeletonRows } from './components/EmptyState'
 import { ExperimentHistoryList } from './components/ExperimentHistoryList'
 import { ExperimentEditor } from './components/ExperimentEditor'
@@ -114,9 +113,6 @@ function MainApp() {
 
   useEffect(() => {
     document.title = 'AI Bias Lab'
-    if (!readPublicCache('leaderboard')) {
-      void getPublicLeaderboard().catch(() => {})
-    }
     const readCloneToast = () => {
       const message = sessionStorage.getItem('ai-bias-clone-toast')
       if (message) {

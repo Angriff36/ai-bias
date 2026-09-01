@@ -33,9 +33,10 @@ interface ReportGenerationRepository {
   failReport(reportId: string, code: string, leaseOwner: string): Promise<void>
   loadPairScores?(reportId: string): Promise<GeneratedReportPairScore[]>
   upsertPairScores?(reportId: string, scores: GeneratedReportPairScore[], leaseOwner: string): Promise<void>
-  loadJudgeBatch?(reportId: string): Promise<{ id: string; status: string } | null>
-  saveJudgeBatch?(reportId: string, batch: { id: string; status: string }, leaseOwner: string): Promise<void>
+  loadJudgeBatch?(reportId: string): Promise<{ id: string; status: string; progress?: { completedAnalyses: number; expectedAnalyses: number } } | null>
+  saveJudgeBatch?(reportId: string, batch: { id: string; status: string }, leaseOwner: string, progress?: { completedAnalyses: number; expectedAnalyses: number }): Promise<void>
   updateJudgeBatchStatus?(reportId: string, status: string, leaseOwner: string): Promise<void>
+  updateReportAnalysisProgress?(reportId: string, progress: { completedAnalyses: number; expectedAnalyses: number }, leaseOwner: string): Promise<void>
   clearJudgeBatch?(reportId: string, leaseOwner: string): Promise<void>
   touchReportGeneration(reportId: string, now: string, leaseOwner: string): Promise<void>
   releaseReportGeneration?(reportId: string, leaseOwner: string): Promise<void>
@@ -140,6 +141,14 @@ export async function processReportChunk(
   const active = await checkpointRepo.loadJudgeBatch?.(reportId) ?? null
   const batch = active ? await judgeBatches.retrieve(active.id) : null
   if (batch) {
+    const remoteTotal = Number(batch.request_counts?.total ?? 0)
+    if (remoteTotal > 0) {
+      const completedAnalyses = active?.progress?.completedAnalyses ?? 0
+      await checkpointRepo.updateReportAnalysisProgress?.(reportId, {
+        completedAnalyses,
+        expectedAnalyses: Math.max(active?.progress?.expectedAnalyses ?? 0, completedAnalyses + remoteTotal),
+      }, leaseOwner)
+    }
     if (!TERMINAL_BATCH_STATUSES.has(batch.status)) {
       await checkpointRepo.updateJudgeBatchStatus?.(reportId, batch.status, leaseOwner)
       return
@@ -152,17 +161,22 @@ export async function processReportChunk(
   const source = await repository.getReportEvidence(reportId)
   const existingPairScores = checkpointRepo.loadPairScores ? await checkpointRepo.loadPairScores(reportId) : []
   const existingScores = existingScoreMap(existingPairScores)
-  const pendingCells = groupPolarJudgeCells(source.evidence).filter((cell) => cell.groups.some((group) => {
+  const judgeCells = groupPolarJudgeCells(source.evidence)
+  const pendingCells = judgeCells.filter((cell) => cell.groups.some((group) => {
     const variantA = group.find((item) => item.variantKey === 'A')!
     return !existingScores.has(buildPairSampleId(variantA))
   }))
+  const progress = {
+    completedAnalyses: judgeCells.length - pendingCells.length,
+    expectedAnalyses: judgeCells.length,
+  }
 
   if (pendingCells.length > 0) {
     if (!active) {
       const created = await judgeBatches.submit(await buildOpenRouterJudgeBatchRequest(
         reportId, source.row.scoringModelId, pendingCells,
       ))
-      await checkpointRepo.saveJudgeBatch?.(reportId, { id: created.id, status: created.status }, leaseOwner)
+      await checkpointRepo.saveJudgeBatch?.(reportId, { id: created.id, status: created.status }, leaseOwner, progress)
       return
     }
 
@@ -191,6 +205,10 @@ export async function processReportChunk(
       try {
         const persisted = parseOpenRouterJudgeResult(cell, result)
         await checkpointRepo.upsertPairScores?.(reportId, persisted, leaseOwner)
+        await checkpointRepo.updateReportAnalysisProgress?.(reportId, {
+          completedAnalyses: progress.completedAnalyses + 1,
+          expectedAnalyses: progress.expectedAnalyses,
+        }, leaseOwner)
       } catch {
         // The cursor still advances; this cell remains unscored and is the only
         // work resubmitted after every result in this batch has been handled.

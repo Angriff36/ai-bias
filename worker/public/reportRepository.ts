@@ -100,6 +100,8 @@ interface ReportRow {
   generationLeaseOwner: string | null
   judgeBatchId: string | null
   judgeBatchStatus: string | null
+  analysisCompleted: number
+  analysisTotal: number
   status: 'pending' | 'complete' | 'failed'
   errorCode?: string | null
   scoringModelId: string
@@ -292,22 +294,44 @@ export class GeneratedReportRepository {
     }
   }
 
-  async loadJudgeBatch(reportId: string): Promise<{ id: string; status: string } | null> {
-    const row = await this.db.prepare('SELECT judge_batch_id, judge_batch_status FROM generated_reports WHERE id=?')
-      .bind(reportId).first<{ judge_batch_id: string | null; judge_batch_status: string | null }>()
-    return row?.judge_batch_id ? { id: s(row.judge_batch_id), status: s(row.judge_batch_status) } : null
+  async loadJudgeBatch(reportId: string): Promise<{ id: string; status: string; progress?: { completedAnalyses: number; expectedAnalyses: number } } | null> {
+    const row = await this.db.prepare('SELECT judge_batch_id, judge_batch_status, analysis_completed, analysis_total FROM generated_reports WHERE id=?')
+      .bind(reportId).first<{ judge_batch_id: string | null; judge_batch_status: string | null; analysis_completed: number; analysis_total: number }>()
+    if (!row?.judge_batch_id) return null
+    const expectedAnalyses = n(row.analysis_total)
+    return {
+      id: s(row.judge_batch_id),
+      status: s(row.judge_batch_status),
+      ...(expectedAnalyses > 0 ? { progress: { completedAnalyses: n(row.analysis_completed), expectedAnalyses } } : {}),
+    }
   }
 
-  async saveJudgeBatch(reportId: string, batch: { id: string; status: string }, leaseOwner: string): Promise<void> {
-    await this.db.prepare(`UPDATE generated_reports SET judge_batch_id=?, judge_batch_status=?
+  async saveJudgeBatch(
+    reportId: string,
+    batch: { id: string; status: string },
+    leaseOwner: string,
+    progress?: { completedAnalyses: number; expectedAnalyses: number },
+  ): Promise<void> {
+    await this.db.prepare(`UPDATE generated_reports SET judge_batch_id=?, judge_batch_status=?,
+      analysis_completed=COALESCE(?, analysis_completed), analysis_total=COALESCE(?, analysis_total)
       WHERE id=? AND status='pending' AND generation_lease_owner=? AND judge_batch_id IS NULL`)
-      .bind(batch.id, batch.status, reportId, leaseOwner).run()
+      .bind(batch.id, batch.status, progress?.completedAnalyses ?? null, progress?.expectedAnalyses ?? null, reportId, leaseOwner).run()
   }
 
   async updateJudgeBatchStatus(reportId: string, status: string, leaseOwner: string): Promise<void> {
     await this.db.prepare(`UPDATE generated_reports SET judge_batch_status=?
       WHERE id=? AND status='pending' AND generation_lease_owner=?`)
       .bind(status, reportId, leaseOwner).run()
+  }
+
+  async updateReportAnalysisProgress(
+    reportId: string,
+    progress: { completedAnalyses: number; expectedAnalyses: number },
+    leaseOwner: string,
+  ): Promise<void> {
+    await this.db.prepare(`UPDATE generated_reports SET analysis_completed=?, analysis_total=?
+      WHERE id=? AND status='pending' AND generation_lease_owner=?`)
+      .bind(progress.completedAnalyses, progress.expectedAnalyses, reportId, leaseOwner).run()
   }
 
   async clearJudgeBatch(reportId: string, leaseOwner: string): Promise<void> {
@@ -355,21 +379,9 @@ export class GeneratedReportRepository {
 
   async listReports(): Promise<GeneratedReportSummary[]> {
     const rows = (await this.db.prepare(`SELECT id, scope, public_run_id, response_watermark, cohort_fingerprint, cohort_snapshot_json, generation_lease_until, generation_lease_owner, judge_batch_id, judge_batch_status,
-      status, error_code, scoring_model_id, synthesis_model_id, title, structured_json, created_at, completed_at FROM generated_reports
+      analysis_completed, analysis_total, status, error_code, scoring_model_id, synthesis_model_id, title, structured_json, created_at, completed_at FROM generated_reports
       ORDER BY COALESCE(completed_at, created_at) DESC LIMIT 50`).all()).results ?? []
-    const summaries: GeneratedReportSummary[] = []
-    for (const row of rows.map(mapReportRow)) {
-      if (row.status === 'complete') { summaries.push(this.summary(row)); continue }
-      let progress: GeneratedReportSummary['progress']
-      try {
-        const [scores, source] = await Promise.all([this.loadPairScores(row.id), this.getReportEvidence(row.id)])
-        progress = reportAnalysisProgress(source.evidence, scores)
-      } catch {
-        // No evidence to count: the row still lists, just without a progress figure.
-      }
-      summaries.push({ ...this.summary(row), ...(progress ? { progress } : {}), errorCode: row.errorCode })
-    }
-    return summaries
+    return rows.map(mapReportRow).map((row) => this.summary(row))
   }
 
   async getReportDocument(id: string): Promise<GeneratedReportDocument | null> {
@@ -417,21 +429,21 @@ export class GeneratedReportRepository {
 
   private async findByRun(runId: string): Promise<ReportRow | null> {
     const row = await this.db.prepare(`SELECT id, scope, public_run_id, response_watermark, cohort_fingerprint, cohort_snapshot_json, generation_lease_until, generation_lease_owner, judge_batch_id, judge_batch_status,
-      status, error_code, scoring_model_id, synthesis_model_id, title, structured_json, created_at, completed_at FROM generated_reports WHERE scope='run' AND public_run_id=?`)
+      analysis_completed, analysis_total, status, error_code, scoring_model_id, synthesis_model_id, title, structured_json, created_at, completed_at FROM generated_reports WHERE scope='run' AND public_run_id=?`)
       .bind(runId).first<Record<string, unknown>>()
     return row ? mapReportRow(row) : null
   }
 
   private async findByCohortFingerprint(fingerprint: string): Promise<ReportRow | null> {
     const row = await this.db.prepare(`SELECT id, scope, public_run_id, response_watermark, cohort_fingerprint, cohort_snapshot_json, generation_lease_until, generation_lease_owner, judge_batch_id, judge_batch_status,
-      status, error_code, scoring_model_id, synthesis_model_id, title, structured_json, created_at, completed_at FROM generated_reports WHERE scope='global' AND cohort_fingerprint=?`)
+      analysis_completed, analysis_total, status, error_code, scoring_model_id, synthesis_model_id, title, structured_json, created_at, completed_at FROM generated_reports WHERE scope='global' AND cohort_fingerprint=?`)
       .bind(fingerprint).first<Record<string, unknown>>()
     return row ? mapReportRow(row) : null
   }
 
   private async getRow(id: string): Promise<ReportRow | null> {
     const row = await this.db.prepare(`SELECT id, scope, public_run_id, response_watermark, cohort_fingerprint, cohort_snapshot_json, generation_lease_until, generation_lease_owner, judge_batch_id, judge_batch_status,
-      status, error_code, scoring_model_id, synthesis_model_id, title, structured_json, created_at, completed_at FROM generated_reports WHERE id=?`)
+      analysis_completed, analysis_total, status, error_code, scoring_model_id, synthesis_model_id, title, structured_json, created_at, completed_at FROM generated_reports WHERE id=?`)
       .bind(id).first<Record<string, unknown>>()
     return row ? mapReportRow(row) : null
   }
@@ -442,6 +454,10 @@ export class GeneratedReportRepository {
       id: row.id, scope: row.scope, status: row.status, title: row.title,
       responseCount: document?.responseCount ?? 0, completePairs: document?.completePairs ?? 0,
       modelCount: document?.modelCount ?? 0, createdAt: row.createdAt, completedAt: row.completedAt,
+      ...(row.status !== 'complete' && row.analysisTotal > 0 ? {
+        progress: { completedAnalyses: row.analysisCompleted, expectedAnalyses: row.analysisTotal },
+      } : {}),
+      errorCode: row.errorCode ?? null,
     })
   }
 }
@@ -456,6 +472,7 @@ function mapReportRow(row: Record<string, unknown>): ReportRow {
     generationLeaseOwner: row.generation_lease_owner == null ? null : s(row.generation_lease_owner),
     judgeBatchId: row.judge_batch_id == null ? null : s(row.judge_batch_id),
     judgeBatchStatus: row.judge_batch_status == null ? null : s(row.judge_batch_status),
+    analysisCompleted: n(row.analysis_completed), analysisTotal: n(row.analysis_total),
     status: s(row.status) as ReportRow['status'], scoringModelId: s(row.scoring_model_id), synthesisModelId: s(row.synthesis_model_id),
     title: row.title == null ? null : s(row.title), structuredJson: row.structured_json == null ? null : s(row.structured_json),
     createdAt: s(row.created_at), completedAt: row.completed_at == null ? null : s(row.completed_at),

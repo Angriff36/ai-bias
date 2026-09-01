@@ -7,6 +7,7 @@ import { runReportGenerationStep } from './reportGeneration'
 import { renderReportHtml } from './reportHtml'
 import { GeneratedReportRepository } from './reportRepository'
 import { createReportModelClient } from './reportModelClient'
+import { createOpenRouterJudgeBatchClient } from './reportJudgeBatchApi'
 import { CURATED_REPORTS } from './curatedReports'
 import { invalidateCachedReports, readCachedReports, writeCachedReports } from './readCache'
 import { ClaimRepository } from './claimRepository'
@@ -58,7 +59,8 @@ export async function handlePublicApi(
   const quotaHash = injected?.quotaHash ?? quotaIdentity
   const reportStep = injected?.runReportStep ?? (async (reportId: string, leaseOwner: string) => {
     const reportModels = createReportModelClient(env.OPENROUTER_API_KEY, url.origin)
-    await runReportGenerationStep(reportModels, reportRepository as GeneratedReportRepository, reportId, reportModels, leaseOwner)
+    const judgeBatches = createOpenRouterJudgeBatchClient(env.OPENROUTER_API_KEY, url.origin)
+    await runReportGenerationStep(reportModels, reportRepository as GeneratedReportRepository, reportId, judgeBatches, leaseOwner)
   })
   const runClaimedReport = async (reportId: string, now: string) => {
     const prepared = await reportRepository.prepareReportGeneration(reportId, now)

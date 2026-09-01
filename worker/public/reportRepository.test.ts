@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { PublicEvidenceItem } from '../../src/public/contracts'
 import type { D1DatabaseLike, D1Result, D1Statement } from './d1'
-import { GeneratedReportRepository, completeQuestionCount, summarizeReportModels } from './reportRepository'
+import { GeneratedReportRepository, completeQuestionCount, reportAnalysisProgress, summarizeReportModels } from './reportRepository'
 
 const record = (overrides: Partial<PublicEvidenceItem>): PublicEvidenceItem => ({
   id: 'evidence-a', runId: 'run-a', pairIndex: 0, runIndex: 0, variantKey: 'A', variantLabel: 'Prompt A',
@@ -31,6 +31,28 @@ describe('generated report evidence preparation', () => {
       { provider: 'openrouter', modelId: 'model/a', responses: 2, completePairs: 1, refusals: 1, errors: 0, truncated: 1 },
       { provider: 'openrouter', modelId: 'model/b', responses: 1, completePairs: 0, refusals: 0, errors: 1, truncated: 0 },
     ])
+  })
+
+  it('reports progress in completed question-model analyses, not raw repetitions', () => {
+    const evidence = [
+      record({ id: 'a0', runIndex: 0, variantKey: 'A', question: 'Question', modelId: 'model/a' }),
+      record({ id: 'b0', runIndex: 0, variantKey: 'B', question: 'Question', modelId: 'model/a' }),
+      record({ id: 'a1', runIndex: 1, variantKey: 'A', question: 'Question', modelId: 'model/a' }),
+      record({ id: 'b1', runIndex: 1, variantKey: 'B', question: 'Question', modelId: 'model/a' }),
+      record({ id: 'a2', runIndex: 0, variantKey: 'A', question: 'Question', modelId: 'model/b' }),
+      record({ id: 'b2', runIndex: 0, variantKey: 'B', question: 'Question', modelId: 'model/b' }),
+    ]
+    const score = (item: PublicEvidenceItem) => ({
+      pairSampleId: `${item.runId}\u0000${item.pairIndex}\u0000${item.runIndex}\u0000${item.provider}\u0000${item.modelId}`,
+      variantAEvidenceId: item.id, variantBEvidenceId: `b-${item.id}`, pairIndex: item.pairIndex, runIndex: item.runIndex,
+      provider: item.provider, modelId: item.modelId,
+      variantA: { dangerFraming: 0, sympathy: 0, skepticism: 0, collectiveBlame: 0, moralCondemnation: 0, antiStereotyping: 0, acknowledgesDiscrimination: 0 },
+      variantB: { dangerFraming: 0, sympathy: 0, skepticism: 0, collectiveBlame: 0, moralCondemnation: 0, antiStereotyping: 0, acknowledgesDiscrimination: 0 },
+      note: 'No difference.', direction: 'even' as const, magnitude: 0,
+    })
+
+    expect(reportAnalysisProgress(evidence, [score(evidence[0]!), score(evidence[4]!)]))
+      .toEqual({ completedAnalyses: 1, expectedAnalyses: 2 })
   })
 
   it('loads legacy watermark global evidence when cohort snapshot is absent', async () => {
@@ -208,6 +230,36 @@ describe('generated report evidence preparation', () => {
     await repo.completeReport('report', document, '2026-08-30T15:00:00.000Z', 'owner-a')
 
     expect(statements).toHaveLength(4)
+    for (const statement of statements) {
+      expect(statement.sql).toContain('generation_lease_owner=?')
+      expect(statement.bindings.at(-1)).toBe('owner-a')
+    }
+  })
+
+  it('persists one active OpenRouter batch and guards its status changes with the generation lease', async () => {
+    const statements: Array<{ sql: string; bindings: unknown[] }> = []
+    const db: D1DatabaseLike = {
+      prepare(sql: string) {
+        let bindings: unknown[] = []
+        const statement: D1Statement = {
+          bind: (...args: unknown[]) => { bindings = args; return statement },
+          first: async <T>() => ({ judge_batch_id: 'batch-1', judge_batch_status: 'in_progress' }) as T,
+          all: async <T>() => ({ results: [] as T[] }),
+          run: async <T>() => { statements.push({ sql, bindings }); return { meta: { changes: 1 } } as D1Result<T> },
+        }
+        return statement
+      },
+      batch: async (batch) => batch.map(() => ({ meta: { changes: 1 } })),
+    }
+    const repo = new GeneratedReportRepository(db)
+
+    await repo.saveJudgeBatch('report', { id: 'batch-1', status: 'validating' }, 'owner-a')
+    expect(await repo.loadJudgeBatch('report')).toEqual({ id: 'batch-1', status: 'in_progress' })
+    await repo.updateJudgeBatchStatus('report', 'in_progress', 'owner-a')
+    await repo.clearJudgeBatch('report', 'owner-a')
+
+    expect(statements[0]?.sql).toContain('judge_batch_id IS NULL')
+    expect(statements).toHaveLength(3)
     for (const statement of statements) {
       expect(statement.sql).toContain('generation_lease_owner=?')
       expect(statement.bindings.at(-1)).toBe('owner-a')

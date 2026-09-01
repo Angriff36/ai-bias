@@ -1,230 +1,35 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { GeneratedReportDocument, GeneratedReportPairScore, PublicEvidenceItem } from '../../src/public/contracts'
-import { buildPairSampleId } from './matchedSampleIdentity'
-import { handleReportChunkFailure, processReportChunk, runReportGenerationStep } from './reportGeneration'
+import type { PublicEvidenceItem } from '../../src/public/contracts'
+import { handleReportChunkFailure, runReportGenerationStep } from './reportGeneration'
 
-function evidenceRecord(overrides: Partial<PublicEvidenceItem> & Pick<PublicEvidenceItem, 'id' | 'pairIndex' | 'runIndex' | 'variantKey' | 'classification'>): PublicEvidenceItem {
-  return {
-    runId: 'run',
-    question: `Question ${overrides.pairIndex}`,
-    variantLabel: overrides.variantKey === 'A' ? 'White' : 'Black',
-    provider: 'openrouter',
-    modelId: 'model/a',
-    prompt: `Prompt ${overrides.variantKey} ${overrides.pairIndex}`,
-    response: overrides.classification === 'hard-refusal' ? "I can't help with that." : 'Direct answer.',
-    latencyMs: 100,
-    statusCode: 200,
-    status: 'ok',
-    sha256: `${overrides.id}${'a'.repeat(64)}`.slice(0, 64).replace(/[^a-f0-9]/g, 'a'),
-    receivedAt: '2026-08-27T00:00:00.000Z',
-    ...overrides,
+function fixtureEvidence(): PublicEvidenceItem[] {
+  const base = {
+    runId: 'run', pairIndex: 0, runIndex: 0, question: 'Question', provider: 'openrouter', modelId: 'model/a',
+    latencyMs: 1, statusCode: 200, status: 'ok' as const, sha256: 'a'.repeat(64),
+    classification: 'answered' as const, receivedAt: 'now', response: 'Answer',
   }
+  return [
+    { ...base, id: 'a', variantKey: 'A', variantLabel: 'White', prompt: 'Prompt A' },
+    { ...base, id: 'b', variantKey: 'B', variantLabel: 'Asian', prompt: 'Prompt B' },
+  ]
 }
 
-function fixtureEvidence(pairCount: number): PublicEvidenceItem[] {
-  const records: PublicEvidenceItem[] = []
-  for (let pairIndex = 0; pairIndex < pairCount; pairIndex += 1) {
-    const asymmetric = pairIndex % 3 === 0
-    records.push(
-      evidenceRecord({ id: `a-${pairIndex}`, pairIndex, runIndex: 0, variantKey: 'A', classification: 'answered' }),
-      evidenceRecord({
-        id: `b-${pairIndex}`,
-        pairIndex,
-        runIndex: 0,
-        variantKey: 'B',
-        classification: asymmetric ? 'hard-refusal' : 'answered',
-      }),
-    )
-  }
-  return records
-}
-
-function groupedFixtureEvidence(repetitionCounts: number[]): PublicEvidenceItem[] {
-  const records: PublicEvidenceItem[] = []
-  for (let pairIndex = 0; pairIndex < repetitionCounts.length; pairIndex += 1) {
-    const modelId = pairIndex === 2 ? 'model/b' : 'model/a'
-    for (let runIndex = 0; runIndex < repetitionCounts[pairIndex]!; runIndex += 1) {
-      records.push(
-        evidenceRecord({
-          id: `a-${pairIndex}-${runIndex}`,
-          pairIndex,
-          runIndex,
-          variantKey: 'A',
-          classification: 'answered',
-          question: `Repeated question ${pairIndex}`,
-          modelId,
-          response: `Answer A for group ${pairIndex}, repetition ${runIndex}.`,
-        }),
-        evidenceRecord({
-          id: `b-${pairIndex}-${runIndex}`,
-          pairIndex,
-          runIndex,
-          variantKey: 'B',
-          classification: runIndex === 0 ? 'hard-refusal' : 'answered',
-          question: `Repeated question ${pairIndex}`,
-          modelId,
-          response: `Answer B for group ${pairIndex}, repetition ${runIndex}.`,
-        }),
-      )
-    }
-  }
-  return records
-}
-
-const zeroScores = {
-  dangerFraming: 0,
-  sympathy: 0,
-  skepticism: 0,
-  collectiveBlame: 0,
-  moralCondemnation: 0,
-  antiStereotyping: 0,
-  acknowledgesDiscrimination: 0,
-}
-
-function mockJudgeBatch(prompt: string): string {
-  const cells = JSON.parse(prompt.split('CELLS:\n')[1] ?? '[]') as Array<{ pairSampleId: string }>
-  return JSON.stringify({
-    scores: cells.map((cell) => ({
-      pairSampleId: cell.pairSampleId,
-      variantA: zeroScores,
-      variantB: { ...zeroScores, sympathy: 2 },
-      note: 'The comparison answer was warmer.',
-    })),
-  })
-}
-
-describe('generated report pipeline', () => {
-  it('checkpoints one complete question-model group per invocation and skips it on retry', async () => {
-    const repetitionCounts = [2, 3, 4]
-    const evidence = groupedFixtureEvidence(repetitionCounts)
-    let savedScores: GeneratedReportPairScore[] = []
-    const judge = vi.fn(async (_modelId: string, prompt: string) => mockJudgeBatch(prompt))
-    const reportModel = vi.fn(async (_modelId: string, _prompt: string) => JSON.stringify({
-      title: 'Identity framing audit',
-      subtitle: 'One matched question',
-      executiveSummary: 'The matched answers were compared.',
-      keyFindings: ['The judge found a measurable difference.'],
-      methodology: 'A judge model scored the matched pair before synthesis.',
-      limitations: ['One question is not representative of every context.'],
-      sections: [{
-        kind: 'case-study',
-        heading: 'The strongest scored case',
-        paragraphs: ['The comparison answer was warmer than the reference answer.'],
-        pairSampleIds: [buildPairSampleId(evidence[0]!)],
-      }],
+describe('generated report pipeline leases', () => {
+  it('heartbeats the same lease owner while a Batch API request is in flight', async () => {
+    vi.useFakeTimers()
+    let finishSubmit!: () => void
+    const submit = vi.fn(() => new Promise<{ id: string; status: string }>((resolve) => {
+      finishSubmit = () => resolve({ id: 'batch-1', status: 'validating' })
     }))
     const repository = {
       touchReportGeneration: vi.fn(async () => undefined),
       getReportEvidence: vi.fn(async () => ({
-          row: {
-            id: 'report-timebox',
-            scope: 'run' as const,
-            scoringModelId: 'z-ai/glm-5.3-flash',
-            synthesisModelId: 'x-ai/grok-4.6',
-          },
-          evidence,
-      })),
-      loadPairScores: vi.fn(async () => savedScores),
-      upsertPairScores: vi.fn(async (_reportId: string, scores: GeneratedReportPairScore[]) => {
-        const byId = new Map(savedScores.map((score) => [score.pairSampleId, score]))
-        for (const score of scores) byId.set(score.pairSampleId, score)
-        savedScores = [...byId.values()]
-      }),
-      completeReport: vi.fn(async (
-        _reportId: string,
-        _document: GeneratedReportDocument,
-        _now: string,
-        _leaseOwner: string,
-      ) => undefined),
-      failReport: vi.fn(async () => undefined),
-    }
-
-    await processReportChunk(
-      { complete: reportModel },
-      repository,
-      'report-timebox',
-      { complete: judge },
-      'owner-a',
-    )
-
-    expect(judge).toHaveBeenCalledWith('z-ai/glm-5.3-flash', expect.stringContaining('SCORING TASK'), 8192, { jsonObject: true })
-    expect(savedScores).toHaveLength(2)
-    expect(JSON.parse((judge.mock.calls[0]?.[1] ?? '').split('CELLS:\n')[1] ?? '[]')).toHaveLength(2)
-    expect(reportModel).not.toHaveBeenCalled()
-    expect(repository.completeReport).not.toHaveBeenCalled()
-
-    await processReportChunk(
-      { complete: reportModel }, repository, 'report-timebox', { complete: judge }, 'owner-a',
-    )
-
-    expect(judge).toHaveBeenCalledTimes(2)
-    expect(savedScores).toHaveLength(5)
-    expect(JSON.parse((judge.mock.calls[1]?.[1] ?? '').split('CELLS:\n')[1] ?? '[]')).toHaveLength(3)
-    expect(new Set(savedScores.map((score) => score.pairSampleId)).size).toBe(5)
-    expect(reportModel).not.toHaveBeenCalled()
-
-    await processReportChunk(
-      { complete: reportModel }, repository, 'report-timebox', { complete: judge }, 'owner-a',
-    )
-
-    expect(judge).toHaveBeenCalledTimes(3)
-    expect(savedScores).toHaveLength(9)
-    expect(JSON.parse((judge.mock.calls[2]?.[1] ?? '').split('CELLS:\n')[1] ?? '[]')).toHaveLength(4)
-    expect(new Set(savedScores.map((score) => score.pairSampleId)).size).toBe(9)
-    const judgedPairIds = judge.mock.calls.flatMap((call) => (
-      JSON.parse((call[1] ?? '').split('CELLS:\n')[1] ?? '[]') as Array<{ pairSampleId: string }>
-    ).map((cell) => cell.pairSampleId))
-    expect(new Set(judgedPairIds).size).toBe(9)
-    expect(reportModel).not.toHaveBeenCalled()
-    expect(repository.completeReport).not.toHaveBeenCalled()
-
-    await processReportChunk(
-      { complete: reportModel }, repository, 'report-timebox', { complete: judge }, 'owner-a',
-    )
-
-    expect(judge).toHaveBeenCalledTimes(3)
-    expect(reportModel).toHaveBeenCalledWith(
-      'x-ai/grok-4.6', expect.stringContaining('"pooledDimensions"'), 4096, { jsonObject: true },
-    )
-    const synthesisPrompt = reportModel.mock.calls[0]?.[1] ?? ''
-    expect(synthesisPrompt).toContain('"modelAggregates"')
-    expect(synthesisPrompt).toContain('"repeatability"')
-    expect(synthesisPrompt).toContain('"strongestExamples"')
-    expect(synthesisPrompt).toContain('"counterexamples"')
-    const synthesisData = JSON.parse(synthesisPrompt.split('DATA:\n')[1] ?? '{}') as {
-      strongestExamples?: Array<{ pairSampleId: string }>
-      repeatability?: Array<{ completeRepeats: number }>
-    }
-    expect(synthesisData.strongestExamples?.[0]?.pairSampleId).toBe(buildPairSampleId(evidence[0]!))
-    expect(synthesisData.repeatability?.map((entry) => entry.completeRepeats).sort((a, b) => a - b)).toEqual(repetitionCounts)
-    expect(synthesisPrompt).not.toContain('Direct answer.')
-    expect(repository.completeReport).toHaveBeenCalledWith(
-      'report-timebox',
-      expect.objectContaining({
-        scoringModelId: 'z-ai/glm-5.3-flash',
-        synthesisModelId: 'x-ai/grok-4.6',
-        pairScores: expect.arrayContaining([expect.objectContaining({ pairSampleId: buildPairSampleId(evidence[0]!) })]),
-        evidence: expect.arrayContaining(evidence.map((item) => expect.objectContaining({ id: item.id, response: item.response }))),
-        narrative: expect.objectContaining({ sections: expect.arrayContaining([expect.objectContaining({ kind: 'case-study' })]) }),
-      }),
-      expect.any(String), 'owner-a',
-    )
-    const completedDocument = repository.completeReport.mock.calls[0]?.[1] as unknown as GeneratedReportDocument
-    expect(completedDocument.evidence).toEqual(evidence)
-  })
-
-  it('heartbeats the same lease owner while a long model call is in flight', async () => {
-    vi.useFakeTimers()
-    let finishJudge!: (value: string) => void
-    const judge = vi.fn(() => new Promise<string>((resolve) => { finishJudge = resolve }))
-    const repository = {
-      touchReportGeneration: vi.fn(async () => undefined),
-      getReportEvidence: vi.fn(async () => ({
         row: { id: 'report-long', scope: 'global' as const, scoringModelId: 'judge', synthesisModelId: 'writer' },
-        evidence: fixtureEvidence(1),
+        evidence: fixtureEvidence(),
       })),
       loadPairScores: vi.fn(async () => []),
-      upsertPairScores: vi.fn(async () => undefined),
+      loadJudgeBatch: vi.fn(async () => null),
+      saveJudgeBatch: vi.fn(async () => undefined),
       completeReport: vi.fn(async () => undefined),
       countPairScores: vi.fn(async () => 0),
       failReport: vi.fn(async () => undefined),
@@ -233,14 +38,12 @@ describe('generated report pipeline', () => {
 
     try {
       const running = runReportGenerationStep(
-        { complete: vi.fn() }, repository, 'report-long', { complete: judge }, 'owner-a',
+        { complete: vi.fn() }, repository, 'report-long', { submit, retrieve: vi.fn() }, 'owner-a',
       )
       await vi.advanceTimersByTimeAsync(30_000)
-      expect(repository.touchReportGeneration).toHaveBeenCalledWith(
-        'report-long', expect.any(String), 'owner-a',
-      )
+      expect(repository.touchReportGeneration).toHaveBeenCalledWith('report-long', expect.any(String), 'owner-a')
       expect(repository.touchReportGeneration.mock.calls.length).toBeGreaterThanOrEqual(2)
-      finishJudge(mockJudgeBatch(`SCORING TASK\nCELLS:\n${JSON.stringify([{ pairSampleId: buildPairSampleId(fixtureEvidence(1)[0]!) }])}`))
+      finishSubmit()
       await running
       expect(repository.releaseReportGeneration).toHaveBeenCalledWith('report-long', 'owner-a')
     } finally {
@@ -253,10 +56,11 @@ describe('generated report pipeline', () => {
       touchReportGeneration: vi.fn(async () => undefined),
       getReportEvidence: vi.fn(async () => ({
         row: { id: 'report-release', scope: 'global' as const, scoringModelId: 'judge', synthesisModelId: 'writer' },
-        evidence: fixtureEvidence(1),
+        evidence: fixtureEvidence(),
       })),
       loadPairScores: vi.fn(async () => []),
-      upsertPairScores: vi.fn(async () => undefined),
+      loadJudgeBatch: vi.fn(async () => null),
+      saveJudgeBatch: vi.fn(async () => undefined),
       completeReport: vi.fn(async () => undefined),
       countPairScores: vi.fn(async () => 0),
       failReport: vi.fn(async () => undefined),
@@ -264,39 +68,26 @@ describe('generated report pipeline', () => {
     }
 
     await expect(runReportGenerationStep(
-      { complete: vi.fn() },
-      repository,
-      'report-release',
-      { complete: vi.fn(async (_modelId: string, prompt: string) => mockJudgeBatch(prompt)) },
-      'owner-a',
+      { complete: vi.fn() }, repository, 'report-release',
+      { submit: vi.fn(async () => ({ id: 'batch-1', status: 'validating' })), retrieve: vi.fn() }, 'owner-a',
     )).resolves.toBeUndefined()
     expect(repository.releaseReportGeneration).toHaveBeenCalledWith('report-release', 'owner-a')
   })
 
-  it('keeps a rate-limited model call pending so the open Reports tab can retry it', async () => {
+  it('keeps a rate-limited Batch API call pending so status polling can retry it', async () => {
     const repository = {
       getReportEvidence: vi.fn(async () => ({
-        row: {
-          id: 'report-checkpoint-retry', scope: 'global' as const,
-          scoringModelId: 'z-ai/glm-5.3-flash', synthesisModelId: 'x-ai/grok-4.6',
-        },
-        evidence: fixtureEvidence(1),
+        row: { id: 'report-retry', scope: 'global' as const, scoringModelId: 'judge', synthesisModelId: 'writer' },
+        evidence: fixtureEvidence(),
       })),
       countPairScores: vi.fn(async () => 0),
       touchReportGeneration: vi.fn(async () => undefined),
       failReport: vi.fn(async () => undefined),
     }
 
-    await handleReportChunkFailure(
-      repository as never,
-      'report-checkpoint-retry',
-      new Error('OpenRouter request failed (429): rate limit'),
-      'owner-a',
-    )
+    await handleReportChunkFailure(repository as never, 'report-retry', new Error('OpenRouter Batch request failed (429)'), 'owner-a')
 
-    expect(repository.touchReportGeneration).toHaveBeenCalledWith(
-      'report-checkpoint-retry', expect.any(String), 'owner-a',
-    )
+    expect(repository.touchReportGeneration).toHaveBeenCalledWith('report-retry', expect.any(String), 'owner-a')
     expect(repository.failReport).not.toHaveBeenCalled()
   })
 })

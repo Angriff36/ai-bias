@@ -247,8 +247,8 @@ export interface GeneratedReportSummary {
   modelCount: number
   createdAt: string
   completedAt: string | null
-  /** For a report still being made: how many answer pairs the judge has scored so far. */
-  progress?: { scoredPairs: number; expectedPairs: number }
+  /** For a report still being made: how many question-model analyses are complete. */
+  progress?: { completedAnalyses: number; expectedAnalyses: number }
   /** Why a stopped report stopped, when the server recorded a reason. */
   errorCode?: string | null
 }
@@ -273,7 +273,7 @@ export const generatedReportSummarySchema: z.ZodType<GeneratedReportSummary> = z
   id: z.string(), scope: z.enum(['run', 'global']), status: z.enum(['pending', 'complete', 'failed']),
   title: z.string().nullable(), responseCount: z.number().int().min(0), completePairs: z.number().int().min(0),
   modelCount: z.number().int().min(0), createdAt: z.string(), completedAt: z.string().nullable(),
-  progress: z.object({ scoredPairs: z.number().int().min(0), expectedPairs: z.number().int().min(0) }).optional(),
+  progress: z.object({ completedAnalyses: z.number().int().min(0), expectedAnalyses: z.number().int().min(0) }).optional(),
   errorCode: z.string().nullable().optional(),
 })
 

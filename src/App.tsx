@@ -210,14 +210,14 @@ function ReportsRoute() {
   return match ? <ReportDetailView reportId={Number(match[1])} /> : <ReportsList />
 }
 
-/** A pending report advances one step per call; while this tab is open the browser drives it. */
+/** While this tab is open, poll the server-side OpenRouter Batch job. */
 const REPORT_STEP_INTERVAL_MS = 50_000
 
 function reportProgressLabel(r: GeneratedReportSummary): string {
-  const scored = r.progress ? `${r.progress.scoredPairs} of ${r.progress.expectedPairs} answer pairs scored` : null
+  const scored = r.progress ? `${r.progress.completedAnalyses} of ${r.progress.expectedAnalyses} analyses complete` : null
   if (r.status === 'failed') return `stopped${r.errorCode ? ` (${r.errorCode})` : ''}${scored ? ` · ${scored}` : ''}`
-  if (r.progress && r.progress.scoredPairs >= r.progress.expectedPairs && r.progress.expectedPairs > 0) return 'all pairs scored · writing the report'
-  return scored ? `scoring · ${scored}` : 'generating'
+  if (r.progress && r.progress.completedAnalyses >= r.progress.expectedAnalyses && r.progress.expectedAnalyses > 0) return 'all analyses complete · writing the report'
+  return scored ? `Processing · ${scored}` : 'Processing'
 }
 
 function ReportsList() {
@@ -310,15 +310,14 @@ function ReportsList() {
   const progress = inProgress.length > 0 && (
     <section className="report-progress" aria-labelledby="report-progress-title">
       <h3 id="report-progress-title">In progress</h3>
-      <p className="muted">A report advances one step at a time while this page is open. You can also press Continue.</p>
+      <p className="muted">Reports are processed asynchronously. This page checks their status while it is open.</p>
       <ul className="claim-question-list">
         {inProgress.map((r) => (
           <li key={r.id}>
             <span>{r.title ?? 'Report'} · {reportProgressLabel(r)} · started {new Date(r.createdAt).toLocaleString()}</span>
-            {' '}
-            <button type="button" className="secondary" disabled={stepping === r.id} onClick={() => { void attemptStep(r.id, true) }}>
-              {stepping === r.id ? 'Working…' : r.status === 'failed' ? 'Retry' : 'Continue'}
-            </button>
+            {r.status === 'failed' && <>{' '}<button type="button" className="secondary" disabled={stepping === r.id} onClick={() => { void attemptStep(r.id, true) }}>
+              {stepping === r.id ? 'Working…' : 'Retry'}
+            </button></>}
           </li>
         ))}
       </ul>

@@ -17,10 +17,11 @@ import {
   type GlobalReportCohortSnapshot,
 } from './reportGlobalCohort'
 import { parseStoredReportDocument } from './reportDocumentParse'
-import { comparisonIdentity, groupCompleteMatchedSamples } from './matchedSampleIdentity'
+import { buildPairSampleId, comparisonIdentity, groupCompleteMatchedSamples } from './matchedSampleIdentity'
 import { filterEvidenceByQuestionKeys } from './questionLeaderboard'
 import { invalidateCachedReports, writeCachedClaims } from './readCache'
 import { normalizeQuestionKey } from '../../src/public/questionKeys'
+import { groupPolarJudgeCells } from './reportJudgeBatch'
 
 const JUDGE_MODEL = 'z-ai/glm-5.3-flash'
 const SYNTHESIS_MODEL = 'x-ai/grok-4.6'
@@ -66,6 +67,19 @@ export function summarizeReportModels(evidence: PublicEvidenceItem[]): Generated
   }).sort((a, b) => a.provider.localeCompare(b.provider) || a.modelId.localeCompare(b.modelId))
 }
 
+export function reportAnalysisProgress(
+  evidence: PublicEvidenceItem[],
+  scores: GeneratedReportPairScore[],
+): { completedAnalyses: number; expectedAnalyses: number } {
+  const cells = groupPolarJudgeCells(evidence)
+  const scoredIds = new Set(scores.map((score) => score.pairSampleId))
+  const completedAnalyses = cells.filter((cell) => cell.groups.every((group) => {
+    const variantA = group.find((item) => item.variantKey === 'A')!
+    return scoredIds.has(buildPairSampleId(variantA))
+  })).length
+  return { completedAnalyses, expectedAnalyses: cells.length }
+}
+
 function countCompleteModelPairs(records: PublicEvidenceItem[]): number {
   return groupCompleteMatchedSamples(records).length
 }
@@ -84,6 +98,8 @@ interface ReportRow {
   cohortSnapshotJson: string | null
   generationLeaseUntil: string | null
   generationLeaseOwner: string | null
+  judgeBatchId: string | null
+  judgeBatchStatus: string | null
   status: 'pending' | 'complete' | 'failed'
   errorCode?: string | null
   scoringModelId: string
@@ -276,6 +292,30 @@ export class GeneratedReportRepository {
     }
   }
 
+  async loadJudgeBatch(reportId: string): Promise<{ id: string; status: string } | null> {
+    const row = await this.db.prepare('SELECT judge_batch_id, judge_batch_status FROM generated_reports WHERE id=?')
+      .bind(reportId).first<{ judge_batch_id: string | null; judge_batch_status: string | null }>()
+    return row?.judge_batch_id ? { id: s(row.judge_batch_id), status: s(row.judge_batch_status) } : null
+  }
+
+  async saveJudgeBatch(reportId: string, batch: { id: string; status: string }, leaseOwner: string): Promise<void> {
+    await this.db.prepare(`UPDATE generated_reports SET judge_batch_id=?, judge_batch_status=?
+      WHERE id=? AND status='pending' AND generation_lease_owner=? AND judge_batch_id IS NULL`)
+      .bind(batch.id, batch.status, reportId, leaseOwner).run()
+  }
+
+  async updateJudgeBatchStatus(reportId: string, status: string, leaseOwner: string): Promise<void> {
+    await this.db.prepare(`UPDATE generated_reports SET judge_batch_status=?
+      WHERE id=? AND status='pending' AND generation_lease_owner=?`)
+      .bind(status, reportId, leaseOwner).run()
+  }
+
+  async clearJudgeBatch(reportId: string, leaseOwner: string): Promise<void> {
+    await this.db.prepare(`UPDATE generated_reports SET judge_batch_id=NULL, judge_batch_status=NULL
+      WHERE id=? AND status='pending' AND generation_lease_owner=?`)
+      .bind(reportId, leaseOwner).run()
+  }
+
   async prepareReportGeneration(reportId: string, now: string): Promise<{ report: GeneratedReportSummary; started: boolean; leaseOwner?: string } | null> {
     const row = await this.getRow(reportId)
     if (!row || row.status === 'complete') return null
@@ -314,7 +354,7 @@ export class GeneratedReportRepository {
   }
 
   async listReports(): Promise<GeneratedReportSummary[]> {
-    const rows = (await this.db.prepare(`SELECT id, scope, public_run_id, response_watermark, cohort_fingerprint, cohort_snapshot_json, generation_lease_until, generation_lease_owner,
+    const rows = (await this.db.prepare(`SELECT id, scope, public_run_id, response_watermark, cohort_fingerprint, cohort_snapshot_json, generation_lease_until, generation_lease_owner, judge_batch_id, judge_batch_status,
       status, error_code, scoring_model_id, synthesis_model_id, title, structured_json, created_at, completed_at FROM generated_reports
       ORDER BY COALESCE(completed_at, created_at) DESC LIMIT 50`).all()).results ?? []
     const summaries: GeneratedReportSummary[] = []
@@ -322,8 +362,8 @@ export class GeneratedReportRepository {
       if (row.status === 'complete') { summaries.push(this.summary(row)); continue }
       let progress: GeneratedReportSummary['progress']
       try {
-        const [scoredPairs, source] = await Promise.all([this.countPairScores(row.id), this.getReportEvidence(row.id)])
-        progress = { scoredPairs, expectedPairs: groupCompleteMatchedSamples(source.evidence).length }
+        const [scores, source] = await Promise.all([this.loadPairScores(row.id), this.getReportEvidence(row.id)])
+        progress = reportAnalysisProgress(source.evidence, scores)
       } catch {
         // No evidence to count: the row still lists, just without a progress figure.
       }
@@ -376,21 +416,21 @@ export class GeneratedReportRepository {
   }
 
   private async findByRun(runId: string): Promise<ReportRow | null> {
-    const row = await this.db.prepare(`SELECT id, scope, public_run_id, response_watermark, cohort_fingerprint, cohort_snapshot_json, generation_lease_until, generation_lease_owner,
+    const row = await this.db.prepare(`SELECT id, scope, public_run_id, response_watermark, cohort_fingerprint, cohort_snapshot_json, generation_lease_until, generation_lease_owner, judge_batch_id, judge_batch_status,
       status, error_code, scoring_model_id, synthesis_model_id, title, structured_json, created_at, completed_at FROM generated_reports WHERE scope='run' AND public_run_id=?`)
       .bind(runId).first<Record<string, unknown>>()
     return row ? mapReportRow(row) : null
   }
 
   private async findByCohortFingerprint(fingerprint: string): Promise<ReportRow | null> {
-    const row = await this.db.prepare(`SELECT id, scope, public_run_id, response_watermark, cohort_fingerprint, cohort_snapshot_json, generation_lease_until, generation_lease_owner,
+    const row = await this.db.prepare(`SELECT id, scope, public_run_id, response_watermark, cohort_fingerprint, cohort_snapshot_json, generation_lease_until, generation_lease_owner, judge_batch_id, judge_batch_status,
       status, error_code, scoring_model_id, synthesis_model_id, title, structured_json, created_at, completed_at FROM generated_reports WHERE scope='global' AND cohort_fingerprint=?`)
       .bind(fingerprint).first<Record<string, unknown>>()
     return row ? mapReportRow(row) : null
   }
 
   private async getRow(id: string): Promise<ReportRow | null> {
-    const row = await this.db.prepare(`SELECT id, scope, public_run_id, response_watermark, cohort_fingerprint, cohort_snapshot_json, generation_lease_until, generation_lease_owner,
+    const row = await this.db.prepare(`SELECT id, scope, public_run_id, response_watermark, cohort_fingerprint, cohort_snapshot_json, generation_lease_until, generation_lease_owner, judge_batch_id, judge_batch_status,
       status, error_code, scoring_model_id, synthesis_model_id, title, structured_json, created_at, completed_at FROM generated_reports WHERE id=?`)
       .bind(id).first<Record<string, unknown>>()
     return row ? mapReportRow(row) : null
@@ -414,6 +454,8 @@ function mapReportRow(row: Record<string, unknown>): ReportRow {
     cohortSnapshotJson: row.cohort_snapshot_json == null ? null : s(row.cohort_snapshot_json),
     generationLeaseUntil: row.generation_lease_until == null ? null : s(row.generation_lease_until),
     generationLeaseOwner: row.generation_lease_owner == null ? null : s(row.generation_lease_owner),
+    judgeBatchId: row.judge_batch_id == null ? null : s(row.judge_batch_id),
+    judgeBatchStatus: row.judge_batch_status == null ? null : s(row.judge_batch_status),
     status: s(row.status) as ReportRow['status'], scoringModelId: s(row.scoring_model_id), synthesisModelId: s(row.synthesis_model_id),
     title: row.title == null ? null : s(row.title), structuredJson: row.structured_json == null ? null : s(row.structured_json),
     createdAt: s(row.created_at), completedAt: row.completed_at == null ? null : s(row.completed_at),

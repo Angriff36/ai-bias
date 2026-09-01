@@ -97,7 +97,7 @@ describe('application navigation', () => {
       {
         id: 'pending-report', scope: 'global', status: 'pending',
         title: 'Pending report', responseCount: 0, completePairs: 0, modelCount: 0,
-        progress: { scoredPairs: 6, expectedPairs: 12 },
+        progress: { completedAnalyses: 6, expectedAnalyses: 12 },
         createdAt: '2026-08-30T15:00:00.000Z', completedAt: null,
       },
     ])
@@ -105,6 +105,8 @@ describe('application navigation', () => {
     await act(async () => {
       unmount = render(<App />).unmount
     })
+    expect(screen.getByText(/6 of 12 analyses complete/)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Continue' })).toBeNull()
     expect(continueReportGeneration).toHaveBeenCalledTimes(1)
     await act(async () => { await vi.advanceTimersByTimeAsync(45_000) })
     expect(continueReportGeneration).toHaveBeenCalledTimes(1)
@@ -124,7 +126,7 @@ describe('application navigation', () => {
     const reportA = {
       id: 'pending-a', scope: 'global', status: 'pending', title: 'Pending A',
       responseCount: 0, completePairs: 0, modelCount: 0,
-      progress: { scoredPairs: 1, expectedPairs: 2 },
+      progress: { completedAnalyses: 1, expectedAnalyses: 2 },
       createdAt: '2026-08-30T15:00:00.000Z', completedAt: null,
     }
     const reportB = {

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { GeneratedReportPairScore, PublicEvidenceItem } from '../../src/public/contracts'
+import type { GeneratedReportDocument, GeneratedReportPairScore, PublicEvidenceItem } from '../../src/public/contracts'
 import { buildPairSampleId } from './matchedSampleIdentity'
 import { handleReportChunkFailure, processReportChunk, runReportGenerationStep } from './reportGeneration'
 
@@ -39,6 +39,38 @@ function fixtureEvidence(pairCount: number): PublicEvidenceItem[] {
   return records
 }
 
+function groupedFixtureEvidence(repetitionCounts: number[]): PublicEvidenceItem[] {
+  const records: PublicEvidenceItem[] = []
+  for (let pairIndex = 0; pairIndex < repetitionCounts.length; pairIndex += 1) {
+    const modelId = pairIndex === 2 ? 'model/b' : 'model/a'
+    for (let runIndex = 0; runIndex < repetitionCounts[pairIndex]!; runIndex += 1) {
+      records.push(
+        evidenceRecord({
+          id: `a-${pairIndex}-${runIndex}`,
+          pairIndex,
+          runIndex,
+          variantKey: 'A',
+          classification: 'answered',
+          question: `Repeated question ${pairIndex}`,
+          modelId,
+          response: `Answer A for group ${pairIndex}, repetition ${runIndex}.`,
+        }),
+        evidenceRecord({
+          id: `b-${pairIndex}-${runIndex}`,
+          pairIndex,
+          runIndex,
+          variantKey: 'B',
+          classification: runIndex === 0 ? 'hard-refusal' : 'answered',
+          question: `Repeated question ${pairIndex}`,
+          modelId,
+          response: `Answer B for group ${pairIndex}, repetition ${runIndex}.`,
+        }),
+      )
+    }
+  }
+  return records
+}
+
 const zeroScores = {
   dangerFraming: 0,
   sympathy: 0,
@@ -62,8 +94,9 @@ function mockJudgeBatch(prompt: string): string {
 }
 
 describe('generated report pipeline', () => {
-  it('checkpoints exactly one new pair per invocation before a later invocation synthesizes', async () => {
-    const evidence = fixtureEvidence(3)
+  it('checkpoints one complete question-model group per invocation and skips it on retry', async () => {
+    const repetitionCounts = [2, 3, 4]
+    const evidence = groupedFixtureEvidence(repetitionCounts)
     let savedScores: GeneratedReportPairScore[] = []
     const judge = vi.fn(async (_modelId: string, prompt: string) => mockJudgeBatch(prompt))
     const reportModel = vi.fn(async (_modelId: string, _prompt: string) => JSON.stringify({
@@ -97,7 +130,12 @@ describe('generated report pipeline', () => {
         for (const score of scores) byId.set(score.pairSampleId, score)
         savedScores = [...byId.values()]
       }),
-      completeReport: vi.fn(async () => undefined),
+      completeReport: vi.fn(async (
+        _reportId: string,
+        _document: GeneratedReportDocument,
+        _now: string,
+        _leaseOwner: string,
+      ) => undefined),
       failReport: vi.fn(async () => undefined),
     }
 
@@ -110,8 +148,8 @@ describe('generated report pipeline', () => {
     )
 
     expect(judge).toHaveBeenCalledWith('z-ai/glm-5.3-flash', expect.stringContaining('SCORING TASK'), 8192, { jsonObject: true })
-    expect(savedScores).toHaveLength(1)
-    expect(JSON.parse((judge.mock.calls[0]?.[1] ?? '').split('CELLS:\n')[1] ?? '[]')).toHaveLength(1)
+    expect(savedScores).toHaveLength(2)
+    expect(JSON.parse((judge.mock.calls[0]?.[1] ?? '').split('CELLS:\n')[1] ?? '[]')).toHaveLength(2)
     expect(reportModel).not.toHaveBeenCalled()
     expect(repository.completeReport).not.toHaveBeenCalled()
 
@@ -120,8 +158,9 @@ describe('generated report pipeline', () => {
     )
 
     expect(judge).toHaveBeenCalledTimes(2)
-    expect(savedScores).toHaveLength(2)
-    expect(new Set(savedScores.map((score) => score.pairSampleId)).size).toBe(2)
+    expect(savedScores).toHaveLength(5)
+    expect(JSON.parse((judge.mock.calls[1]?.[1] ?? '').split('CELLS:\n')[1] ?? '[]')).toHaveLength(3)
+    expect(new Set(savedScores.map((score) => score.pairSampleId)).size).toBe(5)
     expect(reportModel).not.toHaveBeenCalled()
 
     await processReportChunk(
@@ -129,8 +168,13 @@ describe('generated report pipeline', () => {
     )
 
     expect(judge).toHaveBeenCalledTimes(3)
-    expect(savedScores).toHaveLength(3)
-    expect(new Set(savedScores.map((score) => score.pairSampleId)).size).toBe(3)
+    expect(savedScores).toHaveLength(9)
+    expect(JSON.parse((judge.mock.calls[2]?.[1] ?? '').split('CELLS:\n')[1] ?? '[]')).toHaveLength(4)
+    expect(new Set(savedScores.map((score) => score.pairSampleId)).size).toBe(9)
+    const judgedPairIds = judge.mock.calls.flatMap((call) => (
+      JSON.parse((call[1] ?? '').split('CELLS:\n')[1] ?? '[]') as Array<{ pairSampleId: string }>
+    ).map((cell) => cell.pairSampleId))
+    expect(new Set(judgedPairIds).size).toBe(9)
     expect(reportModel).not.toHaveBeenCalled()
     expect(repository.completeReport).not.toHaveBeenCalled()
 
@@ -149,8 +193,10 @@ describe('generated report pipeline', () => {
     expect(synthesisPrompt).toContain('"counterexamples"')
     const synthesisData = JSON.parse(synthesisPrompt.split('DATA:\n')[1] ?? '{}') as {
       strongestExamples?: Array<{ pairSampleId: string }>
+      repeatability?: Array<{ completeRepeats: number }>
     }
     expect(synthesisData.strongestExamples?.[0]?.pairSampleId).toBe(buildPairSampleId(evidence[0]!))
+    expect(synthesisData.repeatability?.map((entry) => entry.completeRepeats).sort((a, b) => a - b)).toEqual(repetitionCounts)
     expect(synthesisPrompt).not.toContain('Direct answer.')
     expect(repository.completeReport).toHaveBeenCalledWith(
       'report-timebox',
@@ -158,11 +204,13 @@ describe('generated report pipeline', () => {
         scoringModelId: 'z-ai/glm-5.3-flash',
         synthesisModelId: 'x-ai/grok-4.6',
         pairScores: expect.arrayContaining([expect.objectContaining({ pairSampleId: buildPairSampleId(evidence[0]!) })]),
-        evidence,
+        evidence: expect.arrayContaining(evidence.map((item) => expect.objectContaining({ id: item.id, response: item.response }))),
         narrative: expect.objectContaining({ sections: expect.arrayContaining([expect.objectContaining({ kind: 'case-study' })]) }),
       }),
       expect.any(String), 'owner-a',
     )
+    const completedDocument = repository.completeReport.mock.calls[0]?.[1] as unknown as GeneratedReportDocument
+    expect(completedDocument.evidence).toEqual(evidence)
   })
 
   it('heartbeats the same lease owner while a long model call is in flight', async () => {

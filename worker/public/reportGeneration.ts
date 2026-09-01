@@ -6,7 +6,7 @@ import {
 } from '../../src/public/contracts'
 import { buildPairSampleId, groupCompleteMatchedSamples } from './matchedSampleIdentity'
 import { analyzeReportEvidence } from './reportExperimentAnalysis'
-import { RetryableReportCheckpointError, scoreAllPairsWithJudge } from './reportJudgeBatch'
+import { groupPolarJudgeCells, RetryableReportCheckpointError, scoreAllPairsWithJudge } from './reportJudgeBatch'
 import type { ReportModelClient } from './reportModelClient'
 import type { GeneratedReportRepository } from './reportRepository'
 import { buildSynthesisPrompt } from './reportSynthesisPrompt'
@@ -68,12 +68,15 @@ export async function generateReport(
   if (completeGroups.length === 0) throw new InvalidModelOutput('No complete evidence groups.')
   const existingScores = existingScoreMap(options?.existingPairScores)
   const modelDeadlineMs = options?.deadlineMs == null ? undefined : options.deadlineMs - REPORT_PERSISTENCE_RESERVE_MS
-  const nextGroup = completeGroups.find((group) => {
-    const variantA = group.find((item) => item.variantKey === 'A')!
-    return !existingScores.has(buildPairSampleId(variantA))
+  const nextCell = groupPolarJudgeCells(source.evidence).find((cell) => {
+    return cell.groups.some((group) => {
+      const variantA = group.find((item) => item.variantKey === 'A')!
+      return !existingScores.has(buildPairSampleId(variantA))
+    })
   })
-  if (nextGroup) {
-    const judged = await scoreAllPairsWithJudge(judgeModels, source.row.scoringModelId, nextGroup, {
+  if (nextCell) {
+    const judged = await scoreAllPairsWithJudge(judgeModels, source.row.scoringModelId, nextCell.groups.flat(), {
+      existingScores,
       shouldStop: modelDeadlineMs == null ? undefined : () => Date.now() >= modelDeadlineMs,
       deadlineMs: modelDeadlineMs,
       concurrency: 1,

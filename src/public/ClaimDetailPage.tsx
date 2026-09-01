@@ -9,11 +9,25 @@ import { usePublicFetch } from './usePublicFetch'
 function EvidenceFinding({ finding }: { finding: ClaimFinding }) {
   return (
     <article className="claim-finding">
-      <div className="claim-finding-meta"><span>{finding.model}</span><span>{finding.direction}</span></div>
+      <div className="claim-finding-meta">
+        <span>{finding.modelEvidence.length} {finding.modelEvidence.length === 1 ? 'model' : 'models'} · {finding.judgedPairCount} judged {finding.judgedPairCount === 1 ? 'pair' : 'pairs'}</span>
+        <span>{finding.direction}</span>
+      </div>
       <h4><a href={questionLeaderboardHref(finding.questionKey)}>{finding.question}</a></h4>
       <p>{finding.explanation}</p>
+      <details className="claim-finding-model-evidence" open>
+        <summary>Model-specific evidence</summary>
+        <ul>
+          {finding.modelEvidence.map((model) => (
+            <li key={model.model}>
+              <div><strong>{model.model}</strong><span className={`relationship-${model.relationship}`}>{model.relationship === 'supports' ? 'Supports pattern' : model.relationship === 'counterexample' ? 'Counterexample' : 'Neutral'}</span></div>
+              <span>{model.direction} · {model.pairCount} judged {model.pairCount === 1 ? 'pair' : 'pairs'}</span>
+            </li>
+          ))}
+        </ul>
+      </details>
       <a className="claim-evidence-link" href={questionLeaderboardHref(finding.questionKey)}>
-        View paired evidence · {finding.evidenceIds.join(' · ')}
+        View all paired evidence · {finding.evidenceIds.length} response records
       </a>
     </article>
   )
@@ -30,7 +44,7 @@ function FindingsSection({ title, findings, empty, tone }: {
       <div className="claim-section-heading"><span aria-hidden="true" /><h3 id={`claim-${tone}-title`}>{title}</h3><strong>{findings.length}</strong></div>
       {findings.length === 0
         ? <p className="claim-section-empty">{empty}</p>
-        : <div className="claim-finding-grid">{findings.map((finding, index) => <EvidenceFinding key={`${finding.questionKey}-${finding.model}-${index}`} finding={finding} />)}</div>}
+        : <div className="claim-finding-grid">{findings.map((finding) => <EvidenceFinding key={finding.questionKey} finding={finding} />)}</div>}
     </section>
   )
 }

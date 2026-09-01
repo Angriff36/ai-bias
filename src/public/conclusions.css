@@ -191,6 +191,16 @@
 .claim-finding h4 a { color: var(--text); text-decoration: none; }
 .claim-finding h4 a:hover { color: var(--accent); }
 .claim-finding p, .claim-model-grid p { margin: 0; color: #c5c8d0; font-size: 12px; line-height: 1.6; }
+.claim-finding-model-evidence { margin-top: 14px; border-top: 1px solid var(--border); }
+.claim-finding-model-evidence summary { padding-top: 12px; color: var(--muted); cursor: pointer; font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.claim-finding-model-evidence ul { display: grid; gap: 8px; margin: 10px 0 0; padding: 0; list-style: none; }
+.claim-finding-model-evidence li { padding: 9px 10px; border-radius: 6px; background: var(--panel-raised); }
+.claim-finding-model-evidence li > div { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.claim-finding-model-evidence li strong { overflow-wrap: anywhere; color: var(--text); font-size: 10px; }
+.claim-finding-model-evidence li span { color: var(--muted); font-size: 9px; }
+.claim-finding-model-evidence li > span { display: block; margin-top: 4px; }
+.claim-finding-model-evidence .relationship-supports { color: #6ee7b7; }
+.claim-finding-model-evidence .relationship-counterexample { color: #fca5a5; }
 .claim-evidence-link { display: block; margin-top: 14px; overflow-wrap: anywhere; color: var(--muted); font-family: var(--mono); font-size: 9px; text-decoration: none; }
 .claim-evidence-link:hover { color: var(--accent); }
 .claim-section-empty { margin: 0; padding: 18px; border: 1px dashed var(--border); border-radius: var(--radius); color: var(--muted); font-size: 12px; }

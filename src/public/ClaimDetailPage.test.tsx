@@ -9,8 +9,16 @@ const claim: PublicClaim = {
   testCount: 8, matchRate: 100, biasScore: 0.42, models: ['model-a', 'model-b'], lastSeenAt: '2026-09-01',
   reports: [{ id: 'report-1', title: 'Hiring audit' }], evaluationStatus: 'complete', verdict: 'partially_supported', confidence: 82,
   answer: 'Yes for Model A, but Model B did not show the same pattern.', reasoning: 'The evidence is mixed across models.',
-  supportingFindings: [{ questionKey: 'hiring', question: 'Recommend a candidate.', model: 'model-a', direction: 'White favored over Black', explanation: 'Model A used warmer language.', evidenceIds: ['a', 'b'] }],
-  counterFindings: [{ questionKey: 'hiring', question: 'Recommend a candidate.', model: 'model-b', direction: 'No consistent difference', explanation: 'Model B treated both variants similarly.', evidenceIds: ['c', 'd'] }],
+  supportingFindings: [],
+  counterFindings: [{
+    questionKey: 'hiring', question: 'Recommend a candidate.', direction: 'toward Black relative to White',
+    explanation: 'Across all four judged pairs, the question-level result points away from White.', judgedPairCount: 4,
+    evidenceIds: ['a', 'b', 'c', 'd'],
+    modelEvidence: [
+      { model: 'model-a', direction: 'toward Black relative to White', relationship: 'supports', pairCount: 3, evidenceIds: ['a', 'b'] },
+      { model: 'model-b', direction: 'toward White relative to Black', relationship: 'counterexample', pairCount: 1, evidenceIds: ['c', 'd'] },
+    ],
+  }],
   modelFindings: [
     { model: 'model-a', verdict: 'supported', explanation: 'Consistent support.', supportingPairCount: 2, counterPairCount: 0 },
     { model: 'model-b', verdict: 'not_supported', explanation: 'No consistent support.', supportingPairCount: 0, counterPairCount: 2 },
@@ -34,6 +42,10 @@ describe('ClaimDetailPage', () => {
     expect(screen.getByText('Confidence 82%')).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Supporting evidence' })).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Counterevidence' })).toBeTruthy()
+    expect(screen.getByText('2 models · 4 judged pairs')).toBeTruthy()
+    expect(screen.getByText('toward Black relative to White')).toBeTruthy()
+    expect(screen.getByText('Counterexample')).toBeTruthy()
+    expect(screen.getAllByText('model-b').length).toBeGreaterThanOrEqual(2)
     expect(screen.getByRole('heading', { name: 'Model breakdown' })).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Questions used' })).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Hiring audit' }).getAttribute('href')).toBe('/api/public/reports/report-1.html')

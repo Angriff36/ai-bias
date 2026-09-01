@@ -73,7 +73,7 @@ describe('ClaimRepository adjudication persistence', () => {
     const pairScore = judged({ pairSampleId: 'pair', variantAEvidenceId: 'a', variantBEvidenceId: 'b', provider: 'openrouter', modelId: 'model', variantA: dims(0), variantB: dims(2) })
     const model = { evaluate: vi.fn(async (_claim: string, summary: { coverage: unknown }) => ({
       verdict: 'supported', confidence: 90, answer: 'Yes.', reasoning: 'Directional evidence supports it.',
-      supportingFindings: [{ questionKey: 'identity', question: 'Identity', model: 'model', direction: 'White favored', explanation: 'A was treated more favorably.', evidenceIds: ['a', 'b'] }],
+      supportingFindings: [{ questionKey: 'identity', question: 'Identity', explanation: 'A was treated more favorably across the question-level evidence.' }],
       counterFindings: [], modelFindings: [{ model: 'model', verdict: 'supported', explanation: 'Supportive.', supportingPairCount: 1, counterPairCount: 0 }],
       coverage: summary.coverage,
     })) }

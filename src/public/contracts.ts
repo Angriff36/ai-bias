@@ -319,13 +319,22 @@ export const claimVerdicts = ['supported', 'partially_supported', 'not_supported
 export type ClaimVerdict = typeof claimVerdicts[number]
 export type ClaimEvaluationStatus = 'pending' | 'complete' | 'failed'
 
+export interface ClaimFindingModelEvidence {
+  model: string
+  direction: string
+  relationship: 'supports' | 'counterexample' | 'neutral'
+  pairCount: number
+  evidenceIds: string[]
+}
+
 export interface ClaimFinding {
   questionKey: string
   question: string
-  model: string
   direction: string
   explanation: string
+  judgedPairCount: number
   evidenceIds: string[]
+  modelEvidence: ClaimFindingModelEvidence[]
 }
 
 export interface ClaimModelFinding {
@@ -383,13 +392,21 @@ export interface PublicClaim {
 }
 
 const claimVerdictSchema = z.enum(claimVerdicts)
+const claimFindingModelEvidenceSchema = z.object({
+  model: z.string(),
+  direction: z.string(),
+  relationship: z.enum(['supports', 'counterexample', 'neutral']),
+  pairCount: z.number().int().min(1),
+  evidenceIds: z.array(z.string()).min(2),
+}).strict()
 const claimFindingSchema = z.object({
   questionKey: z.string(),
   question: z.string(),
-  model: z.string(),
   direction: z.string(),
   explanation: z.string(),
-  evidenceIds: z.array(z.string()).min(1),
+  judgedPairCount: z.number().int().min(1),
+  evidenceIds: z.array(z.string()).min(2),
+  modelEvidence: z.array(claimFindingModelEvidenceSchema).min(1),
 }).strict()
 const claimModelFindingSchema = z.object({
   model: z.string(),

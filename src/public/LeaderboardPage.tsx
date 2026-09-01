@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import './submittedPrompts.css'
+import './conclusions.css'
 import type { GeneratedReportSummary, PublicLeaderboard, PublicQuestionSummary } from './contracts'
 import { getPublicLeaderboard, listGeneratedReports, requestQuestionSetReport } from './client'
 import { evidenceTime } from './leaderboardUi'

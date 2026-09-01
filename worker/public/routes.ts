@@ -9,6 +9,7 @@ import { enqueueReportAnalyses, type ReportQueueProducer } from './reportQueue'
 import { CURATED_REPORTS } from './curatedReports'
 import { invalidateCachedReports, readCachedReports, writeCachedReports } from './readCache'
 import { ClaimRepository } from './claimRepository'
+import { createOpenRouterClaimEvaluator } from './claimAdjudication'
 
 const PUBLIC_CACHE_CONTROL = 'public, max-age=60, stale-while-revalidate=300'
 
@@ -54,7 +55,10 @@ export async function handlePublicApi(
   if (origin && origin !== url.origin) return json({ error: 'Cross-origin requests are not allowed.' }, 403)
   const repository = injected?.repository ?? new PublicRepository(env.PUBLIC_DB)
   const reportRepository = injected?.reportRepository ?? new GeneratedReportRepository(env.PUBLIC_DB)
-  const claimRepository = injected?.claimRepository ?? new ClaimRepository(env.PUBLIC_DB)
+  const claimRepository = injected?.claimRepository ?? new ClaimRepository(
+    env.PUBLIC_DB,
+    createOpenRouterClaimEvaluator(env.OPENROUTER_API_KEY, url.origin),
+  )
   const quotaHash = injected?.quotaHash ?? quotaIdentity
   const enqueueReport = injected?.enqueueReport ?? (async (reportId: string, leaseOwner: string) => {
     await enqueueReportAnalyses(env.REPORT_GENERATION_QUEUE, reportRepository as GeneratedReportRepository, reportId, leaseOwner)

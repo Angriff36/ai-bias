@@ -1,5 +1,11 @@
-import type { GeneratedReportPairScore, PublicClaim, PublicEvidenceItem } from '../../src/public/contracts'
+import type { ClaimAdjudication, GeneratedReportPairScore, PublicClaim, PublicEvidenceItem } from '../../src/public/contracts'
+import { claimAdjudicationSchema } from '../../src/public/contracts'
 import { normalizeQuestionKey } from '../../src/public/questionKeys'
+import {
+  adjudicateClaim,
+  buildClaimEvidenceSummary,
+  type ClaimEvaluationModel,
+} from './claimAdjudication'
 import type { D1DatabaseLike } from './d1'
 import { indexEvidenceByQuestionKey } from './questionLeaderboard'
 import { readCachedClaims, writeCachedClaims } from './readCache'
@@ -8,9 +14,9 @@ import { REPORT_DIMENSIONS } from './reportDimensions'
 const n = (value: unknown) => Number(value ?? 0)
 const s = (value: unknown) => String(value ?? '')
 
-// No response text: the claim answer needs only prompts, classes, and pair identity.
 const evidenceSelect = `SELECT id, run_id, pair_index, run_index, question, variant_key, variant_label,
-  provider, model_id, prompt, status, classification, received_at
+  provider, model_id, prompt, response, latency_ms, status_code, status, error_message, truncated,
+  evidence_sha256, classification, received_at
   FROM public_evidence`
 
 const DAILY_CLAIM_LIMIT = 200
@@ -82,12 +88,17 @@ export type ClaimCreateResult =
   | { kind: 'limited' }
 
 export class ClaimRepository {
-  constructor(private readonly db: D1DatabaseLike) {}
+  constructor(
+    private readonly db: D1DatabaseLike,
+    private readonly evaluator?: ClaimEvaluationModel,
+  ) {}
 
   async list(): Promise<PublicClaim[]> {
     const cached = readCachedClaims()
     if (cached) return cached
-    const rows = (await this.db.prepare('SELECT id, text, question_keys_json, created_at FROM claims ORDER BY created_at DESC').all()).results ?? []
+    const rows = (await this.db.prepare(`SELECT id, text, question_keys_json, created_at,
+      adjudication_json, evidence_fingerprint, evaluated_at, evaluation_status, evaluation_error
+      FROM claims ORDER BY created_at DESC`).all()).results ?? []
     if (rows.length === 0) {
       writeCachedClaims([])
       return []
@@ -96,23 +107,91 @@ export class ClaimRepository {
     const byKey = indexEvidenceByQuestionKey(evidence)
     const reports = await this.completeReportKeys()
     const judged = await this.completeReportPairScores()
-    const claims = rows.map((row) => {
+    const claims: PublicClaim[] = []
+    for (const row of rows) {
       const questionKeys = parseKeys(s(row.question_keys_json))
       const scoped = questionKeys.flatMap((key) => byKey.get(key) ?? [])
       const wanted = new Set(questionKeys)
-      return {
+      const adjudication = await this.claimAdjudication(row, s(row.text), questionKeys, evidence, judged)
+      claims.push({
         id: s(row.id),
         text: s(row.text),
         questionKeys,
         createdAt: s(row.created_at),
         ...computeClaimAnswer(scoped, judged),
+        ...adjudication,
         reports: reports
           .filter((report) => [...report.keys].some((key) => wanted.has(key)))
           .map((report) => ({ id: report.id, title: report.title })),
-      }
-    })
+      })
+    }
     writeCachedClaims(claims)
     return claims
+  }
+
+  private async claimAdjudication(
+    row: Record<string, unknown>,
+    claimText: string,
+    questionKeys: string[],
+    evidence: PublicEvidenceItem[],
+    judged: GeneratedReportPairScore[],
+  ): Promise<Pick<PublicClaim,
+    'evaluationStatus' | 'verdict' | 'confidence' | 'answer' | 'reasoning' | 'supportingFindings'
+    | 'counterFindings' | 'modelFindings' | 'coverage' | 'evaluatedAt'>> {
+    const summary = await buildClaimEvidenceSummary(questionKeys, evidence, judged)
+    const stored = this.readStoredAdjudication(row)
+    if (stored && s(row.evidence_fingerprint) === summary.evidenceFingerprint && s(row.evaluation_status) === 'complete') {
+      return { evaluationStatus: 'complete', ...stored, evaluatedAt: row.evaluated_at == null ? null : s(row.evaluated_at) }
+    }
+    if (!this.evaluator && summary.coverage.judgedPairs > 0) {
+      return this.emptyAdjudication('pending', summary.coverage)
+    }
+    const evaluatedAt = new Date().toISOString()
+    try {
+      const evaluator = this.evaluator ?? { evaluate: async () => { throw new Error('Claim evaluator is unavailable.') } }
+      const adjudication = await adjudicateClaim(claimText, summary, evaluator)
+      await this.db.prepare(`UPDATE claims SET adjudication_json = ?, evidence_fingerprint = ?, evaluated_at = ?,
+        evaluation_status = 'complete', evaluation_error = NULL WHERE id = ?`)
+        .bind(JSON.stringify(adjudication), summary.evidenceFingerprint, evaluatedAt, s(row.id)).run()
+      return { evaluationStatus: 'complete', ...adjudication, evaluatedAt }
+    } catch (error) {
+      const message = error instanceof Error ? error.message.slice(0, 500) : 'Claim evaluation failed.'
+      await this.db.prepare(`UPDATE claims SET evidence_fingerprint = ?, evaluated_at = ?,
+        evaluation_status = 'failed', evaluation_error = ? WHERE id = ?`)
+        .bind(summary.evidenceFingerprint, evaluatedAt, message, s(row.id)).run()
+      return this.emptyAdjudication('failed', summary.coverage, evaluatedAt)
+    }
+  }
+
+  private readStoredAdjudication(row: Record<string, unknown>): ClaimAdjudication | null {
+    if (!row.adjudication_json) return null
+    try {
+      const parsed = claimAdjudicationSchema.safeParse(JSON.parse(s(row.adjudication_json)))
+      return parsed.success ? parsed.data : null
+    } catch {
+      return null
+    }
+  }
+
+  private emptyAdjudication(
+    evaluationStatus: 'pending' | 'failed',
+    coverage: PublicClaim['coverage'],
+    evaluatedAt: string | null = null,
+  ): Pick<PublicClaim,
+    'evaluationStatus' | 'verdict' | 'confidence' | 'answer' | 'reasoning' | 'supportingFindings'
+    | 'counterFindings' | 'modelFindings' | 'coverage' | 'evaluatedAt'> {
+    return {
+      evaluationStatus,
+      verdict: null,
+      confidence: null,
+      answer: null,
+      reasoning: null,
+      supportingFindings: [],
+      counterFindings: [],
+      modelFindings: [],
+      coverage,
+      evaluatedAt,
+    }
   }
 
   async create(text: string, questionKeys: string[], now: string): Promise<ClaimCreateResult> {

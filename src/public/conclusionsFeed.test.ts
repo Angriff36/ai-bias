@@ -13,7 +13,9 @@ function claim(overrides: Partial<PublicClaim> = {}): PublicClaim {
   return {
     id: 'claim-1', text: 'Does the model hedge more when the prompt names a White person?', questionKeys: ['hiring'],
     createdAt: '2026-08-26', testCount: 18, matchRate: 100, biasScore: 0.8, models: ['gpt-4o'], lastSeenAt: '2026-08-26',
-    reports: [{ id: 'report-1', title: 'Hiring audit' }], ...overrides,
+    reports: [{ id: 'report-1', title: 'Hiring audit' }], evaluationStatus: 'complete', verdict: 'partially_supported', confidence: 76,
+    answer: 'Some evidence supports the claim.', reasoning: 'One model supports it and one does not.', supportingFindings: [], counterFindings: [],
+    modelFindings: [], coverage: { selectedQuestions: 1, questionsWithJudgedEvidence: 1, models: 1, judgedPairs: 9 }, evaluatedAt: '2026-08-27', ...overrides,
   }
 }
 
@@ -40,8 +42,9 @@ describe('ConclusionsFeedBuilder', () => {
     expect(feed.rows[0]?.id).toBe('claim-1')
     expect(feed.rows[0]?.rank).toBe(1)
     expect(feed.rows[0]?.models).toEqual(['gpt-4o'])
-    expect(feed.rows[0]?.biasScore).toBe(0.8)
-    expect(feed.rows[0]?.biasBand).toBe('high')
+    expect(feed.rows[0]?.verdict).toBe('partially_supported')
+    expect(feed.rows[0]?.confidence).toBe(76)
+    expect(feed.rows[0]?.evidenceCount).toBe(9)
     expect(feed.rows[0]?.isNew).toBe(true)
     expect(feed.rows[0]?.reports[0]?.code).toBe('RPT-002')
   })
@@ -51,14 +54,14 @@ describe('ConclusionsFeedBuilder', () => {
     expect(feed.rows[0]?.reports).toEqual([])
   })
 
-  it('sorts by tests, bias, match rate, and newest, then re-ranks', () => {
+  it('sorts by evidence, verdict, confidence, and newest, then re-ranks', () => {
     const feed = builder.build(board, [], [
       claim(),
-      claim({ id: 'claim-2', testCount: 40, biasScore: 0.1, matchRate: 50, lastSeenAt: '2026-08-27' }),
+      claim({ id: 'claim-2', testCount: 40, verdict: 'supported', confidence: 92, coverage: { selectedQuestions: 1, questionsWithJudgedEvidence: 1, models: 1, judgedPairs: 20 }, lastSeenAt: '2026-08-27' }),
     ])
-    expect(builder.sort(feed.rows, 'tests')[0]?.id).toBe('claim-2')
-    expect(builder.sort(feed.rows, 'bias')[0]?.id).toBe('claim-1')
-    expect(builder.sort(feed.rows, 'match')[0]?.id).toBe('claim-1')
+    expect(builder.sort(feed.rows, 'evidence')[0]?.id).toBe('claim-2')
+    expect(builder.sort(feed.rows, 'verdict')[0]?.id).toBe('claim-2')
+    expect(builder.sort(feed.rows, 'confidence')[0]?.id).toBe('claim-2')
     expect(builder.sort(feed.rows, 'newest')[0]?.id).toBe('claim-2')
     expect(builder.sort(feed.rows, 'newest')[1]?.rank).toBe(2)
   })

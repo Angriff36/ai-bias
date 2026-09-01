@@ -315,6 +315,45 @@ export interface PublicClaimReportRef {
   title: string | null
 }
 
+export const claimVerdicts = ['supported', 'partially_supported', 'not_supported', 'contradicted', 'insufficient_evidence'] as const
+export type ClaimVerdict = typeof claimVerdicts[number]
+export type ClaimEvaluationStatus = 'pending' | 'complete' | 'failed'
+
+export interface ClaimFinding {
+  questionKey: string
+  question: string
+  model: string
+  direction: string
+  explanation: string
+  evidenceIds: string[]
+}
+
+export interface ClaimModelFinding {
+  model: string
+  verdict: ClaimVerdict
+  explanation: string
+  supportingPairCount: number
+  counterPairCount: number
+}
+
+export interface ClaimCoverage {
+  selectedQuestions: number
+  questionsWithJudgedEvidence: number
+  models: number
+  judgedPairs: number
+}
+
+export interface ClaimAdjudication {
+  verdict: ClaimVerdict
+  confidence: number
+  answer: string
+  reasoning: string
+  supportingFindings: ClaimFinding[]
+  counterFindings: ClaimFinding[]
+  modelFindings: ClaimModelFinding[]
+  coverage: ClaimCoverage
+}
+
 /** A person-written claim about the AI, with its answer computed from the evidence. */
 export interface PublicClaim {
   id: string
@@ -325,12 +364,57 @@ export interface PublicClaim {
   testCount: number
   /** Share of studied answers that were real answers (not refusals, errors, or empty). 0-100. */
   matchRate: number | null
-  /** The judge model's verdict: mean 0–1 gap between the two sides of every judged pair on the seven report dimensions. Null until a report has scored the questions. */
+  /** Legacy mean absolute disparity, retained only for compatibility and diagnostics. It is not the claim verdict. */
   biasScore: number | null
+  /** Internal disparity diagnostic retained for backward compatibility; the claim answer is the adjudication below. */
+  evaluationStatus: ClaimEvaluationStatus
+  verdict: ClaimVerdict | null
+  confidence: number | null
+  answer: string | null
+  reasoning: string | null
+  supportingFindings: ClaimFinding[]
+  counterFindings: ClaimFinding[]
+  modelFindings: ClaimModelFinding[]
+  coverage: ClaimCoverage
+  evaluatedAt: string | null
   models: string[]
   lastSeenAt: string | null
   reports: PublicClaimReportRef[]
 }
+
+const claimVerdictSchema = z.enum(claimVerdicts)
+const claimFindingSchema = z.object({
+  questionKey: z.string(),
+  question: z.string(),
+  model: z.string(),
+  direction: z.string(),
+  explanation: z.string(),
+  evidenceIds: z.array(z.string()).min(1),
+}).strict()
+const claimModelFindingSchema = z.object({
+  model: z.string(),
+  verdict: claimVerdictSchema,
+  explanation: z.string(),
+  supportingPairCount: z.number().int().min(0),
+  counterPairCount: z.number().int().min(0),
+}).strict()
+const claimCoverageSchema = z.object({
+  selectedQuestions: z.number().int().min(0),
+  questionsWithJudgedEvidence: z.number().int().min(0),
+  models: z.number().int().min(0),
+  judgedPairs: z.number().int().min(0),
+}).strict()
+
+export const claimAdjudicationSchema: z.ZodType<ClaimAdjudication> = z.object({
+  verdict: claimVerdictSchema,
+  confidence: z.number().int().min(0).max(100),
+  answer: z.string().min(1).max(1_500),
+  reasoning: z.string().min(1).max(4_000),
+  supportingFindings: z.array(claimFindingSchema).max(12),
+  counterFindings: z.array(claimFindingSchema).max(12),
+  modelFindings: z.array(claimModelFindingSchema).max(100),
+  coverage: claimCoverageSchema,
+}).strict()
 
 export const publicClaimSchema: z.ZodType<PublicClaim> = z.object({
   id: z.string(),
@@ -340,6 +424,16 @@ export const publicClaimSchema: z.ZodType<PublicClaim> = z.object({
   testCount: z.number().int().min(0),
   matchRate: z.number().min(0).max(100).nullable(),
   biasScore: z.number().min(0).max(1).nullable(),
+  evaluationStatus: z.enum(['pending', 'complete', 'failed']),
+  verdict: claimVerdictSchema.nullable(),
+  confidence: z.number().int().min(0).max(100).nullable(),
+  answer: z.string().nullable(),
+  reasoning: z.string().nullable(),
+  supportingFindings: z.array(claimFindingSchema),
+  counterFindings: z.array(claimFindingSchema),
+  modelFindings: z.array(claimModelFindingSchema),
+  coverage: claimCoverageSchema,
+  evaluatedAt: z.string().nullable(),
   models: z.array(z.string()),
   lastSeenAt: z.string().nullable(),
   reports: z.array(z.object({ id: z.string(), title: z.string().nullable() })),

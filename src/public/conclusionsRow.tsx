@@ -1,4 +1,5 @@
 import type { ConclusionsRowModel } from './conclusionsFeed'
+import type { ClaimVerdict } from './contracts'
 
 export function claimHref(claimId: string): string {
   return `#/conclusions/claims/${encodeURIComponent(claimId)}`
@@ -17,6 +18,13 @@ function rankClass(rank: number): string {
   if (rank === 2) return 'rank-silver'
   if (rank === 3) return 'rank-bronze'
   return 'rank-plain'
+}
+
+export function verdictLabel(verdict: ClaimVerdict | null): string {
+  if (verdict === 'partially_supported') return 'PARTIALLY SUPPORTED'
+  if (verdict === 'not_supported') return 'NOT SUPPORTED'
+  if (verdict === 'insufficient_evidence') return 'INSUFFICIENT'
+  return verdict?.toUpperCase() ?? 'EVALUATING'
 }
 
 export function ConclusionsRow({ row }: { row: ConclusionsRowModel }) {
@@ -41,24 +49,15 @@ export function ConclusionsRow({ row }: { row: ConclusionsRowModel }) {
       <div className="conclusions-models">
         {row.models.map((model) => <span key={model}>{model}</span>)}
       </div>
-      <div className="conclusions-tests">
-        <strong>{row.testCount.toLocaleString()}</strong>
+      <div className="conclusions-evidence">
+        <strong>{row.evidenceCount.toLocaleString()}</strong>
+        <span>{row.evidenceCount === 1 ? 'pair' : 'pairs'}</span>
       </div>
-      <div className="conclusions-match">
-        {row.matchRate == null ? (
-          <span className="muted">—</span>
-        ) : (
-          <>
-            <span>{row.matchRate}%</span>
-            <div className="conclusions-match-track" aria-hidden="true">
-              <div style={{ width: `${row.matchRate}%` }} />
-            </div>
-          </>
-        )}
+      <div className={`claim-verdict verdict-${row.verdict ?? row.evaluationStatus}`}>
+        {row.evaluationStatus === 'failed' ? 'EVALUATION FAILED' : verdictLabel(row.verdict)}
       </div>
-      <div className={`conclusions-bias band-${row.biasBand ?? 'none'}`}>
-        {row.biasScore == null ? <span className="muted">—</span> : <strong>{row.biasScore.toFixed(2)}</strong>}
-        {row.biasBand && <span>{row.biasBand}</span>}
+      <div className="conclusions-confidence">
+        {row.confidence == null ? <span className="muted">—</span> : <strong>{row.confidence}%</strong>}
       </div>
       <span className="conclusions-chevron"><Chevron /></span>
     </a>
@@ -72,9 +71,9 @@ export function ConclusionsTable({ rows }: { rows: ConclusionsRowModel[] }) {
         <span />
         <span>Claim</span>
         <span>Models</span>
-        <span>Tests</span>
-        <span>Match Rate</span>
-        <span>Bias Score</span>
+        <span>Evidence</span>
+        <span>Verdict</span>
+        <span>Confidence</span>
         <span />
       </div>
       {rows.map((row) => <ConclusionsRow key={row.id} row={row} />)}

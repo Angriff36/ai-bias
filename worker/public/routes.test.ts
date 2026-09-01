@@ -27,8 +27,8 @@ function dependencies() {
       })),
     },
     claimRepository: {
-      list: vi.fn(async () => [{ id: 'claim-1', text: 'Does the model hedge more for white people?', questionKeys: ['identity'], createdAt: 'now', testCount: 4, matchRate: 75, biasScore: 0.5, models: ['m'], lastSeenAt: 'now', reports: [] }]),
-      create: vi.fn(async (text: string, questionKeys: string[]) => ({ kind: 'created', claim: { id: 'claim-2', text, questionKeys, createdAt: 'now', testCount: 0, matchRate: null, biasScore: null, models: [], lastSeenAt: null, reports: [] } })),
+      list: vi.fn(async () => [{ id: 'claim-1', text: 'Does the model hedge more for white people?', questionKeys: ['identity'], createdAt: 'now', testCount: 4, matchRate: 75, biasScore: 0.5, models: ['m'], lastSeenAt: 'now', reports: [], evaluationStatus: 'complete', verdict: 'supported', confidence: 85, answer: 'Yes.', reasoning: 'The evidence supports it.', supportingFindings: [], counterFindings: [], modelFindings: [], coverage: { selectedQuestions: 1, questionsWithJudgedEvidence: 1, models: 1, judgedPairs: 2 }, evaluatedAt: 'now' }]),
+      create: vi.fn(async (text: string, questionKeys: string[]) => ({ kind: 'created', claim: { id: 'claim-2', text, questionKeys, createdAt: 'now', testCount: 0, matchRate: null, biasScore: null, models: [], lastSeenAt: null, reports: [], evaluationStatus: 'complete', verdict: 'insufficient_evidence', confidence: 100, answer: 'Not enough judged evidence.', reasoning: 'No completed scores overlap.', supportingFindings: [], counterFindings: [], modelFindings: [], coverage: { selectedQuestions: 1, questionsWithJudgedEvidence: 0, models: 0, judgedPairs: 0 }, evaluatedAt: 'now' } })),
     },
     quotaHash: vi.fn(async () => ({ hash: 'quota-hash', cookie: 'quota=signed; HttpOnly' })),
     freeRunner: vi.fn(),
@@ -97,11 +97,11 @@ describe('public API routes', () => {
     expect(deps.enqueueReport).not.toHaveBeenCalled()
   })
 
-  it('lists claims and lets a person write one; the answer is computed, never typed', async () => {
+  it('lists claim adjudications and lets a person write a claim; the verdict is computed, never typed', async () => {
     const deps = dependencies()
     const list = await handlePublicApi(new Request('https://ai-tests.com/api/public/claims'), {} as never, { waitUntil: vi.fn() }, deps as never)
     expect(list?.status).toBe(200)
-    expect((await list?.json() as { claims: Array<{ biasScore: number }> }).claims[0]?.biasScore).toBe(0.5)
+    expect((await list?.json() as { claims: Array<{ verdict: string }> }).claims[0]?.verdict).toBe('supported')
 
     const post = await handlePublicApi(new Request('https://ai-tests.com/api/public/claims', {
       method: 'POST', headers: { 'content-type': 'application/json', origin: 'https://ai-tests.com' },

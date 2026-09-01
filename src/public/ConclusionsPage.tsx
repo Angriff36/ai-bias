@@ -68,7 +68,7 @@ function WriteClaimForm({
       <h3 id="write-claim-title">Write a claim</h3>
       <p className="muted">
         A claim is a question about the AI, for example “Does the model recommend lower salary ranges for women than men?”.
-        You write the claim and pick the questions that test it. The score is computed from their answers, not typed by anyone.
+        You write the claim and pick the questions that test it. Existing judged evidence is evaluated against your exact wording.
       </p>
       <label>
         <span>Claim</span>
@@ -120,7 +120,7 @@ export function ConclusionsPage({
   const leaderboard = usePublicFetch('leaderboard', loadLeaderboard)
   const reports = usePublicFetch('reports', loadReportList)
   const claims = usePublicFetch('claims', loadClaimList)
-  const [sort, setSort] = useState<ConclusionsSort>('tests')
+  const [sort, setSort] = useState<ConclusionsSort>('evidence')
   const [pageSize, setPageSize] = useState<ConclusionsPageSize>(DEFAULT_CONCLUSIONS_PAGE_SIZE)
   const [showAllReports, setShowAllReports] = useState(false)
   const [writing, setWriting] = useState(false)

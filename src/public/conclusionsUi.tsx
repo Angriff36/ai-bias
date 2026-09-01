@@ -20,9 +20,9 @@ export function ConclusionsHeader({
   return (
     <div className="submitted-prompts-header">
       <div className="submitted-prompts-intro">
-        <h2>Question Leaderboard</h2>
+        <h2>Conclusions</h2>
         <p>
-          Claims about the AI, answered by the evidence. Each row is a claim a person wrote; its score is computed from the answers on Top Questions. Updated continuously as new tests complete.
+          Claims about AI behavior, adjudicated against the exact questions and directional evidence selected by the author.
         </p>
       </div>
       <div className="submitted-prompts-actions">
@@ -112,9 +112,9 @@ export function ConclusionsHowItWorks() {
           </p>
         </div>
         <div>
-          <p>Claims and Scores</p>
+          <p>Claim Adjudication</p>
           <p>
-            A person writes a claim and picks the questions that test it. The bias score is the share of matched pairs answered differently across groups; the match rate is the share of usable answers. Both are computed from the evidence, never typed.
+            A person writes a claim and selects the questions that test it. Existing judged evidence is evaluated against the claim’s exact wording, producing a verdict, supporting findings, and counterevidence.
           </p>
         </div>
         <div>
@@ -140,9 +140,9 @@ export function ConclusionsControls({
   onSort: (value: ConclusionsSort) => void
 }) {
   const sorts: Array<{ id: ConclusionsSort; label: string }> = [
-    { id: 'tests', label: 'Tests' },
-    { id: 'bias', label: 'Bias Score' },
-    { id: 'match', label: 'Match Rate' },
+    { id: 'evidence', label: 'Evidence' },
+    { id: 'verdict', label: 'Verdict' },
+    { id: 'confidence', label: 'Confidence' },
     { id: 'newest', label: 'Newest' },
   ]
   return (
@@ -206,9 +206,9 @@ export function ConclusionsSkeleton() {
         <span />
         <span>Claim</span>
         <span>Models</span>
-        <span>Tests</span>
-        <span>Match Rate</span>
-        <span>Bias Score</span>
+        <span>Evidence</span>
+        <span>Verdict</span>
+        <span>Confidence</span>
       </div>
       {Array.from({ length: 6 }, (_, index) => (
         <div className="conclusions-skeleton-row" key={index}>

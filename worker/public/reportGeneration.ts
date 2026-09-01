@@ -66,6 +66,17 @@ function existingScoreMap(scores: GeneratedReportPairScore[] | undefined): Map<s
   return new Map((scores ?? []).map((score) => [score.pairSampleId, score]))
 }
 
+const TERMINAL_BATCH_STATUSES = new Set(['completed', 'failed', 'cancelled', 'expired'])
+
+function batchStatusName(status: string): string {
+  return status.split(':', 1)[0] ?? status
+}
+
+function batchResultCursor(status: string): number {
+  const match = status.match(/^completed:(\d+)$/)
+  return match ? Number(match[1]) : 0
+}
+
 export async function generateReport(
   synthesisModels: ReportModelClient,
   source: ReportSource,
@@ -129,8 +140,14 @@ export async function processReportChunk(
   const active = await checkpointRepo.loadJudgeBatch?.(reportId) ?? null
   const batch = active ? await judgeBatches.retrieve(active.id) : null
   if (batch) {
-    await checkpointRepo.updateJudgeBatchStatus?.(reportId, batch.status, leaseOwner)
-    if (!['completed', 'failed', 'cancelled', 'expired'].includes(batch.status)) return
+    if (!TERMINAL_BATCH_STATUSES.has(batch.status)) {
+      await checkpointRepo.updateJudgeBatchStatus?.(reportId, batch.status, leaseOwner)
+      return
+    }
+    if (batchStatusName(active!.status) !== batch.status) {
+      await checkpointRepo.updateJudgeBatchStatus?.(reportId, `${batch.status}:0`, leaseOwner)
+      return
+    }
   }
   const source = await repository.getReportEvidence(reportId)
   const existingPairScores = checkpointRepo.loadPairScores ? await checkpointRepo.loadPairScores(reportId) : []
@@ -149,40 +166,44 @@ export async function processReportChunk(
       return
     }
 
-    const cellsByCustomId = new Map<string, PolarJudgeCell>()
-    for (const cell of pendingCells) cellsByCustomId.set(await buildReportJudgeCustomId(reportId, cell), cell)
-    const completedIds = new Set<string>()
-    const persisted: GeneratedReportPairScore[] = []
-    for (const result of batch?.results ?? []) {
-      const cell = cellsByCustomId.get(result.custom_id)
-      if (!cell) continue
-      try {
-        persisted.push(...parseOpenRouterJudgeResult(cell, result))
-        completedIds.add(result.custom_id)
-      } catch {
-        // Only this question-model analysis is retried below.
+    if (batch?.status !== 'completed') {
+      await checkpointRepo.clearJudgeBatch?.(reportId, leaseOwner)
+      return
+    }
+
+    const cursor = batchResultCursor(active.status)
+    const result = batch.results?.[cursor]
+    if (!result) {
+      // Every returned entry has been handled. The next invocation either
+      // submits only still-unscored failures or advances to synthesis.
+      await checkpointRepo.clearJudgeBatch?.(reportId, leaseOwner)
+      return
+    }
+
+    let cell: PolarJudgeCell | undefined
+    for (const pendingCell of pendingCells) {
+      if (await buildReportJudgeCustomId(reportId, pendingCell) === result.custom_id) {
+        cell = pendingCell
+        break
       }
     }
-    if (persisted.length > 0) {
-      await checkpointRepo.upsertPairScores?.(reportId, persisted, leaseOwner)
-      await checkpointRepo.touchReportGeneration(reportId, new Date().toISOString(), leaseOwner).catch(() => undefined)
+    if (cell) {
+      try {
+        const persisted = parseOpenRouterJudgeResult(cell, result)
+        await checkpointRepo.upsertPairScores?.(reportId, persisted, leaseOwner)
+      } catch {
+        // The cursor still advances; this cell remains unscored and is the only
+        // work resubmitted after every result in this batch has been handled.
+      }
     }
-    await checkpointRepo.clearJudgeBatch?.(reportId, leaseOwner)
-
-    const failedCells: PolarJudgeCell[] = []
-    for (const [customId, cell] of cellsByCustomId) {
-      if (!completedIds.has(customId)) failedCells.push(cell)
-    }
-    if (failedCells.length > 0) {
-      const retry = await judgeBatches.submit(await buildOpenRouterJudgeBatchRequest(
-        reportId, source.row.scoringModelId, failedCells,
-      ))
-      await checkpointRepo.saveJudgeBatch?.(reportId, { id: retry.id, status: retry.status }, leaseOwner)
-    }
+    await checkpointRepo.updateJudgeBatchStatus?.(reportId, `completed:${cursor + 1}`, leaseOwner)
     return
   }
 
-  if (active) await checkpointRepo.clearJudgeBatch?.(reportId, leaseOwner)
+  if (active) {
+    await checkpointRepo.clearJudgeBatch?.(reportId, leaseOwner)
+    return
+  }
   const result = await generateReport(synthesisModels, source, synthesisModels, { existingPairScores })
   if ('status' in result) return
   await repository.completeReport(reportId, result, new Date().toISOString(), leaseOwner)

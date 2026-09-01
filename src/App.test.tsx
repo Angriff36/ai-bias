@@ -148,6 +148,25 @@ describe('application navigation', () => {
     expect(continueReportGeneration).toHaveBeenCalledTimes(3)
   })
 
+  it('clears a transient status error after the next successful poll', async () => {
+    vi.useFakeTimers()
+    const pending = {
+      id: 'pending-report', scope: 'global', status: 'pending', title: null,
+      responseCount: 0, completePairs: 0, modelCount: 0,
+      progress: { completedAnalyses: 0, expectedAnalyses: 20 },
+      createdAt: '2026-08-30T15:00:00.000Z', completedAt: null,
+    }
+    listGeneratedReports.mockResolvedValue([pending])
+    continueReportGeneration.mockRejectedValueOnce(new Error('Request failed (503).')).mockResolvedValue(pending)
+
+    await act(async () => { render(<App />) })
+    expect(screen.getByRole('alert').textContent).toContain('Request failed (503).')
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(50_000) })
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.getByText(/0 of 20 analyses complete/)).toBeTruthy()
+  })
+
   it('exposes an about section describing what is published and what stays private', async () => {
     window.history.replaceState({}, '', '/#/about')
     window.location.hash = '#/about'

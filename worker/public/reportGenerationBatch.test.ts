@@ -41,6 +41,27 @@ function successfulResult(request: OpenRouterJudgeBatchRequest['requests'][numbe
 }
 
 describe('generated report OpenRouter Batch orchestration', () => {
+  it('polls an active unfinished batch without rebuilding report evidence', async () => {
+    const repository = {
+      touchReportGeneration: vi.fn(async () => undefined),
+      loadJudgeBatch: vi.fn(async () => ({ id: 'batch-running', status: 'in_progress' })),
+      updateJudgeBatchStatus: vi.fn(async () => undefined),
+      getReportEvidence: vi.fn(async () => { throw new Error('evidence should not load during an unfinished poll') }),
+      failReport: vi.fn(async () => undefined),
+      completeReport: vi.fn(async () => undefined),
+    }
+    const batchClient = {
+      submit: vi.fn(),
+      retrieve: vi.fn(async () => ({ id: 'batch-running', status: 'in_progress', results: [] })),
+    }
+
+    await processReportChunk({ complete: vi.fn() }, repository, 'report-batch', batchClient, 'owner')
+
+    expect(batchClient.retrieve).toHaveBeenCalledWith('batch-running')
+    expect(batchClient.submit).not.toHaveBeenCalled()
+    expect(repository.getReportEvidence).not.toHaveBeenCalled()
+  })
+
   it('submits once, polls without inference, checkpoints successes, retries only failures, then synthesizes', async () => {
     const evidence = groupedEvidence([2, 3, 4])
     let savedScores: GeneratedReportPairScore[] = []

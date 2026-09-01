@@ -228,7 +228,7 @@ function ReportsList() {
   const stepsInFlight = useRef(new Set<string>())
 
   const reload = useCallback(() => listGeneratedReports()
-    .then((list) => setReports(list))
+    .then((list) => { setReports(list); setError(null) })
     .catch((e: unknown) => setError(e instanceof Error ? e.message : 'The reports could not be loaded.')), [])
 
   useEffect(() => { void reload() }, [reload])

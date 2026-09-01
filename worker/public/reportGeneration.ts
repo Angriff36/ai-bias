@@ -126,6 +126,12 @@ export async function processReportChunk(
 ): Promise<void> {
   const checkpointRepo = repository as GeneratedReportRepository
   await checkpointRepo.touchReportGeneration(reportId, new Date().toISOString(), leaseOwner)
+  const active = await checkpointRepo.loadJudgeBatch?.(reportId) ?? null
+  const batch = active ? await judgeBatches.retrieve(active.id) : null
+  if (batch) {
+    await checkpointRepo.updateJudgeBatchStatus?.(reportId, batch.status, leaseOwner)
+    if (!['completed', 'failed', 'cancelled', 'expired'].includes(batch.status)) return
+  }
   const source = await repository.getReportEvidence(reportId)
   const existingPairScores = checkpointRepo.loadPairScores ? await checkpointRepo.loadPairScores(reportId) : []
   const existingScores = existingScoreMap(existingPairScores)
@@ -135,7 +141,6 @@ export async function processReportChunk(
   }))
 
   if (pendingCells.length > 0) {
-    const active = await checkpointRepo.loadJudgeBatch?.(reportId) ?? null
     if (!active) {
       const created = await judgeBatches.submit(await buildOpenRouterJudgeBatchRequest(
         reportId, source.row.scoringModelId, pendingCells,
@@ -144,15 +149,11 @@ export async function processReportChunk(
       return
     }
 
-    const batch = await judgeBatches.retrieve(active.id)
-    await checkpointRepo.updateJudgeBatchStatus?.(reportId, batch.status, leaseOwner)
-    if (!['completed', 'failed', 'cancelled', 'expired'].includes(batch.status)) return
-
     const cellsByCustomId = new Map<string, PolarJudgeCell>()
     for (const cell of pendingCells) cellsByCustomId.set(await buildReportJudgeCustomId(reportId, cell), cell)
     const completedIds = new Set<string>()
     const persisted: GeneratedReportPairScore[] = []
-    for (const result of batch.results ?? []) {
+    for (const result of batch?.results ?? []) {
       const cell = cellsByCustomId.get(result.custom_id)
       if (!cell) continue
       try {
@@ -181,6 +182,7 @@ export async function processReportChunk(
     return
   }
 
+  if (active) await checkpointRepo.clearJudgeBatch?.(reportId, leaseOwner)
   const result = await generateReport(synthesisModels, source, synthesisModels, { existingPairScores })
   if ('status' in result) return
   await repository.completeReport(reportId, result, new Date().toISOString(), leaseOwner)

@@ -73,9 +73,31 @@ describe('report generation Queue execution', () => {
     expect(new Set(sent.map((item) => item.analysisId)).size).toBe(106)
     expect(sent.every((item) => item.analysisId.startsWith('report-queue:'))).toBe(true)
     expect(queue.sendBatch).toHaveBeenCalledTimes(2)
-    expect(sent.flatMap((item) => item.cell.groups).flatMap((group) => group).map((item) => item.response))
-      .toEqual(expect.arrayContaining(evidence.map((item) => item.response)))
+    expect(evidence.map((item) => item.response)).toEqual(groupedEvidence(106, 2).map((item) => item.response))
     expect(repository.releaseReportGeneration).toHaveBeenCalledWith('report-queue', 'owner-a')
+  })
+
+  it('keeps each message and each sendBatch call within Cloudflare Queue byte limits', async () => {
+    const evidence = groupedEvidence(24, 4).map((item) => ({
+      ...item,
+      response: `${item.response} ${'long evidence '.repeat(5_000)}RAW_TAIL_${item.id}`,
+    }))
+    const batches: Array<Array<{ body: ReportQueueMessage }>> = []
+    const queue = { sendBatch: vi.fn(async (entries: Array<{ body: ReportQueueMessage }>) => { batches.push(entries) }) }
+    const repository = {
+      getReportEvidence: vi.fn(async () => ({ row: { id: 'report-queue' }, evidence })),
+      registerQueuedAnalyses: vi.fn(async (_reportId: string, ids: string[]) => ids),
+      markQueuedAnalysesEnqueued: vi.fn(async () => undefined),
+      releaseReportGeneration: vi.fn(async () => undefined),
+    }
+
+    await enqueueReportAnalyses(queue, repository, 'report-queue', 'owner-a')
+
+    const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).byteLength
+    expect(batches.length).toBeGreaterThan(1)
+    expect(batches.every((batch) => bytes(batch) <= 256 * 1024)).toBe(true)
+    expect(batches.flat().every((entry) => bytes(entry) <= 128 * 1024)).toBe(true)
+    expect(JSON.stringify(batches)).not.toContain('RAW_TAIL_')
   })
 
   it('uses one normal judge request for one delivered analysis and checkpoints it before acknowledgement', async () => {

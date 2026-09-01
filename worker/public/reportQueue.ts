@@ -3,6 +3,9 @@ import { groupPolarJudgeCells, type PolarJudgeCell } from './reportJudgeBatch'
 import type { ReportJudgeClient } from './reportJudgeClient'
 
 export const REPORT_QUEUE_MAX_RETRIES = 3
+const QUEUE_MESSAGE_MAX_BYTES = 128 * 1024
+const QUEUE_BATCH_MAX_BYTES = 250 * 1024
+const QUEUE_BATCH_MAX_MESSAGES = 100
 
 export interface ReportQueueMessage {
   version: 1
@@ -41,6 +44,48 @@ async function digest(value: string): Promise<string> {
   return [...new Uint8Array(bytes)].slice(0, 10).map((byte) => byte.toString(16).padStart(2, '0')).join('')
 }
 
+function truncate(text: string, max: number): string {
+  const trimmed = text.trim()
+  return trimmed.length <= max ? trimmed : `${trimmed.slice(0, max - 1)}…`
+}
+
+function compactCell(cell: PolarJudgeCell): PolarJudgeCell {
+  return {
+    ...cell,
+    groups: cell.groups.map((group) => group.map((item) => ({
+      ...item,
+      prompt: truncate(item.prompt, 500),
+      response: item.classification === 'answered' ? truncate(item.response, 1_200) : '',
+      ...(item.errorMessage ? { errorMessage: truncate(item.errorMessage, 500) } : {}),
+    }))),
+  }
+}
+
+function serializedBytes(value: unknown): number {
+  return new TextEncoder().encode(JSON.stringify(value)).byteLength
+}
+
+function queueBatches(messages: Array<{ body: ReportQueueMessage; contentType: 'json' }>): Array<typeof messages> {
+  const batches: Array<typeof messages> = []
+  let current: typeof messages = []
+  for (const message of messages) {
+    if (serializedBytes(message) > QUEUE_MESSAGE_MAX_BYTES) {
+      throw new Error(`Report analysis ${message.body.analysisId} exceeds the Queue message limit.`)
+    }
+    const candidate = [...current, message]
+    if (current.length > 0 && (
+      candidate.length > QUEUE_BATCH_MAX_MESSAGES || serializedBytes(candidate) > QUEUE_BATCH_MAX_BYTES
+    )) {
+      batches.push(current)
+      current = [message]
+    } else {
+      current = candidate
+    }
+  }
+  if (current.length > 0) batches.push(current)
+  return batches
+}
+
 export async function buildReportAnalysisId(reportId: string, cell: PolarJudgeCell): Promise<string> {
   return `${reportId}:${await digest(`${cell.question}\u0000${cell.provider}\u0000${cell.modelId}`)}`
 }
@@ -58,13 +103,12 @@ export async function enqueueReportAnalyses(
       analysisId: await buildReportAnalysisId(reportId, cell), cell,
     })))
     const pending = new Set(await repository.registerQueuedAnalyses(reportId, entries.map((item) => item.analysisId), leaseOwner))
-    const messages = entries.filter((item) => pending.has(item.analysisId))
-    for (let index = 0; index < messages.length; index += 100) {
-      const part = messages.slice(index, index + 100)
-      await queue.sendBatch(part.map(({ analysisId, cell }) => ({
-        body: { version: 1, reportId, analysisId, cell }, contentType: 'json',
-      })))
-      await repository.markQueuedAnalysesEnqueued(reportId, part.map((item) => item.analysisId), new Date().toISOString(), leaseOwner)
+    const messages = entries.filter((item) => pending.has(item.analysisId)).map(({ analysisId, cell }) => ({
+      body: { version: 1 as const, reportId, analysisId, cell: compactCell(cell) }, contentType: 'json' as const,
+    }))
+    for (const batch of queueBatches(messages)) {
+      await queue.sendBatch(batch)
+      await repository.markQueuedAnalysesEnqueued(reportId, batch.map((item) => item.body.analysisId), new Date().toISOString(), leaseOwner)
     }
   } finally {
     await repository.releaseReportGeneration(reportId, leaseOwner)

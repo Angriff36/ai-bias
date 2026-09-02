@@ -365,9 +365,7 @@ export class GeneratedReportRepository {
       return current ? { report: this.summary(current), started: false } : null
     }
     if (row.status === 'failed') {
-      await this.db.prepare(`UPDATE report_analysis_checkpoints
-        SET status='pending', enqueued_at=NULL, completed_at=NULL, error_code=NULL
-        WHERE report_id=? AND status='failed'`).bind(reportId).run()
+      await this.resetIncompleteAnalysisCheckpoints(reportId)
     }
     return {
       report: this.summary({ ...row, status: 'pending', generationLeaseUntil: leaseUntil, generationLeaseOwner: leaseOwner }),
@@ -425,7 +423,14 @@ export class GeneratedReportRepository {
       SET status='pending', error_code=NULL, created_at=?, scoring_model_id=?, synthesis_model_id=?
       WHERE id=? AND status='failed' AND generation_lease_owner IS NULL`)
       .bind(now, SCORING_MODEL, SYNTHESIS_MODEL, row.id).run()
+    await this.resetIncompleteAnalysisCheckpoints(row.id)
     return { kind: 'claimed', report: this.summary({ ...row, status: 'pending', createdAt: now }) }
+  }
+
+  private async resetIncompleteAnalysisCheckpoints(reportId: string): Promise<void> {
+    await this.db.prepare(`UPDATE report_analysis_checkpoints
+      SET status='pending', enqueued_at=NULL, completed_at=NULL, error_code=NULL
+      WHERE report_id=? AND status<>'complete'`).bind(reportId).run()
   }
 
   private async finalizeStoredDocumentIfValid(row: ReportRow, now: string): Promise<ReportRow | null> {

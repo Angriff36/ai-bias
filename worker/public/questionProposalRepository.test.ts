@@ -74,6 +74,34 @@ describe('QuestionProposalRepository', () => {
     await expect(repository.list('unanswered')).resolves.toEqual([created.proposal])
   })
 
+  it('returns the winner when another request inserts the same proposal concurrently', async () => {
+    const stored = {
+      id: 'winner', question_key: 'how can i support the [group] community?',
+      question_text: 'How can I support the [group] community?', name: 'First proposal', description: '',
+      sampling_mode: 'shared-anchor', pairs_json: JSON.stringify(request.pairs), created_at: '2026-09-01T12:00:00.000Z',
+      answered_at: null, first_run_id: null,
+    }
+    let reads = 0
+    const db: D1DatabaseLike = {
+      prepare(sql: string) {
+        const statement: D1Statement = {
+          bind: () => statement,
+          first: async <T>() => (++reads === 1 ? null : stored as T),
+          all: async <T>() => ({ results: [] as T[] }),
+          run: async <T>() => {
+            if (!sql.includes('ON CONFLICT(question_key) DO NOTHING')) throw new Error('UNIQUE constraint failed: question_proposals.question_key')
+            return { meta: { changes: 0 } } as D1Result<T>
+          },
+        }
+        return statement
+      },
+      batch: async () => [],
+    }
+
+    await expect(new QuestionProposalRepository(db).create(request, '2026-09-01T12:00:01.000Z'))
+      .resolves.toEqual({ kind: 'duplicate', proposal: expect.objectContaining({ id: 'winner' }) })
+  })
+
   it('marks a proposal answered only through the publishing run that supplies matched evidence', async () => {
     const { db, updates } = proposalDb()
     const repository = new QuestionProposalRepository(db)

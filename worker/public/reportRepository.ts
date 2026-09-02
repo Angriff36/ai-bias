@@ -364,6 +364,11 @@ export class GeneratedReportRepository {
       const current = await this.getRow(reportId)
       return current ? { report: this.summary(current), started: false } : null
     }
+    if (row.status === 'failed') {
+      await this.db.prepare(`UPDATE report_analysis_checkpoints
+        SET status='pending', enqueued_at=NULL, completed_at=NULL, error_code=NULL
+        WHERE report_id=? AND status='failed'`).bind(reportId).run()
+    }
     return {
       report: this.summary({ ...row, status: 'pending', generationLeaseUntil: leaseUntil, generationLeaseOwner: leaseOwner }),
       started: true,

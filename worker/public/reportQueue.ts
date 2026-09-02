@@ -12,6 +12,7 @@ export interface ReportQueueMessage {
   reportId: string
   analysisId: string
   cell: PolarJudgeCell
+  kind?: 'analysis' | 'finalize'
 }
 
 export interface ReportQueueProducer {
@@ -110,6 +111,19 @@ export async function enqueueReportAnalyses(
       await queue.sendBatch(batch)
       await repository.markQueuedAnalysesEnqueued(reportId, batch.map((item) => item.body.analysisId), new Date().toISOString(), leaseOwner)
     }
+    if (messages.length === 0 && entries.length > 0) {
+      const last = entries.at(-1)!
+      await queue.sendBatch([{
+        body: {
+          version: 1,
+          reportId,
+          analysisId: `${reportId}:finalize`,
+          cell: compactCell(last.cell),
+          kind: 'finalize',
+        },
+        contentType: 'json',
+      }])
+    }
   } finally {
     await repository.releaseReportGeneration(reportId, leaseOwner)
   }
@@ -126,6 +140,12 @@ export async function processReportQueueMessage(
 ): Promise<void> {
   const { reportId, analysisId, cell } = delivery.body
   try {
+    if (delivery.body.kind === 'finalize') {
+      const owner = await dependencies.repository.claimReportFinalization(reportId, dependencies.now())
+      if (owner) await dependencies.finalize(reportId, owner)
+      delivery.ack()
+      return
+    }
     const status = await dependencies.repository.getQueuedAnalysisStatus(reportId, analysisId)
     let allComplete = status === 'complete'
     if (status !== 'complete') {

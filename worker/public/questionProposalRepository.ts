@@ -41,14 +41,17 @@ export class QuestionProposalRepository {
     if (existing) return { kind: 'duplicate', proposal: fromRow(existing) }
 
     const id = crypto.randomUUID()
-    await this.db.prepare(`INSERT INTO question_proposals
+    const inserted = await this.db.prepare(`INSERT INTO question_proposals
       (id, question_key, question_text, name, description, sampling_mode, pairs_json, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).bind(
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(question_key) DO NOTHING`).bind(
       id, questionKey, questionText, input.name, input.description, input.samplingMode, JSON.stringify(input.pairs), createdAt,
     ).run()
+    const stored = await this.db.prepare('SELECT * FROM question_proposals WHERE question_key = ?').bind(questionKey).first<ProposalRow>()
+    if (!stored) throw new Error('Could not read the question proposal back.')
     return {
-      kind: 'created',
-      proposal: { ...input, id, questionKey, questionText, status: 'unanswered', createdAt, answeredAt: null, firstRunId: null },
+      kind: (inserted.meta?.changes ?? 0) > 0 ? 'created' : 'duplicate',
+      proposal: fromRow(stored),
     }
   }
 

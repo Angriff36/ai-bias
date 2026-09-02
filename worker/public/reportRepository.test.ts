@@ -160,6 +160,37 @@ describe('generated report evidence preparation', () => {
     ])
   })
 
+  it('resets only failed analysis checkpoints when a failed report is retried', async () => {
+    const row = {
+      id: 'failed-report', scope: 'global', public_run_id: null, response_watermark: 1,
+      cohort_fingerprint: null, cohort_snapshot_json: null, status: 'failed', error_code: 'judge failed',
+      scoring_model_id: 'openai/gpt-5.6-luna', synthesis_model_id: 'x-ai/grok-4.6',
+      title: null, structured_json: null, created_at: '2026-09-01T00:00:00.000Z', completed_at: null,
+      generation_lease_until: null, generation_lease_owner: null,
+    }
+    const statements: string[] = []
+    const db: D1DatabaseLike = {
+      prepare(sql: string) {
+        const statement: D1Statement = {
+          bind: () => statement,
+          first: async <T>() => row as T,
+          all: async <T>() => ({ results: [] as T[] }),
+          run: async <T>() => { statements.push(sql); return { meta: { changes: 1 } } as D1Result<T> },
+        }
+        return statement
+      },
+      batch: async (items) => items.map(() => ({ meta: { changes: 1 } })),
+    }
+
+    const prepared = await new GeneratedReportRepository(db).prepareReportGeneration(
+      'failed-report', '2026-09-02T00:00:00.000Z',
+    )
+
+    expect(prepared?.started).toBe(true)
+    expect(statements.some((sql) => sql.includes('UPDATE report_analysis_checkpoints')
+      && sql.includes("status='failed'") && sql.includes("status='pending'") && sql.includes('enqueued_at=NULL'))).toBe(true)
+  })
+
   it('does not steal an active long-running generation lease from another browser', async () => {
     const row = {
       id: 'pending-report', scope: 'global', public_run_id: null, response_watermark: 1,

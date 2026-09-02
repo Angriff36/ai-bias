@@ -100,6 +100,37 @@ describe('report generation Queue execution', () => {
     expect(JSON.stringify(batches)).not.toContain('RAW_TAIL_')
   })
 
+  it('enqueues and processes a finalization-only retry when every analysis is already checkpointed', async () => {
+    const sent: ReportQueueMessage[] = []
+    const queue = { sendBatch: vi.fn(async (entries: Array<{ body: ReportQueueMessage }>) => { sent.push(...entries.map((entry) => entry.body)) }) }
+    const repository = {
+      getReportEvidence: vi.fn(async () => ({ row: { id: 'report-queue' }, evidence: groupedEvidence(1, 2) })),
+      registerQueuedAnalyses: vi.fn(async () => []),
+      markQueuedAnalysesEnqueued: vi.fn(async () => undefined),
+      releaseReportGeneration: vi.fn(async () => undefined),
+    }
+
+    await enqueueReportAnalyses(queue, repository, 'report-queue', 'owner-a')
+
+    expect(sent).toHaveLength(1)
+    expect(sent[0]).toMatchObject({ reportId: 'report-queue', kind: 'finalize' })
+
+    const item = delivery(sent[0]!)
+    const judge = { score: vi.fn() }
+    const finalize = vi.fn(async () => undefined)
+    await processReportQueueMessage(item, {
+      repository: {
+        getQueuedAnalysisStatus: vi.fn(), completeQueuedAnalysis: vi.fn(), failQueuedAnalysis: vi.fn(),
+        claimReportFinalization: vi.fn(async () => 'retry-owner'),
+      },
+      judge, finalize, now: () => '2026-09-02T00:00:00.000Z',
+    })
+
+    expect(judge.score).not.toHaveBeenCalled()
+    expect(finalize).toHaveBeenCalledWith('report-queue', 'retry-owner')
+    expect(item.ack).toHaveBeenCalledTimes(1)
+  })
+
   it('uses one normal judge request for one delivered analysis and checkpoints it before acknowledgement', async () => {
     const body = message(1)
     const item = delivery(body)

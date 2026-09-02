@@ -59,6 +59,30 @@ describe('QuestionDetailPage', () => {
     expect(screen.getAllByRole('row')).toHaveLength(3)
   })
 
+  it('a shared answer link unfolds the run that holds it and marks the cell', async () => {
+    render(<QuestionDetailPage questionKey="identity" focusAnswerId="e4" load={vi.fn(async () => detail)} />)
+    expect(await screen.findByRole('heading', { name: 'Identity' })).toBeTruthy()
+    // e4 is an older repeat, so the model block must open to show it.
+    expect(screen.getAllByRole('row')).toHaveLength(3)
+    expect(document.getElementById('answer-e4')?.className).toContain('is-linked')
+    // Its full text is open without a click.
+    expect(screen.getByText('Response B2')).toBeTruthy()
+  })
+
+  it('copies a stable link to one answer', async () => {
+    const user = userEvent.setup()
+    render(<QuestionDetailPage questionKey="identity" load={vi.fn(async () => detail)} />)
+    expect(await screen.findByRole('heading', { name: 'Identity' })).toBeTruthy()
+    await user.click(screen.getAllByRole('button', { name: 'Copy link to this answer' })[0])
+    expect(await window.navigator.clipboard.readText()).toContain('#/leaderboard/questions/identity/answers/e1')
+    expect(screen.getByText('Copied')).toBeTruthy()
+  })
+
+  it('says when a linked answer is not stored', async () => {
+    render(<QuestionDetailPage questionKey="identity" focusAnswerId="gone" load={vi.fn(async () => detail)} />)
+    expect(await screen.findByText(/not among this question's stored answers/)).toBeTruthy()
+  })
+
   it('aligns cells by the run they came from and leaves blanks, never zipping unrelated answers', () => {
     const a = (id: string, runId: string, receivedAt: string, runIndex = 0) => ({ ...detail.groups[0].answers[0], id, runId, receivedAt, runIndex })
     const rows = buildComparisonRows([

@@ -1,8 +1,9 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './submittedPrompts.css'
 import type { PublicQuestionAnswer, PublicQuestionDetail, PublicQuestionGroup } from './contracts'
 import { getPublicQuestionDetail } from './client'
 import { evidenceTime } from './leaderboardUi'
+import { questionAnswerHref } from './questionKeys'
 import { usePublicFetch } from './usePublicFetch'
 
 const CLASS_LABELS: Record<PublicQuestionAnswer['classification'], string> = {
@@ -132,27 +133,48 @@ export function latestPerGroup(modelRows: GridRow[]): GridRow {
   return { ...first, key: `${first.modelKey}#summary`, index: -1, cells }
 }
 
-function AnswerCell({ answer, expanded, onToggle }: { answer: PublicQuestionAnswer | null; expanded: boolean; onToggle: () => void }) {
+function AnswerCell({ answer, questionKey, linked, expanded, onToggle }: { answer: PublicQuestionAnswer | null; questionKey: string; linked: boolean; expanded: boolean; onToggle: () => void }) {
+  const [copied, setCopied] = useState<'copied' | 'blocked' | null>(null)
   if (!answer) return <div className="qgrid-cell qgrid-empty" aria-label="No answer in this group">—</div>
   const text = plainAnswer(answer.response)
   const long = text.length > PREVIEW_CHARS
   const shown = expanded || !long ? text : `${text.slice(0, PREVIEW_CHARS).trimEnd()}…`
+  async function copyLink() {
+    // The route lives in the hash, so the permalink is this page's URL with the answer's route in the fragment.
+    const url = new URL(window.location.href)
+    url.hash = questionAnswerHref(questionKey, answer!.id)
+    try {
+      await navigator.clipboard.writeText(url.toString())
+      setCopied('copied')
+    } catch {
+      setCopied('blocked')
+    }
+    window.setTimeout(() => setCopied(null), 2000)
+  }
   return (
-    <div className={`qgrid-cell class-${answer.classification}`}>
+    <div id={`answer-${answer.id}`} className={`qgrid-cell class-${answer.classification}${linked ? ' is-linked' : ''}`}>
       {answer.classification !== 'answered' && <span className="qgrid-class">{CLASS_LABELS[answer.classification]}</span>}
       <p className="qgrid-text">{shown || <span className="muted">(No response)</span>}</p>
-      {long && (
-        <button type="button" className="link qgrid-more" onClick={onToggle}>{expanded ? 'Less' : 'Read all'}</button>
-      )}
+      <div className="qgrid-cell-actions">
+        {long && (
+          <button type="button" className="link qgrid-more" onClick={onToggle}>{expanded ? 'Less' : 'Read all'}</button>
+        )}
+        <button type="button" className="link qgrid-copy" aria-label="Copy link to this answer" onClick={copyLink}>
+          {copied === 'copied' ? 'Copied' : copied === 'blocked' ? 'Copy blocked' : 'Copy link'}
+        </button>
+      </div>
     </div>
   )
 }
 
 export function QuestionDetailPage({
   questionKey,
+  focusAnswerId,
   load = getPublicQuestionDetail,
 }: {
   questionKey: string
+  /** Evidence id from a shared answer link; the page unfolds, highlights, and scrolls to it. */
+  focusAnswerId?: string
   load?: (key: string) => Promise<PublicQuestionDetail>
 }) {
   const loader = useCallback(() => load(questionKey), [load, questionKey])
@@ -178,6 +200,28 @@ export function QuestionDetailPage({
     return [...blocks.entries()].map(([key, modelRows]) => ({ key, modelRows, summary: latestPerGroup(modelRows) }))
   }, [visible])
   const isPair = detail?.layout === 'pair'
+
+  // A shared answer link: unfold the runs that hold it and open the full text, once per visit.
+  const revealed = useRef(false)
+  useEffect(() => {
+    if (!focusAnswerId || revealed.current) return
+    const row = rows.find((row) => row.cells.some((cell) => cell?.id === focusAnswerId))
+    if (!row) return
+    revealed.current = true
+    setOpenModels((current) => new Set(current).add(row.modelKey))
+    setExpanded((current) => new Set(current).add(focusAnswerId))
+  }, [rows, focusAnswerId])
+
+  const scrolled = useRef(false)
+  useEffect(() => {
+    if (!focusAnswerId || scrolled.current) return
+    const cell = document.getElementById(`answer-${focusAnswerId}`)
+    if (!cell) return
+    scrolled.current = true
+    cell.scrollIntoView?.({ block: 'center' })
+  }, [byModel, focusAnswerId])
+
+  const focusMissing = Boolean(focusAnswerId && detail && !rows.some((row) => row.cells.some((cell) => cell?.id === focusAnswerId)))
 
   function toggleModel(key: string) {
     setOpenModels((current) => {
@@ -220,6 +264,10 @@ export function QuestionDetailPage({
               {' · '}{detail.modelCount.toLocaleString()} {detail.modelCount === 1 ? 'model' : 'models'}
             </p>
           </header>
+
+          {focusMissing && (
+            <p className="muted" role="status">The linked answer is not among this question's stored answers.</p>
+          )}
 
           {isPair && (
             <div className="qgrid-prompts">
@@ -290,6 +338,8 @@ export function QuestionDetailPage({
                             <AnswerCell
                               key={cell?.id ?? `${row.key}-${column}`}
                               answer={cell}
+                              questionKey={questionKey}
+                              linked={Boolean(cell && cell.id === focusAnswerId)}
                               expanded={cell ? expanded.has(cell.id) : false}
                               onToggle={() => cell && toggle(cell.id)}
                             />

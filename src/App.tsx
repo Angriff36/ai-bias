@@ -195,8 +195,8 @@ function MainApp() {
 }
 
 function LeaderboardRoute() {
-  const match = window.location.hash.match(/^#\/leaderboard\/questions\/([^/]+)$/)
-  if (match) return <QuestionDetailPage questionKey={decodeURIComponent(match[1])} />
+  const match = window.location.hash.match(/^#\/leaderboard\/questions\/([^/]+)(?:\/answers\/([^/]+))?$/)
+  if (match) return <QuestionDetailPage questionKey={decodeURIComponent(match[1])} focusAnswerId={match[2] ? decodeURIComponent(match[2]) : undefined} />
   return <LeaderboardPage />
 }
 

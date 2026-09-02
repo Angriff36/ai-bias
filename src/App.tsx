@@ -11,6 +11,7 @@ const ClaimDetailPage = lazy(async () => ({ default: (await import('./public/Cla
 const AboutPage = lazy(async () => ({ default: (await import('./components/AboutPage')).AboutPage }))
 const LeaderboardPage = lazy(async () => ({ default: (await import('./public/LeaderboardPage')).LeaderboardPage }))
 const QuestionDetailPage = lazy(async () => ({ default: (await import('./public/QuestionDetailPage')).QuestionDetailPage }))
+const ModelDetailPage = lazy(async () => ({ default: (await import('./public/ModelDetailPage')).ModelDetailPage }))
 const ReportsPage = lazy(async () => ({ default: (await import('./public/ReportsPage')).ReportsPage }))
 
 type ServerState =
@@ -197,6 +198,8 @@ function MainApp() {
 function LeaderboardRoute() {
   const match = window.location.hash.match(/^#\/leaderboard\/questions\/([^/]+)$/)
   if (match) return <QuestionDetailPage questionKey={decodeURIComponent(match[1])} />
+  const model = window.location.hash.match(/^#\/leaderboard\/models\/([^/]+)$/)
+  if (model) return <ModelDetailPage modelKey={decodeURIComponent(model[1])} />
   return <LeaderboardPage />
 }
 

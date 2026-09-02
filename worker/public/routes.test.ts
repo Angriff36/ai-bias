@@ -9,6 +9,8 @@ function dependencies() {
       publish: vi.fn(async () => ({ runId: 'public-run', duplicate: false, crossedThresholds: [] as number[] })),
       getLeaderboard: vi.fn(async () => leaderboard),
       getQuestionDetail: vi.fn(async () => null),
+      getQuestionTimeline: vi.fn(async () => null),
+      getModelTimeline: vi.fn(async () => null),
       getAllowance: vi.fn(async () => ({ remaining: 2, dailyRemaining: 250 })),
     },
     reportRepository: {
@@ -49,6 +51,28 @@ function dependencies() {
 }
 
 describe('public API routes', () => {
+  it('serves the behavior timeline for a question or one model, and rejects a mixed scope', async () => {
+    const deps = dependencies()
+    const timeline = { series: [], drift: [] }
+    deps.repository.getQuestionTimeline.mockResolvedValue(timeline as never)
+    deps.repository.getModelTimeline.mockResolvedValue(timeline as never)
+
+    const byQuestion = await handlePublicApi(new Request('https://ai-tests.com/api/public/behavior-timeline?questionKey=identity'), {} as never, { waitUntil: vi.fn() }, deps as never)
+    expect(byQuestion?.status).toBe(200)
+    expect(deps.repository.getQuestionTimeline).toHaveBeenCalledWith('identity')
+
+    const byModel = await handlePublicApi(new Request('https://ai-tests.com/api/public/behavior-timeline?provider=openrouter&modelId=openai%2Fgpt-4o'), {} as never, { waitUntil: vi.fn() }, deps as never)
+    expect(byModel?.status).toBe(200)
+    expect(deps.repository.getModelTimeline).toHaveBeenCalledWith('openrouter', 'openai/gpt-4o')
+
+    const mixed = await handlePublicApi(new Request('https://ai-tests.com/api/public/behavior-timeline?questionKey=identity&provider=openrouter&modelId=m'), {} as never, { waitUntil: vi.fn() }, deps as never)
+    expect(mixed?.status).toBe(400)
+
+    deps.repository.getQuestionTimeline.mockResolvedValue(null)
+    const missing = await handlePublicApi(new Request('https://ai-tests.com/api/public/behavior-timeline?questionKey=unknown'), {} as never, { waitUntil: vi.fn() }, deps as never)
+    expect(missing?.status).toBe(404)
+  })
+
   it('lists unanswered proposals and accepts a free proposal without running a model', async () => {
     const deps = dependencies()
     const list = await handlePublicApi(new Request('https://ai-tests.com/api/public/question-proposals?status=unanswered'), {} as never, { waitUntil: vi.fn() }, deps as never)

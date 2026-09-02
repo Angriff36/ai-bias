@@ -42,7 +42,7 @@ export async function handlePublicApi(
   env: PublicWorkerEnv,
   context: ExecutionContextLike,
   injected?: {
-    repository: Pick<PublicRepository, 'publish' | 'getLeaderboard' | 'getQuestionDetail' | 'getAllowance'>
+    repository: Pick<PublicRepository, 'publish' | 'getLeaderboard' | 'getQuestionDetail' | 'getAllowance' | 'getQuestionTimeline' | 'getModelTimeline'>
     reportRepository: Pick<GeneratedReportRepository, 'claimRunReport' | 'claimCurrentGlobalReport' | 'claimQuestionSetReport' | 'listReports' | 'getReportDocument' | 'prepareReportGeneration'>
     claimRepository?: Pick<ClaimRepository, 'create'> & {
       list(options?: ClaimListOptions): ReturnType<ClaimRepository['list']>
@@ -105,6 +105,25 @@ export async function handlePublicApi(
       const detail = await repository.getQuestionDetail(decodeURIComponent(questionDetail[1]))
       if (!detail) return json({ error: 'Question not found.' }, 404)
       const response = json({ question: publicQuestionDetailSchema.parse(detail) })
+      response.headers.set('Cache-Control', PUBLIC_CACHE_CONTROL)
+      return response
+    }
+    if (url.pathname === '/api/public/behavior-timeline' && request.method === 'GET') {
+      const questionKey = url.searchParams.get('questionKey')?.trim() ?? ''
+      const provider = url.searchParams.get('provider')?.trim() ?? ''
+      const modelId = url.searchParams.get('modelId')?.trim() ?? ''
+      const modelScope = provider !== '' && modelId !== ''
+      if (questionKey !== '' === modelScope) {
+        return json({ error: 'Provide either questionKey, or provider and modelId.' }, 400)
+      }
+      if (questionKey.length > 1_000 || provider.length > 80 || modelId.length > 240) {
+        return json({ error: 'The requested scope is too long.' }, 400)
+      }
+      const timeline = modelScope
+        ? await repository.getModelTimeline(provider, modelId)
+        : await repository.getQuestionTimeline(questionKey)
+      if (!timeline) return json({ error: 'No stored answers match this scope.' }, 404)
+      const response = json({ timeline })
       response.headers.set('Cache-Control', PUBLIC_CACHE_CONTROL)
       return response
     }

@@ -6,6 +6,7 @@ import {
   generatedReportStateSchema,
   publicClaimListSchema,
   publicClaimSchema,
+  publicBehaviorTimelineSchema,
   publicLeaderboardSchema,
   publicQuestionDetailSchema,
   publicQuestionProposalListSchema,
@@ -14,6 +15,7 @@ import {
   type FreeRunRequest,
   type FreeRunResponse,
   type GeneratedReportSummary,
+  type PublicBehaviorTimeline,
   type PublicClaim,
   type PublicClaimRequest,
   type PublicLeaderboard,
@@ -72,6 +74,7 @@ export async function publishRun(records: RawRecord[], fetcher: Fetcher = fetch)
     invalidatePublicCache('leaderboard')
     invalidatePublicCache('reports')
     invalidatePublicCache('question:')
+    invalidatePublicCache('timeline:')
   }
 }
 
@@ -92,6 +95,28 @@ export async function getPublicQuestionDetail(questionKey: string, fetcher: Fetc
   const detail = publicQuestionDetailSchema.parse(body.question)
   writePublicCache(cacheKey, detail)
   return detail
+}
+
+async function fetchBehaviorTimeline(cacheKey: string, query: string, fetcher: Fetcher): Promise<PublicBehaviorTimeline> {
+  const cached = readPublicCache<PublicBehaviorTimeline>(cacheKey)
+  if (cached?.status === 'fresh') return cached.data
+  const response = await fetcher(`/api/public/behavior-timeline?${query}`, { credentials: 'same-origin' })
+  const body = await responseJson(response) as { timeline?: unknown }
+  const timeline = readPublicPayload(publicBehaviorTimelineSchema, body.timeline)
+  writePublicCache(cacheKey, timeline)
+  return timeline
+}
+
+export async function getQuestionTimeline(questionKey: string, fetcher: Fetcher = fetch): Promise<PublicBehaviorTimeline> {
+  return fetchBehaviorTimeline(`timeline:question:${questionKey}`, `questionKey=${encodeURIComponent(questionKey)}`, fetcher)
+}
+
+export async function getModelTimeline(provider: string, modelId: string, fetcher: Fetcher = fetch): Promise<PublicBehaviorTimeline> {
+  return fetchBehaviorTimeline(
+    `timeline:model:${provider}|${modelId}`,
+    `provider=${encodeURIComponent(provider)}&modelId=${encodeURIComponent(modelId)}`,
+    fetcher,
+  )
 }
 
 export async function listQuestionProposals(status: 'unanswered' | 'answered' = 'unanswered', fetcher: Fetcher = fetch): Promise<PublicQuestionProposal[]> {

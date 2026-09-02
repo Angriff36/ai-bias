@@ -1,9 +1,11 @@
 import { useCallback, useMemo, useState } from 'react'
 import './submittedPrompts.css'
-import type { PublicQuestionAnswer, PublicQuestionDetail, PublicQuestionGroup } from './contracts'
+import type { PublicBehaviorTimeline, PublicQuestionAnswer, PublicQuestionDetail, PublicQuestionGroup } from './contracts'
 import { getPublicQuestionDetail } from './client'
 import { evidenceTime } from './leaderboardUi'
 import { usePublicFetch } from './usePublicFetch'
+import { BehaviorTimeline } from './BehaviorTimeline'
+import { modelDetailHref } from './ModelDetailPage'
 
 const CLASS_LABELS: Record<PublicQuestionAnswer['classification'], string> = {
   answered: 'Answered',
@@ -151,9 +153,11 @@ function AnswerCell({ answer, expanded, onToggle }: { answer: PublicQuestionAnsw
 export function QuestionDetailPage({
   questionKey,
   load = getPublicQuestionDetail,
+  loadTimeline,
 }: {
   questionKey: string
   load?: (key: string) => Promise<PublicQuestionDetail>
+  loadTimeline?: () => Promise<PublicBehaviorTimeline>
 }) {
   const loader = useCallback(() => load(questionKey), [load, questionKey])
   const { data: detail, error, loading, refreshing, retry } = usePublicFetch(`question:${questionKey}`, loader)
@@ -278,7 +282,11 @@ export function QuestionDetailPage({
                       return (
                         <div key={row.key} className="qgrid-row" role="row">
                           <div className="qgrid-rowhead" role="rowheader">
-                            {position === 0 && <strong title={key.replace('|', ' · ')}>{shortModel(row.modelId)}</strong>}
+                            {position === 0 && (
+                              <strong title={key.replace('|', ' · ')}>
+                                <a className="text-link" href={modelDetailHref(key.slice(0, key.indexOf('|')), row.modelId)}>{shortModel(row.modelId)}</a>
+                              </strong>
+                            )}
                             <small>{label}{when ? ` · ${evidenceTime(when)}` : ''}</small>
                             {last && runs > 1 && (
                               <button type="button" className="link qgrid-fold" aria-expanded={open} onClick={() => toggleModel(key)}>
@@ -300,6 +308,8 @@ export function QuestionDetailPage({
                   })}
                 </div>
               </div>
+
+              <BehaviorTimeline scope={{ kind: 'question', questionKey }} load={loadTimeline} />
             </>
           )}
         </>

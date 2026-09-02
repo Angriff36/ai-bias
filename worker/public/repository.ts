@@ -1,5 +1,6 @@
-import type { PublicEvidenceItem, PublicLeaderboard, PublicModelAggregate, PublicQuestionDetail, PublicSubmission, GeneratedReportSummary } from '../../src/public/contracts'
+import type { GeneratedReportPairScore, PublicBehaviorTimeline, PublicEvidenceItem, PublicLeaderboard, PublicModelAggregate, PublicQuestionDetail, PublicSubmission, GeneratedReportSummary } from '../../src/public/contracts'
 import { generatedReportSummarySchema } from '../../src/public/contracts'
+import { buildBehaviorTimeline, type TimelineAnswer } from './behaviorTimeline'
 import type { D1DatabaseLike } from './d1'
 import { PublicRunPublisher } from './publicRunPublisher'
 import { buildQuestionDetail, buildTopQuestionSummaries } from './questionLeaderboard'
@@ -124,6 +125,45 @@ export class PublicRepository {
     }
     if (detail) writeCachedQuestionDetail(questionKey, detail)
     return detail
+  }
+
+  /** Every judge verdict from a finished report, oldest report first so a newer verdict for the same pair wins. */
+  private async completeJudgeScores(model?: { provider: string; modelId: string }): Promise<GeneratedReportPairScore[]> {
+    const statement = model
+      ? this.db.prepare(`SELECT p.score_json FROM report_pair_scores p
+        JOIN generated_reports r ON r.id = p.report_id
+        WHERE r.status='complete' AND p.provider=? AND p.model_id=? ORDER BY r.completed_at, r.id`).bind(model.provider, model.modelId)
+      : this.db.prepare(`SELECT p.score_json FROM report_pair_scores p
+        JOIN generated_reports r ON r.id = p.report_id WHERE r.status='complete' ORDER BY r.completed_at, r.id`)
+    const rows = (await statement.all()).results ?? []
+    const scores: GeneratedReportPairScore[] = []
+    for (const row of rows) {
+      try { scores.push(JSON.parse(s(row.score_json)) as GeneratedReportPairScore) } catch { /* an unreadable score adds nothing */ }
+    }
+    return scores
+  }
+
+  /** How one model behaved over time across every stored question. */
+  async getModelTimeline(provider: string, modelId: string): Promise<PublicBehaviorTimeline | null> {
+    const rows = (await this.db.prepare(`SELECT id, provider, model_id, prompt, classification, received_at
+      FROM public_evidence WHERE provider=? AND model_id=?`).bind(provider, modelId).all()).results ?? []
+    if (rows.length === 0) return null
+    const answers: TimelineAnswer[] = rows.map((row) => ({
+      id: s(row.id), provider: s(row.provider), modelId: s(row.model_id), prompt: s(row.prompt),
+      classification: s(row.classification) as PublicEvidenceItem['classification'], receivedAt: s(row.received_at),
+    }))
+    return buildBehaviorTimeline(answers, await this.completeJudgeScores({ provider, modelId }))
+  }
+
+  /** How every model behaved over time on one leaderboard question. */
+  async getQuestionTimeline(questionKey: string): Promise<PublicBehaviorTimeline | null> {
+    const detail = await this.getQuestionDetail(questionKey)
+    if (!detail) return null
+    const answers = detail.groups.flatMap((group) => group.answers)
+    const ids = new Set(answers.map((answer) => answer.id))
+    const scores = (await this.completeJudgeScores())
+      .filter((score) => ids.has(score.variantAEvidenceId) || ids.has(score.variantBEvidenceId))
+    return buildBehaviorTimeline(answers, scores)
   }
 
   async getAllowance(quotaHash: string, day: string): Promise<{ remaining: number; dailyRemaining: number }> {

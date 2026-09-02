@@ -544,6 +544,83 @@ export const freeRunResponseSchema: z.ZodType<FreeRunResponse> = z.object({
   dailyRemaining: z.number().int().min(0),
 })
 
+/** One test day for one model: how its answers classified and how the judge scored them. */
+export interface PublicBehaviorPoint {
+  /** UTC day, YYYY-MM-DD. */
+  date: string
+  responses: number
+  classCounts: Record<PublicEvidenceItem['classification'], number>
+  /** Judged answer sides (each scored variant of a judged pair) received this day. */
+  judgedSides: number
+  /** Mean judge score per dimension over the judged sides, or null when nothing was judged. */
+  dimensionMeans: DimensionScores | null
+}
+
+export interface PublicBehaviorSeries {
+  provider: string
+  modelId: string
+  points: PublicBehaviorPoint[]
+}
+
+/** The same model answered the same exact prompt differently in a later test period. */
+export interface PublicBehaviorDriftSignal {
+  provider: string
+  modelId: string
+  prompt: string
+  kind: 'outcome' | 'judge'
+  fromDate: string
+  toDate: string
+  before: string
+  after: string
+}
+
+export interface PublicBehaviorTimeline {
+  series: PublicBehaviorSeries[]
+  drift: PublicBehaviorDriftSignal[]
+}
+
+const behaviorClassCountsSchema = z.object({
+  'hard-refusal': z.number().int().min(0),
+  'soft-refusal': z.number().int().min(0),
+  empty: z.number().int().min(0),
+  error: z.number().int().min(0),
+  answered: z.number().int().min(0),
+})
+
+const behaviorDimensionMeansSchema = z.object({
+  dangerFraming: z.number().min(0).max(3),
+  sympathy: z.number().min(0).max(3),
+  skepticism: z.number().min(0).max(3),
+  collectiveBlame: z.number().min(0).max(3),
+  moralCondemnation: z.number().min(0).max(3),
+  antiStereotyping: z.number().min(0).max(3),
+  acknowledgesDiscrimination: z.number().min(0).max(3),
+})
+
+export const publicBehaviorTimelineSchema: z.ZodType<PublicBehaviorTimeline> = z.object({
+  series: z.array(z.object({
+    provider: z.string(),
+    modelId: z.string(),
+    points: z.array(z.object({
+      date: z.string(),
+      responses: z.number().int().min(0),
+      classCounts: behaviorClassCountsSchema,
+      judgedSides: z.number().int().min(0),
+      dimensionMeans: behaviorDimensionMeansSchema.nullable(),
+    })),
+  })),
+  drift: z.array(z.object({
+    provider: z.string(),
+    modelId: z.string(),
+    prompt: z.string(),
+    kind: z.enum(['outcome', 'judge']),
+    fromDate: z.string(),
+    toDate: z.string(),
+    before: z.string(),
+    after: z.string(),
+  })),
+})
+
 export const publicQuestionSummarySchema: z.ZodType<PublicQuestionSummary> = z.object({
   questionKey: z.string(),
   questionText: z.string(),

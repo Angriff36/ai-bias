@@ -17,12 +17,14 @@ import {
   type GlobalReportCohortSnapshot,
 } from './reportGlobalCohort'
 import { parseStoredReportDocument } from './reportDocumentParse'
-import { comparisonIdentity, groupCompleteMatchedSamples } from './matchedSampleIdentity'
+import { buildPairSampleId, comparisonIdentity, groupCompleteMatchedSamples } from './matchedSampleIdentity'
 import { filterEvidenceByQuestionKeys } from './questionLeaderboard'
 import { invalidateCachedReports, writeCachedClaims } from './readCache'
 import { normalizeQuestionKey } from '../../src/public/questionKeys'
+import { groupPolarJudgeCells } from './reportJudgeBatch'
+import { REPORT_JUDGE_MODEL } from './reportJudgeClient'
 
-const JUDGE_MODEL = 'z-ai/glm-5.3-flash'
+const JUDGE_MODEL = REPORT_JUDGE_MODEL
 const SYNTHESIS_MODEL = 'x-ai/grok-4.6'
 const SCORING_MODEL = JUDGE_MODEL
 const DAILY_REPORT_JOB_LIMIT = 20
@@ -66,6 +68,19 @@ export function summarizeReportModels(evidence: PublicEvidenceItem[]): Generated
   }).sort((a, b) => a.provider.localeCompare(b.provider) || a.modelId.localeCompare(b.modelId))
 }
 
+export function reportAnalysisProgress(
+  evidence: PublicEvidenceItem[],
+  scores: GeneratedReportPairScore[],
+): { completedAnalyses: number; expectedAnalyses: number } {
+  const cells = groupPolarJudgeCells(evidence)
+  const scoredIds = new Set(scores.map((score) => score.pairSampleId))
+  const completedAnalyses = cells.filter((cell) => cell.groups.every((group) => {
+    const variantA = group.find((item) => item.variantKey === 'A')!
+    return scoredIds.has(buildPairSampleId(variantA))
+  })).length
+  return { completedAnalyses, expectedAnalyses: cells.length }
+}
+
 function countCompleteModelPairs(records: PublicEvidenceItem[]): number {
   return groupCompleteMatchedSamples(records).length
 }
@@ -84,6 +99,10 @@ interface ReportRow {
   cohortSnapshotJson: string | null
   generationLeaseUntil: string | null
   generationLeaseOwner: string | null
+  judgeBatchId: string | null
+  judgeBatchStatus: string | null
+  analysisCompleted: number
+  analysisTotal: number
   status: 'pending' | 'complete' | 'failed'
   errorCode?: string | null
   scoringModelId: string
@@ -240,40 +259,104 @@ export class GeneratedReportRepository {
     invalidateCachedReports()
   }
 
-  async countPairScores(reportId: string): Promise<number> {
-    const row = await this.db.prepare('SELECT COUNT(*) AS count FROM report_pair_scores WHERE report_id = ?')
-      .bind(reportId).first<{ count: number }>()
-    return n(row?.count)
-  }
-
-  async clearPairScores(reportId: string): Promise<void> {
-    await this.db.prepare('DELETE FROM report_pair_scores WHERE report_id = ?').bind(reportId).run()
-  }
-
   async loadPairScores(reportId: string): Promise<GeneratedReportPairScore[]> {
     const rows = (await this.db.prepare('SELECT score_json FROM report_pair_scores WHERE report_id = ?')
       .bind(reportId).all()).results ?? []
     return rows.map((row) => JSON.parse(s(String((row as { score_json: string }).score_json))) as GeneratedReportPairScore)
   }
 
-  async upsertPairScores(reportId: string, scores: GeneratedReportPairScore[], leaseOwner: string): Promise<void> {
-    if (scores.length === 0) return
-    const statements = scores.map((score) => this.db.prepare(`INSERT OR REPLACE INTO report_pair_scores
+  async registerQueuedAnalyses(reportId: string, analysisIds: string[], leaseOwner: string): Promise<string[]> {
+    if (analysisIds.length === 0) return []
+    await this.db.batch(analysisIds.map((analysisId) => this.db.prepare(`INSERT OR IGNORE INTO report_analysis_checkpoints
+      (report_id, analysis_id, status)
+      SELECT ?, ?, 'pending' WHERE EXISTS (
+        SELECT 1 FROM generated_reports WHERE id=? AND status='pending' AND generation_lease_owner=?
+      )`).bind(reportId, analysisId, reportId, leaseOwner)))
+    await this.db.prepare(`UPDATE generated_reports SET
+      analysis_completed=(SELECT COUNT(*) FROM report_analysis_checkpoints WHERE report_id=? AND status='complete'),
+      analysis_total=(SELECT COUNT(*) FROM report_analysis_checkpoints WHERE report_id=?),
+      judge_batch_id=NULL, judge_batch_status=NULL
+      WHERE id=? AND status='pending' AND generation_lease_owner=?`)
+      .bind(reportId, reportId, reportId, leaseOwner).run()
+    const rows = (await this.db.prepare(`SELECT analysis_id FROM report_analysis_checkpoints
+      WHERE report_id=? AND status='pending' AND enqueued_at IS NULL`).bind(reportId).all<{ analysis_id: string }>()).results ?? []
+    return rows.map((row) => s(row.analysis_id))
+  }
+
+  async markQueuedAnalysesEnqueued(reportId: string, analysisIds: string[], now: string, leaseOwner: string): Promise<void> {
+    if (analysisIds.length === 0) return
+    await this.db.batch(analysisIds.map((analysisId) => this.db.prepare(`UPDATE report_analysis_checkpoints
+      SET enqueued_at=? WHERE report_id=? AND analysis_id=? AND status='pending' AND EXISTS (
+        SELECT 1 FROM generated_reports WHERE id=? AND status='pending' AND generation_lease_owner=?
+      )`).bind(now, reportId, analysisId, reportId, leaseOwner)))
+  }
+
+  async claimQueuedAnalysis(
+    reportId: string,
+    analysisId: string,
+    now: string,
+    retry: boolean,
+  ): Promise<'claimed' | 'complete' | 'unavailable'> {
+    const claimed = await this.db.prepare(`UPDATE report_analysis_checkpoints SET completed_at=?
+      WHERE report_id=? AND analysis_id=? AND status='pending' AND (completed_at IS NULL OR ?=1)`)
+      .bind(now, reportId, analysisId, retry ? 1 : 0).run()
+    if ((claimed.meta?.changes ?? 0) > 0) return 'claimed'
+    const row = await this.db.prepare(`SELECT status FROM report_analysis_checkpoints
+      WHERE report_id=? AND analysis_id=?`).bind(reportId, analysisId).first<{ status: string }>()
+    return row?.status === 'complete' ? 'complete' : 'unavailable'
+  }
+
+  async releaseQueuedAnalysisClaim(reportId: string, analysisId: string): Promise<void> {
+    await this.db.prepare(`UPDATE report_analysis_checkpoints SET completed_at=NULL
+      WHERE report_id=? AND analysis_id=? AND status='pending'`).bind(reportId, analysisId).run()
+  }
+
+  async completeQueuedAnalysis(
+    reportId: string,
+    analysisId: string,
+    scores: GeneratedReportPairScore[],
+    now: string,
+  ): Promise<{ allComplete: boolean }> {
+    const scoreStatements = scores.map((score) => this.db.prepare(`INSERT OR REPLACE INTO report_pair_scores
       (report_id, pair_sample_id, pair_index, run_index, provider, model_id, score_json)
       SELECT ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (
-        SELECT 1 FROM generated_reports WHERE id=? AND status='pending' AND generation_lease_owner=?
-      )`)
-      .bind(reportId, score.pairSampleId, score.pairIndex, score.runIndex, score.provider, score.modelId, JSON.stringify(score), reportId, leaseOwner))
-    try {
-      await this.db.batch(statements)
-    } catch {
-      await this.db.batch(scores.map((score) => this.db.prepare(`INSERT OR REPLACE INTO report_pair_scores
-        (report_id, pair_index, run_index, provider, model_id, score_json)
-        SELECT ?, ?, ?, ?, ?, ? WHERE EXISTS (
-          SELECT 1 FROM generated_reports WHERE id=? AND status='pending' AND generation_lease_owner=?
-        )`)
-        .bind(reportId, score.pairIndex, score.runIndex, score.provider, score.modelId, JSON.stringify(score), reportId, leaseOwner)))
-    }
+        SELECT 1 FROM report_analysis_checkpoints WHERE report_id=? AND analysis_id=? AND status='pending'
+      )`).bind(reportId, score.pairSampleId, score.pairIndex, score.runIndex, score.provider, score.modelId,
+        JSON.stringify(score), reportId, analysisId))
+    await this.db.batch([
+      ...scoreStatements,
+      this.db.prepare(`UPDATE report_analysis_checkpoints SET status='complete', completed_at=?, error_code=NULL
+        WHERE report_id=? AND analysis_id=? AND status='pending'`).bind(now, reportId, analysisId),
+      this.db.prepare(`UPDATE generated_reports SET
+        analysis_completed=(SELECT COUNT(*) FROM report_analysis_checkpoints WHERE report_id=? AND status='complete'),
+        analysis_total=(SELECT COUNT(*) FROM report_analysis_checkpoints WHERE report_id=?),
+        generation_lease_until=NULL, generation_lease_owner=NULL
+        WHERE id=? AND status='pending'`).bind(reportId, reportId, reportId),
+    ])
+    invalidateCachedReports()
+    const progress = await this.db.prepare(`SELECT analysis_completed, analysis_total FROM generated_reports WHERE id=? AND status='pending'`)
+      .bind(reportId).first<{ analysis_completed: number; analysis_total: number }>()
+    return { allComplete: n(progress?.analysis_total) > 0 && n(progress?.analysis_completed) >= n(progress?.analysis_total) }
+  }
+
+  async failQueuedAnalysis(reportId: string, analysisId: string, code: string, now: string): Promise<void> {
+    await this.db.batch([
+      this.db.prepare(`UPDATE report_analysis_checkpoints SET status='failed', completed_at=?, error_code=?
+        WHERE report_id=? AND analysis_id=? AND status='pending'`).bind(now, code.slice(0, 80), reportId, analysisId),
+      this.db.prepare(`UPDATE generated_reports SET status='failed', error_code=?, generation_lease_until=NULL, generation_lease_owner=NULL
+        WHERE id=? AND status='pending'`).bind(code.slice(0, 80), reportId),
+    ])
+    invalidateCachedReports()
+  }
+
+  async claimReportFinalization(reportId: string, now: string): Promise<string | null> {
+    const leaseOwner = crypto.randomUUID()
+    const leaseUntil = new Date(Date.parse(now) + REPORT_GENERATION_LEASE_MS).toISOString()
+    const result = await this.db.prepare(`UPDATE generated_reports SET generation_lease_until=?, generation_lease_owner=?
+      WHERE id=? AND status='pending' AND analysis_total>0 AND analysis_completed>=analysis_total
+        AND (generation_lease_owner IS NULL OR generation_lease_until IS NULL OR generation_lease_until<=?)`)
+      .bind(leaseUntil, leaseOwner, reportId, now).run()
+    return (result.meta?.changes ?? 0) > 0 ? leaseOwner : null
   }
 
   async prepareReportGeneration(reportId: string, now: string): Promise<{ report: GeneratedReportSummary; started: boolean; leaseOwner?: string } | null> {
@@ -293,6 +376,9 @@ export class GeneratedReportRepository {
     if ((claim.meta?.changes ?? 0) === 0) {
       const current = await this.getRow(reportId)
       return current ? { report: this.summary(current), started: false } : null
+    }
+    if (row.status === 'failed') {
+      await this.resetRetryableAnalysisCheckpoints(reportId)
     }
     return {
       report: this.summary({ ...row, status: 'pending', generationLeaseUntil: leaseUntil, generationLeaseOwner: leaseOwner }),
@@ -314,22 +400,10 @@ export class GeneratedReportRepository {
   }
 
   async listReports(): Promise<GeneratedReportSummary[]> {
-    const rows = (await this.db.prepare(`SELECT id, scope, public_run_id, response_watermark, cohort_fingerprint, cohort_snapshot_json, generation_lease_until, generation_lease_owner,
-      status, error_code, scoring_model_id, synthesis_model_id, title, structured_json, created_at, completed_at FROM generated_reports
+    const rows = (await this.db.prepare(`SELECT id, scope, public_run_id, response_watermark, cohort_fingerprint, cohort_snapshot_json, generation_lease_until, generation_lease_owner, judge_batch_id, judge_batch_status,
+      analysis_completed, analysis_total, status, error_code, scoring_model_id, synthesis_model_id, title, structured_json, created_at, completed_at FROM generated_reports
       ORDER BY COALESCE(completed_at, created_at) DESC LIMIT 50`).all()).results ?? []
-    const summaries: GeneratedReportSummary[] = []
-    for (const row of rows.map(mapReportRow)) {
-      if (row.status === 'complete') { summaries.push(this.summary(row)); continue }
-      let progress: GeneratedReportSummary['progress']
-      try {
-        const [scoredPairs, source] = await Promise.all([this.countPairScores(row.id), this.getReportEvidence(row.id)])
-        progress = { scoredPairs, expectedPairs: groupCompleteMatchedSamples(source.evidence).length }
-      } catch {
-        // No evidence to count: the row still lists, just without a progress figure.
-      }
-      summaries.push({ ...this.summary(row), ...(progress ? { progress } : {}), errorCode: row.errorCode })
-    }
-    return summaries
+    return rows.map(mapReportRow).map((row) => this.summary(row))
   }
 
   async getReportDocument(id: string): Promise<GeneratedReportDocument | null> {
@@ -358,11 +432,23 @@ export class GeneratedReportRepository {
       row = { ...row, status: 'failed', generationLeaseUntil: null, generationLeaseOwner: null }
     }
     if (row.status !== 'failed') return { kind: 'existing', report: this.summary(row) }
-    await this.db.prepare(`UPDATE generated_reports
+    const reclaimed = await this.db.prepare(`UPDATE generated_reports
       SET status='pending', error_code=NULL, created_at=?, scoring_model_id=?, synthesis_model_id=?
       WHERE id=? AND status='failed' AND generation_lease_owner IS NULL`)
       .bind(now, SCORING_MODEL, SYNTHESIS_MODEL, row.id).run()
+    if ((reclaimed.meta?.changes ?? 0) === 0) {
+      const current = await this.getRow(row.id)
+      return { kind: 'existing', report: this.summary(current ?? row) }
+    }
+    await this.resetRetryableAnalysisCheckpoints(row.id)
     return { kind: 'claimed', report: this.summary({ ...row, status: 'pending', createdAt: now }) }
+  }
+
+  private async resetRetryableAnalysisCheckpoints(reportId: string): Promise<void> {
+    await this.db.prepare(`UPDATE report_analysis_checkpoints
+      SET status='pending', enqueued_at=NULL, completed_at=NULL, error_code=NULL
+      WHERE report_id=? AND (status='failed' OR (status='pending' AND completed_at IS NULL))`)
+      .bind(reportId).run()
   }
 
   private async finalizeStoredDocumentIfValid(row: ReportRow, now: string): Promise<ReportRow | null> {
@@ -376,22 +462,22 @@ export class GeneratedReportRepository {
   }
 
   private async findByRun(runId: string): Promise<ReportRow | null> {
-    const row = await this.db.prepare(`SELECT id, scope, public_run_id, response_watermark, cohort_fingerprint, cohort_snapshot_json, generation_lease_until, generation_lease_owner,
-      status, error_code, scoring_model_id, synthesis_model_id, title, structured_json, created_at, completed_at FROM generated_reports WHERE scope='run' AND public_run_id=?`)
+    const row = await this.db.prepare(`SELECT id, scope, public_run_id, response_watermark, cohort_fingerprint, cohort_snapshot_json, generation_lease_until, generation_lease_owner, judge_batch_id, judge_batch_status,
+      analysis_completed, analysis_total, status, error_code, scoring_model_id, synthesis_model_id, title, structured_json, created_at, completed_at FROM generated_reports WHERE scope='run' AND public_run_id=?`)
       .bind(runId).first<Record<string, unknown>>()
     return row ? mapReportRow(row) : null
   }
 
   private async findByCohortFingerprint(fingerprint: string): Promise<ReportRow | null> {
-    const row = await this.db.prepare(`SELECT id, scope, public_run_id, response_watermark, cohort_fingerprint, cohort_snapshot_json, generation_lease_until, generation_lease_owner,
-      status, error_code, scoring_model_id, synthesis_model_id, title, structured_json, created_at, completed_at FROM generated_reports WHERE scope='global' AND cohort_fingerprint=?`)
+    const row = await this.db.prepare(`SELECT id, scope, public_run_id, response_watermark, cohort_fingerprint, cohort_snapshot_json, generation_lease_until, generation_lease_owner, judge_batch_id, judge_batch_status,
+      analysis_completed, analysis_total, status, error_code, scoring_model_id, synthesis_model_id, title, structured_json, created_at, completed_at FROM generated_reports WHERE scope='global' AND cohort_fingerprint=?`)
       .bind(fingerprint).first<Record<string, unknown>>()
     return row ? mapReportRow(row) : null
   }
 
   private async getRow(id: string): Promise<ReportRow | null> {
-    const row = await this.db.prepare(`SELECT id, scope, public_run_id, response_watermark, cohort_fingerprint, cohort_snapshot_json, generation_lease_until, generation_lease_owner,
-      status, error_code, scoring_model_id, synthesis_model_id, title, structured_json, created_at, completed_at FROM generated_reports WHERE id=?`)
+    const row = await this.db.prepare(`SELECT id, scope, public_run_id, response_watermark, cohort_fingerprint, cohort_snapshot_json, generation_lease_until, generation_lease_owner, judge_batch_id, judge_batch_status,
+      analysis_completed, analysis_total, status, error_code, scoring_model_id, synthesis_model_id, title, structured_json, created_at, completed_at FROM generated_reports WHERE id=?`)
       .bind(id).first<Record<string, unknown>>()
     return row ? mapReportRow(row) : null
   }
@@ -402,6 +488,10 @@ export class GeneratedReportRepository {
       id: row.id, scope: row.scope, status: row.status, title: row.title,
       responseCount: document?.responseCount ?? 0, completePairs: document?.completePairs ?? 0,
       modelCount: document?.modelCount ?? 0, createdAt: row.createdAt, completedAt: row.completedAt,
+      ...(row.status !== 'complete' && row.analysisTotal > 0 ? {
+        progress: { completedAnalyses: row.analysisCompleted, expectedAnalyses: row.analysisTotal },
+      } : {}),
+      errorCode: row.errorCode ?? null,
     })
   }
 }
@@ -414,6 +504,9 @@ function mapReportRow(row: Record<string, unknown>): ReportRow {
     cohortSnapshotJson: row.cohort_snapshot_json == null ? null : s(row.cohort_snapshot_json),
     generationLeaseUntil: row.generation_lease_until == null ? null : s(row.generation_lease_until),
     generationLeaseOwner: row.generation_lease_owner == null ? null : s(row.generation_lease_owner),
+    judgeBatchId: row.judge_batch_id == null ? null : s(row.judge_batch_id),
+    judgeBatchStatus: row.judge_batch_status == null ? null : s(row.judge_batch_status),
+    analysisCompleted: n(row.analysis_completed), analysisTotal: n(row.analysis_total),
     status: s(row.status) as ReportRow['status'], scoringModelId: s(row.scoring_model_id), synthesisModelId: s(row.synthesis_model_id),
     title: row.title == null ? null : s(row.title), structuredJson: row.structured_json == null ? null : s(row.structured_json),
     createdAt: s(row.created_at), completedAt: row.completed_at == null ? null : s(row.completed_at),

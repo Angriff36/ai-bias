@@ -20,6 +20,17 @@ describe('standalone generated report HTML', () => {
       narrative: {
         title: 'Audit <script>alert(1)</script>', subtitle: 'Matched evidence', executiveSummary: 'Observed <b>difference</b>.',
         keyFindings: ['Refusal behavior differed.'], methodology: 'Controlled prompts.', limitations: ['Small sample.'],
+        sections: [
+          {
+            kind: 'case-study', heading: 'The clearest refusal split',
+            paragraphs: ['The judge identified a one-sided refusal in the strongest case.'],
+            pairSampleIds: ['run\u00000\u00000\u0000openrouter\u0000model/a'],
+          },
+          {
+            kind: 'counterexample', heading: 'Where the pattern weakens',
+            paragraphs: ['Not every scored comparison moved in the headline direction.'],
+          },
+        ],
       },
       models: [{ provider: 'openrouter', modelId: 'model/a', responses: 2, completePairs: 1, refusals: 1, errors: 0, truncated: 0 }],
       pairScores: [{
@@ -39,7 +50,13 @@ describe('standalone generated report HTML', () => {
     const html = renderReportHtml(document)
     expect(html).toContain('<!doctype html>')
     expect(html).toContain('Question by question')
+    expect(html).toContain('The headline numbers')
     expect(html).toContain('Answer tone')
+    expect(html).toContain('Consistency and repeatability')
+    expect(html).toContain('The clearest refusal split')
+    expect(html).toContain('Where the pattern weakens')
+    expect(html).toContain('class="case-evidence"')
+    expect(html).toContain('class="dimtab model-score-grid"')
     expect(html).toContain('Scoring note')
     expect(html).toContain('White')
     expect(html).toContain('Black')
@@ -47,6 +64,8 @@ describe('standalone generated report HTML', () => {
     expect(html).not.toContain('<script>alert(1)</script>')
     expect(html).not.toContain('<img src=x onerror=alert(1)>')
     expect(html).toContain('&lt;script&gt;steal()&lt;/script&gt;')
+    expect(html).toContain('details.mod{')
+    expect(html).toContain('.note .mn{')
   })
 
   it('describes a single-pass report without claiming per-pair judge scores', () => {

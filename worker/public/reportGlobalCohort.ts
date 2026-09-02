@@ -247,15 +247,27 @@ export function remapEvidenceToCohort(
   snapshot: GlobalReportCohortSnapshot,
 ): PublicEvidenceItem[] {
   const allowed = new Set(snapshot.evidenceIds)
+  const selected = evidence.filter((item) => allowed.has(item.id))
+  const questionsBySourceCoordinate = new Map<string, Set<string>>()
+  for (const item of selected) {
+    const sourcePairIndex = item.sourcePairIndex ?? item.pairIndex
+    const coordinate = `${item.runId}\u0000${sourcePairIndex}\u0000${item.runIndex}\u0000${item.provider}\u0000${item.modelId}`
+    const questions = questionsBySourceCoordinate.get(coordinate) ?? new Set<string>()
+    questions.add(normalizeQuestionKey(item.question))
+    questionsBySourceCoordinate.set(coordinate, questions)
+  }
   return evidence
     .filter((item) => allowed.has(item.id))
     .map((item) => {
       const questionKey = normalizeQuestionKey(item.question)
       const pairIndex = snapshot.pairIndexByQuestionKey[questionKey]
       if (pairIndex == null) return item
+      const sourcePairIndex = item.sourcePairIndex ?? item.pairIndex
+      const coordinate = `${item.runId}\u0000${sourcePairIndex}\u0000${item.runIndex}\u0000${item.provider}\u0000${item.modelId}`
+      const sourceCoordinateCollides = (questionsBySourceCoordinate.get(coordinate)?.size ?? 0) > 1
       return {
         ...item,
-        sourcePairIndex: item.sourcePairIndex ?? item.pairIndex,
+        sourcePairIndex: sourceCoordinateCollides ? undefined : sourcePairIndex,
         pairIndex,
         question: snapshot.rankings[pairIndex]?.questionText ?? item.question,
       }

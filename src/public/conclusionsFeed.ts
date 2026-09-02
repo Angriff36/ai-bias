@@ -1,10 +1,9 @@
-import type { GeneratedReportSummary, PublicClaim, PublicLeaderboard } from './contracts'
+import type { ClaimEvaluationStatus, ClaimVerdict, GeneratedReportSummary, PublicClaim, PublicLeaderboard } from './contracts'
 import { PromptPageWindow, type PromptPageSize } from './submittedPromptFeed'
 
-export type ConclusionsSort = 'tests' | 'bias' | 'match' | 'newest'
+export type ConclusionsSort = 'evidence' | 'verdict' | 'confidence' | 'newest'
 export type ConclusionsPageSize = PromptPageSize
 export type ReportTone = 'a' | 'b' | 'c' | 'd'
-export type BiasBand = 'high' | 'med' | 'low'
 
 export const CONCLUSIONS_PAGE_SIZES = [20, 50, 100] as const
 export const DEFAULT_CONCLUSIONS_PAGE_SIZE: ConclusionsPageSize = 20
@@ -30,10 +29,10 @@ export interface ConclusionsRowModel {
   text: string
   questionKeys: string[]
   models: string[]
-  testCount: number
-  matchRate: number | null
-  biasScore: number | null
-  biasBand: BiasBand | null
+  evidenceCount: number
+  evaluationStatus: ClaimEvaluationStatus
+  verdict: ClaimVerdict | null
+  confidence: number | null
   isNew: boolean
   reports: ConclusionsReportRef[]
   lastSeenAt: string
@@ -78,22 +77,13 @@ export class ReportCodeBook {
   }
 }
 
-export class BiasBandScale {
-  static from(score: number | null): BiasBand | null {
-    if (score == null) return null
-    if (score >= 0.6) return 'high'
-    if (score >= 0.3) return 'med'
-    return 'low'
-  }
-}
-
 export class ConclusionsFeedBuilder {
   constructor(private readonly now = () => Date.now()) {}
 
   build(data: PublicLeaderboard, reports: GeneratedReportSummary[], claims: PublicClaim[]): ConclusionsFeed {
     const complete = reports.filter((report) => report.status === 'complete')
     const codes = new ReportCodeBook(complete)
-    const rows = this.sort(claims.map((claim) => this.row(claim, codes)), 'tests')
+    const rows = this.sort(claims.map((claim) => this.row(claim, codes)), 'evidence')
     return {
       rows,
       reports: this.reportCards(complete, codes),
@@ -110,10 +100,10 @@ export class ConclusionsFeedBuilder {
   sort(rows: ConclusionsRowModel[], sort: ConclusionsSort): ConclusionsRowModel[] {
     const ranked = [...rows]
     ranked.sort((left, right) => {
-      if (sort === 'bias') return (right.biasScore ?? -1) - (left.biasScore ?? -1)
-      if (sort === 'match') return (right.matchRate ?? -1) - (left.matchRate ?? -1)
+      if (sort === 'verdict') return verdictRank(right.verdict) - verdictRank(left.verdict)
+      if (sort === 'confidence') return (right.confidence ?? -1) - (left.confidence ?? -1)
       if (sort === 'newest') return right.lastSeenAt.localeCompare(left.lastSeenAt)
-      return right.testCount - left.testCount
+      return right.evidenceCount - left.evidenceCount
     })
     return ranked.map((row, index) => ({ ...row, rank: index + 1 }))
   }
@@ -130,10 +120,10 @@ export class ConclusionsFeedBuilder {
       text: claim.text,
       questionKeys: claim.questionKeys,
       models: claim.models.slice(0, 3),
-      testCount: claim.testCount,
-      matchRate: claim.matchRate,
-      biasScore: claim.biasScore,
-      biasBand: BiasBandScale.from(claim.biasScore),
+      evidenceCount: claim.coverage.judgedPairs,
+      evaluationStatus: claim.evaluationStatus,
+      verdict: claim.verdict,
+      confidence: claim.confidence,
       isNew: Number.isFinite(seen) && this.now() - seen <= NEW_WINDOW_MS,
       reports: claim.reports.flatMap((report) => {
         const ref = codes.refFor(report.id)
@@ -166,6 +156,15 @@ export class ConclusionsFeedBuilder {
     ].filter(Boolean)
     return times.sort((left, right) => right.localeCompare(left))[0] ?? null
   }
+}
+
+function verdictRank(verdict: ClaimVerdict | null): number {
+  if (verdict === 'supported') return 5
+  if (verdict === 'partially_supported') return 4
+  if (verdict === 'not_supported') return 3
+  if (verdict === 'contradicted') return 2
+  if (verdict === 'insufficient_evidence') return 1
+  return 0
 }
 
 function monthLabel(iso: string): string {

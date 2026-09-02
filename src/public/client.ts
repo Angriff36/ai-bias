@@ -8,6 +8,8 @@ import {
   publicClaimSchema,
   publicLeaderboardSchema,
   publicQuestionDetailSchema,
+  publicQuestionProposalListSchema,
+  publicQuestionProposalSchema,
   publishResultSchema,
   type FreeRunRequest,
   type FreeRunResponse,
@@ -16,6 +18,8 @@ import {
   type PublicClaimRequest,
   type PublicLeaderboard,
   type PublicQuestionDetail,
+  type PublicQuestionProposal,
+  type PublicQuestionProposalRequest,
 } from './contracts'
 import { invalidatePublicCache, readPublicCache, writePublicCache } from './publicApiCache'
 import { PublicSubmissionChunks, truncateForPublication } from './publishChunks'
@@ -90,6 +94,25 @@ export async function getPublicQuestionDetail(questionKey: string, fetcher: Fetc
   return detail
 }
 
+export async function listQuestionProposals(status: 'unanswered' | 'answered' = 'unanswered', fetcher: Fetcher = fetch): Promise<PublicQuestionProposal[]> {
+  const cacheKey = `question-proposals:${status}`
+  const cached = readPublicCache<PublicQuestionProposal[]>(cacheKey)
+  if (cached?.status === 'fresh') return cached.data
+  const response = await fetcher(`/api/public/question-proposals?status=${status}`, { credentials: 'same-origin' })
+  const proposals = publicQuestionProposalListSchema.parse(await responseJson(response)).proposals
+  writePublicCache(cacheKey, proposals)
+  return proposals
+}
+
+export async function createQuestionProposal(input: PublicQuestionProposalRequest, fetcher: Fetcher = fetch): Promise<PublicQuestionProposal> {
+  const response = await fetcher('/api/public/question-proposals', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input), credentials: 'same-origin',
+  })
+  const body = await responseJson(response) as { proposal?: unknown }
+  invalidatePublicCache('question-proposals:')
+  return publicQuestionProposalSchema.parse(body.proposal)
+}
+
 export async function listGeneratedReports(fetcher: Fetcher = fetch): Promise<GeneratedReportSummary[]> {
   const cached = readPublicCache<GeneratedReportSummary[]>('reports')
   if (cached?.status === 'fresh') return cached.data
@@ -111,13 +134,6 @@ export async function requestQuestionSetReport(questionKeys: string[], fetcher: 
   const response = await fetcher('/api/public/reports', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ questionKeys }), credentials: 'same-origin',
   })
-  invalidatePublicCache('reports')
-  return generatedReportStateSchema.parse(await responseJson(response)).report
-}
-
-/** Run the next generation step of a pending report. Returns the report state; call again while it is pending. */
-export async function continueReportGeneration(reportId: string, fetcher: Fetcher = fetch): Promise<GeneratedReportSummary> {
-  const response = await fetcher(`/api/public/reports/${encodeURIComponent(reportId)}/generate`, { method: 'POST', credentials: 'same-origin' })
   invalidatePublicCache('reports')
   return generatedReportStateSchema.parse(await responseJson(response)).report
 }

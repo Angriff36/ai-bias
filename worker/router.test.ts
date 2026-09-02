@@ -39,6 +39,19 @@ describe('routeWorkerRequest', () => {
     expect(env.ASSETS.fetch).toHaveBeenCalledOnce()
   })
 
+  it('lets browsers keep fingerprinted build assets without revalidating them', async () => {
+    const env = envWith(new Response('compiled javascript', {
+      headers: { 'Cache-Control': 'public, max-age=0, must-revalidate' },
+    }))
+
+    const response = await routeWorkerRequest(
+      new Request('https://example.test/assets/index-B8F3dFAW.js'),
+      env,
+    )
+
+    expect(response.headers.get('Cache-Control')).toBe('public, max-age=31536000, immutable')
+  })
+
   it('serves a curated historical report at its public report permalink with publication-only security policy', async () => {
     const env = envWith(new Response('<h1>What changes when you change the race?</h1>', {
       headers: { 'Content-Type': 'text/html; charset=utf-8' },

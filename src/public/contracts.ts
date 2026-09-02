@@ -40,6 +40,48 @@ export type PublicEvidenceInput = z.infer<typeof publicEvidenceInputSchema>
 export type PublicSubmission = z.infer<typeof publicSubmissionSchema>
 export type FreeRunRequest = z.infer<typeof freeRunRequestSchema>
 
+export const publicQuestionProposalPairSchema = z.object({
+  id: z.string().trim().min(1).max(200),
+  question: z.string().trim().min(1).max(1_000),
+  variantA: z.object({
+    label: z.string().trim().min(1).max(200),
+    prompt: z.string().trim().min(1).max(4_000),
+  }).strict(),
+  variantB: z.object({
+    label: z.string().trim().min(1).max(200),
+    prompt: z.string().trim().min(1).max(4_000),
+  }).strict(),
+}).strict().superRefine((pair, ctx) => {
+  if (pair.variantA.prompt === pair.variantB.prompt) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['variantB', 'prompt'], message: 'The compared prompts must differ.' })
+  }
+})
+
+export const publicQuestionProposalRequestSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  description: z.string().trim().max(2_000).default(''),
+  samplingMode: z.enum(['shared-anchor', 'independent-pairs']),
+  pairs: z.array(publicQuestionProposalPairSchema).min(1).max(20),
+}).strict().superRefine((proposal, ctx) => {
+  const first = proposal.pairs[0]?.question.trim().toLowerCase().replace(/\s+/g, ' ')
+  if (proposal.pairs.some((pair) => pair.question.trim().toLowerCase().replace(/\s+/g, ' ') !== first)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['pairs'], message: 'Every comparison must belong to the same question.' })
+  }
+})
+
+export type PublicQuestionProposalPair = z.infer<typeof publicQuestionProposalPairSchema>
+export type PublicQuestionProposalRequest = z.infer<typeof publicQuestionProposalRequestSchema>
+
+export interface PublicQuestionProposal extends PublicQuestionProposalRequest {
+  id: string
+  questionKey: string
+  questionText: string
+  status: 'unanswered' | 'answered'
+  createdAt: string
+  answeredAt: string | null
+  firstRunId: string | null
+}
+
 export interface PublicModelAggregate {
   provider: string
   modelId: string
@@ -171,6 +213,15 @@ export interface FreeRunResponse {
   dailyRemaining: number
 }
 
+export const reportEditorialSectionSchema = z.object({
+  kind: z.enum(['finding', 'case-study', 'counterexample', 'consistency', 'safety']),
+  heading: z.string().min(1).max(240),
+  paragraphs: z.array(z.string().min(1).max(3_000)).min(1).max(6),
+  pairSampleIds: z.array(z.string().min(1).max(500)).max(8).optional(),
+}).strict()
+
+export type ReportEditorialSection = z.infer<typeof reportEditorialSectionSchema>
+
 export const reportNarrativeSchema = z.object({
   title: z.string().min(1).max(180),
   subtitle: z.string().min(1).max(400),
@@ -178,6 +229,7 @@ export const reportNarrativeSchema = z.object({
   keyFindings: z.array(z.string().min(1).max(1_500)).min(1).max(10),
   methodology: z.string().min(1).max(5_000),
   limitations: z.array(z.string().min(1).max(1_500)).min(1).max(10),
+  sections: z.array(reportEditorialSectionSchema).min(1).max(12).optional(),
 }).strict()
 
 export type ReportNarrative = z.infer<typeof reportNarrativeSchema>
@@ -237,8 +289,8 @@ export interface GeneratedReportSummary {
   modelCount: number
   createdAt: string
   completedAt: string | null
-  /** For a report still being made: how many answer pairs the judge has scored so far. */
-  progress?: { scoredPairs: number; expectedPairs: number }
+  /** For a report still being made: how many question-model analyses are complete. */
+  progress?: { completedAnalyses: number; expectedAnalyses: number }
   /** Why a stopped report stopped, when the server recorded a reason. */
   errorCode?: string | null
 }
@@ -263,7 +315,7 @@ export const generatedReportSummarySchema: z.ZodType<GeneratedReportSummary> = z
   id: z.string(), scope: z.enum(['run', 'global']), status: z.enum(['pending', 'complete', 'failed']),
   title: z.string().nullable(), responseCount: z.number().int().min(0), completePairs: z.number().int().min(0),
   modelCount: z.number().int().min(0), createdAt: z.string(), completedAt: z.string().nullable(),
-  progress: z.object({ scoredPairs: z.number().int().min(0), expectedPairs: z.number().int().min(0) }).optional(),
+  progress: z.object({ completedAnalyses: z.number().int().min(0), expectedAnalyses: z.number().int().min(0) }).optional(),
   errorCode: z.string().nullable().optional(),
 })
 
@@ -305,6 +357,54 @@ export interface PublicClaimReportRef {
   title: string | null
 }
 
+export const claimVerdicts = ['supported', 'partially_supported', 'not_supported', 'contradicted', 'insufficient_evidence'] as const
+export type ClaimVerdict = typeof claimVerdicts[number]
+export type ClaimEvaluationStatus = 'pending' | 'complete' | 'failed'
+
+export interface ClaimFindingModelEvidence {
+  model: string
+  direction: string
+  relationship: 'supports' | 'counterexample' | 'neutral'
+  pairCount: number
+  evidenceIds: string[]
+}
+
+export interface ClaimFinding {
+  questionKey: string
+  question: string
+  direction: string
+  explanation: string
+  judgedPairCount: number
+  evidenceIds: string[]
+  modelEvidence: ClaimFindingModelEvidence[]
+}
+
+export interface ClaimModelFinding {
+  model: string
+  verdict: ClaimVerdict
+  explanation: string
+  supportingPairCount: number
+  counterPairCount: number
+}
+
+export interface ClaimCoverage {
+  selectedQuestions: number
+  questionsWithJudgedEvidence: number
+  models: number
+  judgedPairs: number
+}
+
+export interface ClaimAdjudication {
+  verdict: ClaimVerdict
+  confidence: number
+  answer: string
+  reasoning: string
+  supportingFindings: ClaimFinding[]
+  counterFindings: ClaimFinding[]
+  modelFindings: ClaimModelFinding[]
+  coverage: ClaimCoverage
+}
+
 /** A person-written claim about the AI, with its answer computed from the evidence. */
 export interface PublicClaim {
   id: string
@@ -315,12 +415,65 @@ export interface PublicClaim {
   testCount: number
   /** Share of studied answers that were real answers (not refusals, errors, or empty). 0-100. */
   matchRate: number | null
-  /** The judge model's verdict: mean 0–1 gap between the two sides of every judged pair on the seven report dimensions. Null until a report has scored the questions. */
+  /** Legacy mean absolute disparity, retained only for compatibility and diagnostics. It is not the claim verdict. */
   biasScore: number | null
+  /** Internal disparity diagnostic retained for backward compatibility; the claim answer is the adjudication below. */
+  evaluationStatus: ClaimEvaluationStatus
+  verdict: ClaimVerdict | null
+  confidence: number | null
+  answer: string | null
+  reasoning: string | null
+  supportingFindings: ClaimFinding[]
+  counterFindings: ClaimFinding[]
+  modelFindings: ClaimModelFinding[]
+  coverage: ClaimCoverage
+  evaluatedAt: string | null
   models: string[]
   lastSeenAt: string | null
   reports: PublicClaimReportRef[]
 }
+
+const claimVerdictSchema = z.enum(claimVerdicts)
+const claimFindingModelEvidenceSchema = z.object({
+  model: z.string(),
+  direction: z.string(),
+  relationship: z.enum(['supports', 'counterexample', 'neutral']),
+  pairCount: z.number().int().min(1),
+  evidenceIds: z.array(z.string()).min(2),
+}).strict()
+const claimFindingSchema = z.object({
+  questionKey: z.string(),
+  question: z.string(),
+  direction: z.string(),
+  explanation: z.string(),
+  judgedPairCount: z.number().int().min(1),
+  evidenceIds: z.array(z.string()).min(2),
+  modelEvidence: z.array(claimFindingModelEvidenceSchema).min(1),
+}).strict()
+const claimModelFindingSchema = z.object({
+  model: z.string(),
+  verdict: claimVerdictSchema,
+  explanation: z.string(),
+  supportingPairCount: z.number().int().min(0),
+  counterPairCount: z.number().int().min(0),
+}).strict()
+const claimCoverageSchema = z.object({
+  selectedQuestions: z.number().int().min(0),
+  questionsWithJudgedEvidence: z.number().int().min(0),
+  models: z.number().int().min(0),
+  judgedPairs: z.number().int().min(0),
+}).strict()
+
+export const claimAdjudicationSchema: z.ZodType<ClaimAdjudication> = z.object({
+  verdict: claimVerdictSchema,
+  confidence: z.number().int().min(0).max(100),
+  answer: z.string().min(1).max(1_500),
+  reasoning: z.string().min(1).max(4_000),
+  supportingFindings: z.array(claimFindingSchema).max(12),
+  counterFindings: z.array(claimFindingSchema).max(12),
+  modelFindings: z.array(claimModelFindingSchema).max(100),
+  coverage: claimCoverageSchema,
+}).strict()
 
 export const publicClaimSchema: z.ZodType<PublicClaim> = z.object({
   id: z.string(),
@@ -330,12 +483,38 @@ export const publicClaimSchema: z.ZodType<PublicClaim> = z.object({
   testCount: z.number().int().min(0),
   matchRate: z.number().min(0).max(100).nullable(),
   biasScore: z.number().min(0).max(1).nullable(),
+  evaluationStatus: z.enum(['pending', 'complete', 'failed']),
+  verdict: claimVerdictSchema.nullable(),
+  confidence: z.number().int().min(0).max(100).nullable(),
+  answer: z.string().nullable(),
+  reasoning: z.string().nullable(),
+  supportingFindings: z.array(claimFindingSchema),
+  counterFindings: z.array(claimFindingSchema),
+  modelFindings: z.array(claimModelFindingSchema),
+  coverage: claimCoverageSchema,
+  evaluatedAt: z.string().nullable(),
   models: z.array(z.string()),
   lastSeenAt: z.string().nullable(),
   reports: z.array(z.object({ id: z.string(), title: z.string().nullable() })),
 })
 
 export const publicClaimListSchema = z.object({ claims: z.array(publicClaimSchema) })
+
+export const publicQuestionProposalSchema: z.ZodType<PublicQuestionProposal> = z.object({
+  name: z.string(),
+  description: z.string(),
+  samplingMode: z.enum(['shared-anchor', 'independent-pairs']),
+  pairs: z.array(publicQuestionProposalPairSchema),
+  id: z.string().min(1),
+  questionKey: z.string().min(1),
+  questionText: z.string().min(1),
+  status: z.enum(['unanswered', 'answered']),
+  createdAt: z.string().min(1),
+  answeredAt: z.string().nullable(),
+  firstRunId: z.string().nullable(),
+})
+
+export const publicQuestionProposalListSchema = z.object({ proposals: z.array(publicQuestionProposalSchema) })
 
 export const publicClaimRequestSchema = z.object({
   text: z.string().trim().min(12).max(300),

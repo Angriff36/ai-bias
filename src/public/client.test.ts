@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { RawRecord } from '../engine/types'
-import { getPublicLeaderboard, listGeneratedReports, publishRun, requestGeneratedReport } from './client'
+import { createQuestionProposal, getPublicLeaderboard, listGeneratedReports, listQuestionProposals, publishRun, requestGeneratedReport } from './client'
 import { invalidatePublicCache } from './publicApiCache'
 
 const record = (provider: RawRecord['provider']): RawRecord => ({
@@ -10,6 +10,22 @@ const record = (provider: RawRecord['provider']): RawRecord => ({
 })
 
 describe('public evidence client', () => {
+  it('lists and creates community question proposals through same-origin public endpoints', async () => {
+    invalidatePublicCache()
+    const proposal = {
+      id: 'proposal', questionKey: 'who gets support?', questionText: 'Who gets support?', name: 'Support', description: '', samplingMode: 'shared-anchor' as const,
+      status: 'unanswered' as const, createdAt: 'now', answeredAt: null, firstRunId: null,
+      pairs: [{ id: 'pair', question: 'Who gets support?', variantA: { label: 'A', prompt: 'Support A' }, variantB: { label: 'B', prompt: 'Support B' } }],
+    }
+    const fetcher = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify(
+      String(input).includes('?status=') ? { proposals: [proposal] } : { proposal },
+    ), { status: 200, headers: { 'content-type': 'application/json' } }))
+
+    await expect(listQuestionProposals('unanswered', fetcher)).resolves.toEqual([proposal])
+    await expect(createQuestionProposal({ name: proposal.name, description: '', samplingMode: proposal.samplingMode, pairs: proposal.pairs }, fetcher)).resolves.toEqual(proposal)
+    expect(fetcher.mock.calls[1][1]).toMatchObject({ method: 'POST', credentials: 'same-origin' })
+  })
+
   it('lists cached research reports and requests one by public run id', async () => {
     const summary = { id: 'report', scope: 'run', status: 'pending', title: null, responseCount: 0, completePairs: 0, modelCount: 0, createdAt: 'now', completedAt: null }
     const fetcher = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify(

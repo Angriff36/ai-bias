@@ -1,21 +1,17 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { api } from './api'
-import { continueReportGeneration, getPublicLeaderboard, listGeneratedReports } from './public/client'
-import type { GeneratedReportSummary } from './public/contracts'
-import { readPublicCache } from './public/publicApiCache'
-import { EmptyState, SkeletonRows } from './components/EmptyState'
-import { ExperimentHistoryList } from './components/ExperimentHistoryList'
-import { ExperimentEditor } from './components/ExperimentEditor'
-import { ReportDetailView } from './components/ReportDetailView'
-import { ProvidersPanel } from './components/ProvidersPanel'
-import { TemplateLibrary } from './components/TemplateLibrary'
-import { ObservationsPanel } from './components/ObservationsPanel'
-import { completeOpenRouterOAuth } from './openrouter/oauth'
-import { ConclusionsPage } from './public/ConclusionsPage'
-import { ClaimDetailPage } from './public/ClaimDetailPage'
-import { AboutPage } from './components/AboutPage'
-import { LeaderboardPage } from './public/LeaderboardPage'
-import { QuestionDetailPage } from './public/QuestionDetailPage'
+import { lazy, Suspense, useEffect, useState } from 'react'
+
+const ExperimentHistoryList = lazy(async () => ({ default: (await import('./components/ExperimentHistoryList')).ExperimentHistoryList }))
+const ExperimentEditor = lazy(async () => ({ default: (await import('./components/ExperimentEditor')).ExperimentEditor }))
+const ReportDetailView = lazy(async () => ({ default: (await import('./components/ReportDetailView')).ReportDetailView }))
+const ProvidersPanel = lazy(async () => ({ default: (await import('./components/ProvidersPanel')).ProvidersPanel }))
+const TemplateLibrary = lazy(async () => ({ default: (await import('./components/TemplateLibrary')).TemplateLibrary }))
+const ObservationsPanel = lazy(async () => ({ default: (await import('./components/ObservationsPanel')).ObservationsPanel }))
+const ConclusionsPage = lazy(async () => ({ default: (await import('./public/ConclusionsPage')).ConclusionsPage }))
+const ClaimDetailPage = lazy(async () => ({ default: (await import('./public/ClaimDetailPage')).ClaimDetailPage }))
+const AboutPage = lazy(async () => ({ default: (await import('./components/AboutPage')).AboutPage }))
+const LeaderboardPage = lazy(async () => ({ default: (await import('./public/LeaderboardPage')).LeaderboardPage }))
+const QuestionDetailPage = lazy(async () => ({ default: (await import('./public/QuestionDetailPage')).QuestionDetailPage }))
+const ReportsPage = lazy(async () => ({ default: (await import('./public/ReportsPage')).ReportsPage }))
 
 type ServerState =
   | { phase: 'connecting' }
@@ -25,6 +21,7 @@ type ServerState =
 type Tab = 'experiments' | 'leaderboard' | 'conclusions' | 'templates' | 'observations' | 'targets' | 'reports' | 'about'
 
 const TABS: Tab[] = ['experiments', 'leaderboard', 'conclusions', 'templates', 'observations', 'targets', 'reports', 'about']
+const PUBLIC_TABS = new Set<Tab>(['leaderboard', 'conclusions', 'reports', 'about'])
 
 /** A prompt handed from the template library to the new-experiment wizard. */
 export const PENDING_PROMPT_KEY = 'ai-bias-pending-prompt'
@@ -36,15 +33,24 @@ function tabFromHash(hash = window.location.hash): Tab {
 }
 
 export default function App() {
-  const [state, setState] = useState<ServerState>({ phase: 'connecting' })
+  const [state, setState] = useState<ServerState>(() => (
+    PUBLIC_TABS.has(tabFromHash()) && !new URL(window.location.href).searchParams.has('code')
+      ? { phase: 'ready' }
+      : { phase: 'connecting' }
+  ))
   const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
     let cancelled = false
+    if (PUBLIC_TABS.has(tabFromHash()) && !new URL(window.location.href).searchParams.has('code')) {
+      setState({ phase: 'ready' })
+      return () => { cancelled = true }
+    }
     setState({ phase: 'connecting' })
     const openWorkspace = async () => {
       if (new URL(window.location.href).searchParams.has('code')) {
         try {
+          const { completeOpenRouterOAuth } = await import('./openrouter/oauth')
           const result = await completeOpenRouterOAuth({ callbackUrl: window.location.href })
           const cleanUrl = new URL(window.location.href)
           cleanUrl.searchParams.delete('code')
@@ -58,6 +64,7 @@ export default function App() {
           throw error
         }
       }
+      const { api } = await import('./api')
       await api.health()
       if (!cancelled) setState({ phase: 'ready' })
     }
@@ -93,7 +100,7 @@ export default function App() {
             <button
               className="secondary danger-outline"
               onClick={() => {
-                void api.resetDatabase().then(() => setAttempt((n) => n + 1))
+                void import('./api').then(({ api }) => api.resetDatabase()).then(() => setAttempt((n) => n + 1))
               }}
             >
               Reset local workspace
@@ -114,9 +121,6 @@ function MainApp() {
 
   useEffect(() => {
     document.title = 'AI Bias Lab'
-    if (!readPublicCache('leaderboard')) {
-      void getPublicLeaderboard().catch(() => {})
-    }
     const readCloneToast = () => {
       const message = sessionStorage.getItem('ai-bias-clone-toast')
       if (message) {
@@ -169,21 +173,23 @@ function MainApp() {
         ))}
       </nav>
       {toast && <div className="toast" role="status" aria-live="polite"><span>{toast}</span><button aria-label="Dismiss notification" onClick={() => setToast(null)}>×</button></div>}
-      {tab === 'experiments' && <ExperimentRoute />}
-      {tab === 'leaderboard' && <LeaderboardRoute />}
-      {tab === 'conclusions' && <ConclusionsRoute />}
-      {tab === 'templates' && (
-        <TemplateLibrary
-          onUsePrompt={(prompt, name) => {
-            sessionStorage.setItem(PENDING_PROMPT_KEY, JSON.stringify({ prompt, name }))
-            selectTab('experiments')
-          }}
-        />
-      )}
-      {tab === 'observations' && <ObservationsPanel />}
-      {tab === 'targets' && <ProvidersPanel />}
-      {tab === 'reports' && <ReportsRoute />}
-      {tab === 'about' && <AboutPage />}
+      <Suspense fallback={<div className="banner info" role="status"><div className="spinner" aria-hidden="true" /><span>Loading section…</span></div>}>
+        {tab === 'experiments' && <ExperimentRoute />}
+        {tab === 'leaderboard' && <LeaderboardRoute />}
+        {tab === 'conclusions' && <ConclusionsRoute />}
+        {tab === 'templates' && (
+          <TemplateLibrary
+            onUsePrompt={(prompt, name) => {
+              sessionStorage.setItem(PENDING_PROMPT_KEY, JSON.stringify({ prompt, name }))
+              selectTab('experiments')
+            }}
+          />
+        )}
+        {tab === 'observations' && <ObservationsPanel />}
+        {tab === 'targets' && <ProvidersPanel />}
+        {tab === 'reports' && <ReportsRoute />}
+        {tab === 'about' && <AboutPage />}
+      </Suspense>
     </div>
   )
 }
@@ -207,156 +213,5 @@ function ExperimentRoute() {
 
 function ReportsRoute() {
   const match = window.location.hash.match(/^#\/reports\/(\d+)$/)
-  return match ? <ReportDetailView reportId={Number(match[1])} /> : <ReportsList />
-}
-
-/** A pending report advances one step per call; while this tab is open the browser drives it. */
-const REPORT_STEP_INTERVAL_MS = 50_000
-
-function reportProgressLabel(r: GeneratedReportSummary): string {
-  const scored = r.progress ? `${r.progress.scoredPairs} of ${r.progress.expectedPairs} answer pairs scored` : null
-  if (r.status === 'failed') return `stopped${r.errorCode ? ` (${r.errorCode})` : ''}${scored ? ` · ${scored}` : ''}`
-  if (r.progress && r.progress.scoredPairs >= r.progress.expectedPairs && r.progress.expectedPairs > 0) return 'all pairs scored · writing the report'
-  return scored ? `scoring · ${scored}` : 'generating'
-}
-
-function ReportsList() {
-  const [reports, setReports] = useState<GeneratedReportSummary[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [stepping, setStepping] = useState<string | null>(null)
-  const lastStepAt = useRef(new Map<string, number>())
-  const stepsInFlight = useRef(new Set<string>())
-
-  const reload = useCallback(() => listGeneratedReports()
-    .then((list) => setReports(list))
-    .catch((e: unknown) => setError(e instanceof Error ? e.message : 'The reports could not be loaded.')), [])
-
-  useEffect(() => { void reload() }, [reload])
-
-  const pending = (reports ?? []).filter((r) => r.status === 'pending')
-  const pendingIds = pending.map((r) => r.id).join(',')
-
-  const step = useCallback(async (reportId: string) => {
-    setStepping(reportId)
-    try {
-      await continueReportGeneration(reportId)
-      await reload()
-    } catch (e: unknown) {
-      // A 404 here means the report finished between steps; the fresh list shows it.
-      if ((e as { statusCode?: number }).statusCode === 404) { await reload(); return }
-      setError(e instanceof Error ? e.message : 'The report could not continue.')
-    } finally {
-      setStepping(null)
-    }
-  }, [reload])
-
-  const attemptStep = useCallback(async (reportId: string, force = false) => {
-    if (stepsInFlight.current.has(reportId)) return
-    const now = Date.now()
-    const lastAttempt = lastStepAt.current.get(reportId)
-    if (!force && lastAttempt != null && now - lastAttempt < REPORT_STEP_INTERVAL_MS) return
-    lastStepAt.current.set(reportId, now)
-    stepsInFlight.current.add(reportId)
-    try {
-      await step(reportId)
-    } finally {
-      stepsInFlight.current.delete(reportId)
-    }
-  }, [step])
-
-  useEffect(() => {
-    if (!pendingIds) return
-    // Step at once when the page opens, then wait beyond the worker's 45-second lease.
-    for (const id of pendingIds.split(',')) void attemptStep(id)
-    const timer = window.setInterval(() => {
-      for (const id of pendingIds.split(',')) void attemptStep(id)
-    }, REPORT_STEP_INTERVAL_MS)
-    return () => window.clearInterval(timer)
-  }, [attemptStep, pendingIds])
-
-  const header = (
-    <div className="page-header">
-      <div>
-        <p className="eyebrow">Evidence</p>
-        <h2>Reports</h2>
-        <p className="lead">Every published research report, the same in every browser.</p>
-      </div>
-    </div>
-  )
-  if (error) {
-    return (
-      <section className="report-list">
-        {header}
-        <div className="banner error" role="alert"><span>{error}</span></div>
-      </section>
-    )
-  }
-  if (reports === null) {
-    return (
-      <section className="report-list">
-        {header}
-        <table>
-          <caption>Reports</caption>
-          <thead><tr><th scope="col">Title</th><th scope="col">Published</th></tr></thead>
-          <tbody><SkeletonRows columns={2} /></tbody>
-        </table>
-      </section>
-    )
-  }
-  const published = reports
-    .filter((r) => r.status === 'complete')
-    .sort((a, b) => (b.completedAt ?? b.createdAt).localeCompare(a.completedAt ?? a.createdAt))
-  const inProgress = reports.filter((r) => r.status !== 'complete')
-  const progress = inProgress.length > 0 && (
-    <section className="report-progress" aria-labelledby="report-progress-title">
-      <h3 id="report-progress-title">In progress</h3>
-      <p className="muted">A report advances one step at a time while this page is open. You can also press Continue.</p>
-      <ul className="claim-question-list">
-        {inProgress.map((r) => (
-          <li key={r.id}>
-            <span>{r.title ?? 'Report'} · {reportProgressLabel(r)} · started {new Date(r.createdAt).toLocaleString()}</span>
-            {' '}
-            <button type="button" className="secondary" disabled={stepping === r.id} onClick={() => { void attemptStep(r.id, true) }}>
-              {stepping === r.id ? 'Working…' : r.status === 'failed' ? 'Retry' : 'Continue'}
-            </button>
-          </li>
-        ))}
-      </ul>
-    </section>
-  )
-  if (published.length === 0) {
-    return (
-      <section className="report-list">
-        {header}
-        {progress}
-        <EmptyState
-          heading="No reports published yet"
-          body="Open Top Questions, select the questions to study, and choose Generate report from selected."
-          actionLabel="Go to Top Questions"
-          onAction={() => { window.location.hash = '#/leaderboard' }}
-        />
-      </section>
-    )
-  }
-  return (
-    <section className="report-list">
-      {header}
-      {progress}
-      <table>
-        <caption>Reports</caption>
-        <thead><tr><th scope="col">Title</th><th scope="col">Published</th></tr></thead>
-        <tbody>
-          {published.map((r) => (
-            <tr key={r.id}>
-              <td>
-                <a className="report-link" href={`/api/public/reports/${r.id}.html`}>{r.title ?? 'Untitled research report'}</a>
-                <span className="muted"> {r.responseCount.toLocaleString()} responses · {r.modelCount.toLocaleString()} {r.modelCount === 1 ? 'model' : 'models'}</span>
-              </td>
-              <td>{new Date(r.completedAt ?? r.createdAt).toLocaleDateString()}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </section>
-  )
+  return match ? <ReportDetailView reportId={Number(match[1])} /> : <ReportsPage />
 }

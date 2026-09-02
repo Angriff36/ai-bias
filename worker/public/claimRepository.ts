@@ -1,5 +1,11 @@
-import type { GeneratedReportPairScore, PublicClaim, PublicEvidenceItem } from '../../src/public/contracts'
+import type { ClaimAdjudication, GeneratedReportPairScore, PublicClaim, PublicEvidenceItem } from '../../src/public/contracts'
+import { claimAdjudicationSchema } from '../../src/public/contracts'
 import { normalizeQuestionKey } from '../../src/public/questionKeys'
+import {
+  adjudicateClaim,
+  buildClaimEvidenceSummary,
+  type ClaimEvaluationModel,
+} from './claimAdjudication'
 import type { D1DatabaseLike } from './d1'
 import { indexEvidenceByQuestionKey } from './questionLeaderboard'
 import { readCachedClaims, writeCachedClaims } from './readCache'
@@ -8,9 +14,9 @@ import { REPORT_DIMENSIONS } from './reportDimensions'
 const n = (value: unknown) => Number(value ?? 0)
 const s = (value: unknown) => String(value ?? '')
 
-// No response text: the claim answer needs only prompts, classes, and pair identity.
 const evidenceSelect = `SELECT id, run_id, pair_index, run_index, question, variant_key, variant_label,
-  provider, model_id, prompt, status, classification, received_at
+  provider, model_id, prompt, response, latency_ms, status_code, status, error_message, truncated,
+  evidence_sha256, classification, received_at
   FROM public_evidence`
 
 const DAILY_CLAIM_LIMIT = 200
@@ -81,38 +87,191 @@ export type ClaimCreateResult =
   | { kind: 'created' | 'duplicate'; claim: PublicClaim }
   | { kind: 'limited' }
 
-export class ClaimRepository {
-  constructor(private readonly db: D1DatabaseLike) {}
+export interface ClaimListOptions {
+  deferEvaluation?: (run: () => Promise<void>) => void
+}
 
-  async list(): Promise<PublicClaim[]> {
+const EVALUATION_LEASE_MS = 2 * 60_000
+
+export class ClaimRepository {
+  constructor(
+    private readonly db: D1DatabaseLike,
+    private readonly evaluator?: ClaimEvaluationModel,
+  ) {}
+
+  async list(options: ClaimListOptions = {}): Promise<PublicClaim[]> {
     const cached = readCachedClaims()
     if (cached) return cached
-    const rows = (await this.db.prepare('SELECT id, text, question_keys_json, created_at FROM claims ORDER BY created_at DESC').all()).results ?? []
+    const rows = (await this.db.prepare(`SELECT id, text, question_keys_json, created_at,
+      adjudication_json, evidence_fingerprint, evaluated_at, evaluation_status, evaluation_error
+      FROM claims ORDER BY created_at DESC`).all()).results ?? []
     if (rows.length === 0) {
       writeCachedClaims([])
       return []
     }
+    const reports = await this.completeReportKeys()
+    const revision = await this.evidenceRevision()
+    const persisted = rows.map((row) => this.persistedClaim(row, reports))
+    if (persisted.every((claim): claim is PublicClaim => claim != null)
+      && rows.every((row) => s(row.evaluation_status) === 'complete' && s(row.evaluated_at) >= revision)) {
+      writeCachedClaims(persisted)
+      return persisted
+    }
     const evidence = ((await this.db.prepare(`${evidenceSelect} ORDER BY received_at, id`).all()).results ?? []).map(mapEvidenceRow)
     const byKey = indexEvidenceByQuestionKey(evidence)
-    const reports = await this.completeReportKeys()
     const judged = await this.completeReportPairScores()
-    const claims = rows.map((row) => {
+    const claims: PublicClaim[] = []
+    for (const row of rows) {
       const questionKeys = parseKeys(s(row.question_keys_json))
       const scoped = questionKeys.flatMap((key) => byKey.get(key) ?? [])
       const wanted = new Set(questionKeys)
-      return {
+      const adjudication = await this.claimAdjudication(row, s(row.text), questionKeys, evidence, judged, options)
+      claims.push({
         id: s(row.id),
         text: s(row.text),
         questionKeys,
         createdAt: s(row.created_at),
         ...computeClaimAnswer(scoped, judged),
+        ...adjudication,
         reports: reports
           .filter((report) => [...report.keys].some((key) => wanted.has(key)))
           .map((report) => ({ id: report.id, title: report.title })),
-      }
-    })
+      })
+    }
     writeCachedClaims(claims)
     return claims
+  }
+
+  private async evidenceRevision(): Promise<string> {
+    const row = await this.db.prepare(`SELECT MAX(revision) AS evidence_revision FROM (
+      SELECT COALESCE(MAX(received_at), '') AS revision FROM public_evidence
+      UNION ALL
+      SELECT COALESCE(MAX(completed_at), '') AS revision FROM generated_reports WHERE status = 'complete'
+    )`).first<Record<string, unknown>>()
+    return s(row?.evidence_revision)
+  }
+
+  private persistedClaim(row: Record<string, unknown>, reports: ReportKeyRow[]): PublicClaim | null {
+    const adjudication = this.readStoredAdjudication(row)
+    if (!adjudication) return null
+    const questionKeys = parseKeys(s(row.question_keys_json))
+    const wanted = new Set(questionKeys)
+    const evaluatedAt = row.evaluated_at == null ? null : s(row.evaluated_at)
+    return {
+      id: s(row.id),
+      text: s(row.text),
+      questionKeys,
+      createdAt: s(row.created_at),
+      testCount: adjudication.coverage.judgedPairs * 2,
+      matchRate: null,
+      biasScore: null,
+      models: [...new Set(adjudication.modelFindings.map((finding) => shortModelLabel(finding.model)))],
+      lastSeenAt: evaluatedAt,
+      reports: reports
+        .filter((report) => [...report.keys].some((key) => wanted.has(key)))
+        .map((report) => ({ id: report.id, title: report.title })),
+      evaluationStatus: 'complete',
+      ...adjudication,
+      evaluatedAt,
+    }
+  }
+
+  private async claimAdjudication(
+    row: Record<string, unknown>,
+    claimText: string,
+    questionKeys: string[],
+    evidence: PublicEvidenceItem[],
+    judged: GeneratedReportPairScore[],
+    options: ClaimListOptions,
+  ): Promise<Pick<PublicClaim,
+    'evaluationStatus' | 'verdict' | 'confidence' | 'answer' | 'reasoning' | 'supportingFindings'
+    | 'counterFindings' | 'modelFindings' | 'coverage' | 'evaluatedAt'>> {
+    const summary = await buildClaimEvidenceSummary(questionKeys, evidence, judged)
+    const stored = this.readStoredAdjudication(row)
+    if (stored && s(row.evidence_fingerprint) === summary.evidenceFingerprint && s(row.evaluation_status) === 'complete') {
+      return { evaluationStatus: 'complete', ...stored, evaluatedAt: row.evaluated_at == null ? null : s(row.evaluated_at) }
+    }
+    if (!this.evaluator && summary.coverage.judgedPairs > 0) {
+      return this.emptyAdjudication('pending', summary.coverage)
+    }
+    if (options.deferEvaluation) {
+      const evaluatedAt = new Date().toISOString()
+      const samePendingFingerprint = s(row.evaluation_status) === 'pending'
+        && s(row.evidence_fingerprint) === summary.evidenceFingerprint
+        && Date.parse(s(row.evaluated_at)) >= Date.now() - EVALUATION_LEASE_MS
+      if (!samePendingFingerprint) {
+        const staleBefore = new Date(Date.now() - EVALUATION_LEASE_MS).toISOString()
+        const claimed = await this.db.prepare(`UPDATE claims SET evidence_fingerprint = ?, evaluated_at = ?,
+          evaluation_status = 'pending', evaluation_error = NULL WHERE id = ? AND (
+            evidence_fingerprint IS NULL OR evidence_fingerprint <> ? OR evaluation_status = 'failed'
+            OR (evaluation_status = 'pending' AND (evaluated_at IS NULL OR evaluated_at < ?))
+          )`)
+          .bind(summary.evidenceFingerprint, evaluatedAt, s(row.id), summary.evidenceFingerprint, staleBefore).run()
+        if (n(claimed.meta?.changes) === 1) {
+          options.deferEvaluation(async () => { await this.evaluateAndPersist(s(row.id), claimText, summary, evaluatedAt) })
+        }
+      }
+      if (stored) return { evaluationStatus: 'complete', ...stored, evaluatedAt: row.evaluated_at == null ? null : s(row.evaluated_at) }
+      return this.emptyAdjudication('pending', summary.coverage)
+    }
+    return this.evaluateAndPersist(s(row.id), claimText, summary, new Date().toISOString())
+  }
+
+  private async evaluateAndPersist(
+    claimId: string,
+    claimText: string,
+    summary: Awaited<ReturnType<typeof buildClaimEvidenceSummary>>,
+    evaluatedAt: string,
+  ): Promise<Pick<PublicClaim,
+    'evaluationStatus' | 'verdict' | 'confidence' | 'answer' | 'reasoning' | 'supportingFindings'
+    | 'counterFindings' | 'modelFindings' | 'coverage' | 'evaluatedAt'>> {
+    try {
+      const evaluator = this.evaluator ?? { evaluate: async () => { throw new Error('Claim evaluator is unavailable.') } }
+      const adjudication = await adjudicateClaim(claimText, summary, evaluator)
+      await this.db.prepare(`UPDATE claims SET adjudication_json = ?, evidence_fingerprint = ?, evaluated_at = ?,
+        evaluation_status = 'complete', evaluation_error = NULL WHERE id = ?`)
+        .bind(JSON.stringify(adjudication), summary.evidenceFingerprint, evaluatedAt, claimId).run()
+      writeCachedClaims(null)
+      return { evaluationStatus: 'complete', ...adjudication, evaluatedAt }
+    } catch (error) {
+      const message = error instanceof Error ? error.message.slice(0, 500) : 'Claim evaluation failed.'
+      await this.db.prepare(`UPDATE claims SET evidence_fingerprint = ?, evaluated_at = ?,
+        evaluation_status = 'failed', evaluation_error = ? WHERE id = ?`)
+        .bind(summary.evidenceFingerprint, evaluatedAt, message, claimId).run()
+      writeCachedClaims(null)
+      return this.emptyAdjudication('failed', summary.coverage, evaluatedAt)
+    }
+  }
+
+  private readStoredAdjudication(row: Record<string, unknown>): ClaimAdjudication | null {
+    if (!row.adjudication_json) return null
+    try {
+      const parsed = claimAdjudicationSchema.safeParse(JSON.parse(s(row.adjudication_json)))
+      return parsed.success ? parsed.data : null
+    } catch {
+      return null
+    }
+  }
+
+  private emptyAdjudication(
+    evaluationStatus: 'pending' | 'failed',
+    coverage: PublicClaim['coverage'],
+    evaluatedAt: string | null = null,
+  ): Pick<PublicClaim,
+    'evaluationStatus' | 'verdict' | 'confidence' | 'answer' | 'reasoning' | 'supportingFindings'
+    | 'counterFindings' | 'modelFindings' | 'coverage' | 'evaluatedAt'> {
+    return {
+      evaluationStatus,
+      verdict: null,
+      confidence: null,
+      answer: null,
+      reasoning: null,
+      supportingFindings: [],
+      counterFindings: [],
+      modelFindings: [],
+      coverage,
+      evaluatedAt,
+    }
   }
 
   async create(text: string, questionKeys: string[], now: string): Promise<ClaimCreateResult> {
@@ -148,13 +307,22 @@ export class ClaimRepository {
 
   /** Which leaderboard questions each complete report actually used — a real link, not a topic guess. */
   private async completeReportKeys(): Promise<ReportKeyRow[]> {
-    const rows = (await this.db.prepare(`SELECT id, title, question_keys_json, structured_json FROM generated_reports WHERE status='complete'`).all()).results ?? []
+    const rows = (await this.db.prepare(`SELECT id, title, question_keys_json FROM generated_reports WHERE status='complete'`).all()).results ?? []
+    const missingIds = rows.filter((row) => parseKeys(s(row.question_keys_json)).length === 0).map((row) => s(row.id))
+    const legacyDocuments = new Map<string, string>()
+    if (missingIds.length > 0) {
+      const placeholders = missingIds.map(() => '?').join(', ')
+      const legacyRows = (await this.db.prepare(`SELECT id, structured_json FROM generated_reports
+        WHERE status='complete' AND id IN (${placeholders})`).bind(...missingIds).all()).results ?? []
+      for (const row of legacyRows) legacyDocuments.set(s(row.id), s(row.structured_json))
+    }
     return rows.map((row) => {
       const keys = new Set(parseKeys(s(row.question_keys_json)))
-      if (keys.size === 0 && row.structured_json) {
+      const structuredJson = legacyDocuments.get(s(row.id))
+      if (keys.size === 0 && structuredJson) {
         try {
           // Legacy reports stored placeholder questions; derive keys the same way the leaderboard does.
-          const document = JSON.parse(s(row.structured_json)) as { evidence?: PublicEvidenceItem[] }
+          const document = JSON.parse(structuredJson) as { evidence?: PublicEvidenceItem[] }
           for (const key of indexEvidenceByQuestionKey(document.evidence ?? []).keys()) {
             if (key !== '__missing_question__') keys.add(key)
           }

@@ -62,7 +62,7 @@ function parseJsonObject(raw: string): unknown {
   return JSON.parse(text.slice(start, end + 1))
 }
 
-function judgePairPayload(variantA: PublicEvidenceItem, variantB: PublicEvidenceItem) {
+export function judgePairPayload(variantA: PublicEvidenceItem, variantB: PublicEvidenceItem) {
   return {
     pairSampleId: buildPairSampleId(variantA),
     question: variantA.question,
@@ -78,6 +78,28 @@ function judgePairPayload(variantA: PublicEvidenceItem, variantB: PublicEvidence
       response: responseExcerpt(variantB),
     },
   }
+}
+
+export function buildJudgePromptForGroups(groups: PublicEvidenceItem[][]): string {
+  return buildJudgeBatchPrompt(groups.map((group) => {
+    const variantA = group.find((item) => item.variantKey === 'A')!
+    const variantB = group.find((item) => item.variantKey === 'B')!
+    return judgePairPayload(variantA, variantB)
+  }))
+}
+
+export function parseJudgeBatchScores(groups: PublicEvidenceItem[][], raw: string): JudgeCellScore[] {
+  const parsed = judgeBatchSchema.safeParse(parseJsonObject(raw))
+  if (!parsed.success) {
+    throw new Error(`Judge batch invalid: ${parsed.error.issues.map((issue) => issue.message).join('; ')}`)
+  }
+  if (parsed.data.scores.length !== groups.length) {
+    throw new Error(`Judge returned ${parsed.data.scores.length} scores for ${groups.length} cells.`)
+  }
+  return parsed.data.scores.map((score, index) => {
+    const variantA = groups[index]!.find((item) => item.variantKey === 'A')!
+    return { ...score, pairSampleId: buildPairSampleId(variantA) }
+  })
 }
 
 export function buildJudgeBatchPrompt(cells: ReturnType<typeof judgePairPayload>[]): string {
@@ -139,27 +161,12 @@ export async function scoreJudgeBatch(
   groups: PublicEvidenceItem[][],
   options?: { timeoutMs?: number },
 ): Promise<JudgeCellScore[]> {
-  const cells = groups.map((group) => {
-    const variantA = group.find((item) => item.variantKey === 'A')!
-    const variantB = group.find((item) => item.variantKey === 'B')!
-    return judgePairPayload(variantA, variantB)
-  })
-  const prompt = buildJudgeBatchPrompt(cells)
+  const prompt = buildJudgePromptForGroups(groups)
   const raw = await client.complete(modelId, prompt, JUDGE_BATCH_MAX_TOKENS, {
     jsonObject: true,
     ...(options?.timeoutMs != null ? { timeoutMs: options.timeoutMs } : {}),
   })
-  const parsed = judgeBatchSchema.safeParse(parseJsonObject(raw))
-  if (!parsed.success) {
-    throw new Error(`Judge batch invalid: ${parsed.error.issues.map((issue) => issue.message).join('; ')}`)
-  }
-  if (parsed.data.scores.length !== groups.length) {
-    throw new Error(`Judge returned ${parsed.data.scores.length} scores for ${groups.length} cells.`)
-  }
-  return parsed.data.scores.map((score, index) => {
-    const variantA = groups[index]!.find((item) => item.variantKey === 'A')!
-    return { ...score, pairSampleId: buildPairSampleId(variantA) }
-  })
+  return parseJudgeBatchScores(groups, raw)
 }
 
 export function chunk<T>(items: T[], size: number): T[][] {

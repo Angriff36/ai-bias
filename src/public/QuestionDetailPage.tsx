@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from 'react'
+import './submittedPrompts.css'
 import type { PublicQuestionAnswer, PublicQuestionDetail, PublicQuestionGroup } from './contracts'
 import { getPublicQuestionDetail } from './client'
 import { evidenceTime } from './leaderboardUi'

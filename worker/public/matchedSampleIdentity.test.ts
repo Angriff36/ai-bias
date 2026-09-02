@@ -27,6 +27,41 @@ function record(overrides: Partial<PublicEvidenceItem> & Pick<PublicEvidenceItem
 }
 
 describe('matched sample identity', () => {
+  it('separates remapped questions that reuse the same legacy run and pair coordinates', () => {
+    const shared = { runId: 'legacy-run', pairIndex: 49, runIndex: 0, provider: 'openrouter', modelId: 'model/a' }
+    const records = [
+      record({ ...shared, id: 'q1-a', question: 'Question one?', variantKey: 'A' }),
+      record({ ...shared, id: 'q1-b', question: 'Question one?', variantKey: 'B' }),
+      record({ ...shared, id: 'q2-a', question: 'Question two?', variantKey: 'A' }),
+      record({ ...shared, id: 'q2-b', question: 'Question two?', variantKey: 'B' }),
+    ]
+
+    const remapped = remapEvidenceToCohort(records, {
+      eligibilityVersion: 1,
+      generatedAt: '2026-09-01T00:00:00.000Z',
+      questionKeys: ['question one?', 'question two?'],
+      rankings: [
+        { questionKey: 'question one?', questionText: 'Question one?', completePairCount: 1, rank: 1, modelIds: ['openrouter\u0000model/a'] },
+        { questionKey: 'question two?', questionText: 'Question two?', completePairCount: 1, rank: 2, modelIds: ['openrouter\u0000model/a'] },
+      ],
+      totalCompletePairCount: 2,
+      modelIds: ['openrouter\u0000model/a'],
+      perModelPairCounts: { 'openrouter\u0000model/a': 2 },
+      perModelQuestionCounts: { 'openrouter\u0000model/a': 2 },
+      evidenceIds: records.map((item) => item.id),
+      cohortFingerprint: 'collision',
+      pairIndexByQuestionKey: { 'question one?': 0, 'question two?': 1 },
+      reportableQuestionKeys: ['question one?', 'question two?'],
+    })
+    const groups = groupCompleteMatchedSamples(remapped)
+
+    expect(groups).toHaveLength(2)
+    expect(groups.map((group) => group.map((item) => item.id))).toEqual([
+      ['q1-a', 'q1-b'],
+      ['q2-a', 'q2-b'],
+    ])
+    expect(new Set(groups.map((group) => buildPairSampleId(group[0]!))).size).toBe(2)
+  })
   it('keeps three independent public runs separate when runIndex is 0', () => {
     const evidence = [
       record({ id: 'a1', runId: 'run-1', variantKey: 'A' }),

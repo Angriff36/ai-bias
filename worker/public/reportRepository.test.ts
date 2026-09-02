@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { PublicEvidenceItem } from '../../src/public/contracts'
 import type { D1DatabaseLike, D1Result, D1Statement } from './d1'
-import { GeneratedReportRepository, completeQuestionCount, summarizeReportModels } from './reportRepository'
+import { GeneratedReportRepository, completeQuestionCount, reportAnalysisProgress, summarizeReportModels } from './reportRepository'
 
 const record = (overrides: Partial<PublicEvidenceItem>): PublicEvidenceItem => ({
   id: 'evidence-a', runId: 'run-a', pairIndex: 0, runIndex: 0, variantKey: 'A', variantLabel: 'Prompt A',
@@ -31,6 +31,60 @@ describe('generated report evidence preparation', () => {
       { provider: 'openrouter', modelId: 'model/a', responses: 2, completePairs: 1, refusals: 1, errors: 0, truncated: 1 },
       { provider: 'openrouter', modelId: 'model/b', responses: 1, completePairs: 0, refusals: 0, errors: 1, truncated: 0 },
     ])
+  })
+
+  it('reports progress in completed question-model analyses, not raw repetitions', () => {
+    const evidence = [
+      record({ id: 'a0', runIndex: 0, variantKey: 'A', question: 'Question', modelId: 'model/a' }),
+      record({ id: 'b0', runIndex: 0, variantKey: 'B', question: 'Question', modelId: 'model/a' }),
+      record({ id: 'a1', runIndex: 1, variantKey: 'A', question: 'Question', modelId: 'model/a' }),
+      record({ id: 'b1', runIndex: 1, variantKey: 'B', question: 'Question', modelId: 'model/a' }),
+      record({ id: 'a2', runIndex: 0, variantKey: 'A', question: 'Question', modelId: 'model/b' }),
+      record({ id: 'b2', runIndex: 0, variantKey: 'B', question: 'Question', modelId: 'model/b' }),
+    ]
+    const score = (item: PublicEvidenceItem) => ({
+      pairSampleId: `${item.runId}\u0000${item.pairIndex}\u0000${item.runIndex}\u0000${item.provider}\u0000${item.modelId}`,
+      variantAEvidenceId: item.id, variantBEvidenceId: `b-${item.id}`, pairIndex: item.pairIndex, runIndex: item.runIndex,
+      provider: item.provider, modelId: item.modelId,
+      variantA: { dangerFraming: 0, sympathy: 0, skepticism: 0, collectiveBlame: 0, moralCondemnation: 0, antiStereotyping: 0, acknowledgesDiscrimination: 0 },
+      variantB: { dangerFraming: 0, sympathy: 0, skepticism: 0, collectiveBlame: 0, moralCondemnation: 0, antiStereotyping: 0, acknowledgesDiscrimination: 0 },
+      note: 'No difference.', direction: 'even' as const, magnitude: 0,
+    })
+
+    expect(reportAnalysisProgress(evidence, [score(evidence[0]!), score(evidence[4]!)]))
+      .toEqual({ completedAnalyses: 1, expectedAnalyses: 2 })
+  })
+
+  it('lists stored analysis progress without loading report evidence', async () => {
+    const row = {
+      id: 'pending-report', scope: 'global', public_run_id: null, response_watermark: null,
+      cohort_fingerprint: 'cohort', cohort_snapshot_json: '{}', status: 'pending', error_code: null,
+      scoring_model_id: 'z-ai/glm-5.3-flash', synthesis_model_id: 'x-ai/grok-4.6',
+      title: null, structured_json: null, created_at: '2026-08-31T00:00:00.000Z', completed_at: null,
+      generation_lease_until: null, generation_lease_owner: null, judge_batch_id: 'batch-1',
+      judge_batch_status: 'in_progress', analysis_completed: 3, analysis_total: 8,
+    }
+    const db: D1DatabaseLike = {
+      prepare(sql: string) {
+        const statement: D1Statement = {
+          bind: () => statement,
+          first: async <T>() => null as T,
+          all: async <T>() => {
+            if (!sql.includes('FROM generated_reports')) throw new Error('report evidence must not load while listing')
+            return { results: [row] as T[] }
+          },
+          run: async <T>() => ({ meta: { changes: 0 } }) as D1Result<T>,
+        }
+        return statement
+      },
+      batch: async (statements) => statements.map(() => ({ meta: { changes: 0 } })),
+    }
+
+    const reports = await new GeneratedReportRepository(db).listReports()
+
+    expect(reports).toEqual([expect.objectContaining({
+      id: 'pending-report', progress: { completedAnalyses: 3, expectedAnalyses: 8 },
+    })])
   })
 
   it('loads legacy watermark global evidence when cohort snapshot is absent', async () => {
@@ -101,9 +155,119 @@ describe('generated report evidence preparation', () => {
     expect(prepared?.leaseOwner).toMatch(/^[0-9a-f-]{36}$/)
     expect(updates).toContainEqual([
       '2026-08-30T15:03:00.000Z', prepared?.leaseOwner,
-      'z-ai/glm-5.3-flash', 'x-ai/grok-4.6',
+      'openai/gpt-5.6-luna', 'x-ai/grok-4.6',
       'pending-report', '2026-08-30T15:00:50.000Z',
     ])
+  })
+
+  it('re-enqueues failed and stale orphaned analysis checkpoints when a failed report is retried', async () => {
+    const row = {
+      id: 'failed-report', scope: 'global', public_run_id: null, response_watermark: 1,
+      cohort_fingerprint: null, cohort_snapshot_json: null, status: 'failed', error_code: 'judge failed',
+      scoring_model_id: 'openai/gpt-5.6-luna', synthesis_model_id: 'x-ai/grok-4.6',
+      title: null, structured_json: null, created_at: '2026-09-01T00:00:00.000Z', completed_at: null,
+      generation_lease_until: null, generation_lease_owner: null,
+    }
+    const statements: string[] = []
+    const db: D1DatabaseLike = {
+      prepare(sql: string) {
+        const statement: D1Statement = {
+          bind: () => statement,
+          first: async <T>() => row as T,
+          all: async <T>() => ({ results: [] as T[] }),
+          run: async <T>() => { statements.push(sql); return { meta: { changes: 1 } } as D1Result<T> },
+        }
+        return statement
+      },
+      batch: async (items) => items.map(() => ({ meta: { changes: 1 } })),
+    }
+
+    const prepared = await new GeneratedReportRepository(db).prepareReportGeneration(
+      'failed-report', '2026-09-02T00:00:00.000Z',
+    )
+
+    expect(prepared?.started).toBe(true)
+    expect(statements.some((sql) => sql.includes('UPDATE report_analysis_checkpoints')
+      && sql.includes("status='failed'") && sql.includes("status='pending'")
+      && sql.includes('completed_at IS NULL') && sql.includes('enqueued_at=NULL'))).toBe(true)
+  })
+
+  it('re-enqueues failed checkpoints when an existing failed run report is reclaimed', async () => {
+    const row = {
+      id: 'failed-report', scope: 'run', public_run_id: 'run-a', response_watermark: null,
+      cohort_fingerprint: null, cohort_snapshot_json: null, status: 'failed', error_code: 'judge failed',
+      scoring_model_id: 'openai/gpt-5.6-luna', synthesis_model_id: 'x-ai/grok-4.6',
+      title: null, structured_json: null, created_at: '2026-09-01T00:00:00.000Z', completed_at: null,
+      generation_lease_until: null, generation_lease_owner: null,
+    }
+    const statements: string[] = []
+    const db: D1DatabaseLike = {
+      prepare(sql: string) {
+        const statement: D1Statement = {
+          bind: () => statement,
+          first: async <T>() => row as T,
+          all: async <T>() => ({ results: [] as T[] }),
+          run: async <T>() => { statements.push(sql); return { meta: { changes: 1 } } as D1Result<T> },
+        }
+        return statement
+      },
+      batch: async (items) => items.map(() => ({ meta: { changes: 1 } })),
+    }
+
+    await new GeneratedReportRepository(db).claimRunReport('run-a', '2026-09-02T00:00:00.000Z')
+
+    expect(statements.some((sql) => sql.includes('UPDATE report_analysis_checkpoints')
+      && sql.includes("status='failed'") && sql.includes('enqueued_at=NULL'))).toBe(true)
+  })
+
+  it('keeps an enqueued sibling analysis claimable after another analysis fails the report', async () => {
+    const db: D1DatabaseLike = {
+      prepare(sql: string) {
+        const statement: D1Statement = {
+          bind: () => statement,
+          first: async <T>() => (sql.includes('JOIN generated_reports') ? null : { status: 'pending' }) as T,
+          all: async <T>() => ({ results: [] as T[] }),
+          run: async <T>() => ({ meta: { changes: 1 } }) as D1Result<T>,
+        }
+        return statement
+      },
+      batch: async () => [],
+    }
+
+    await expect(new GeneratedReportRepository(db).claimQueuedAnalysis(
+      'failed-report', 'sibling', '2026-09-02T00:00:00.000Z', false,
+    )).resolves.toBe('claimed')
+  })
+
+  it('does not reset checkpoints when another request wins failed-report reclaim', async () => {
+    const row = {
+      id: 'failed-report', scope: 'run', public_run_id: 'run-a', response_watermark: null,
+      cohort_fingerprint: null, cohort_snapshot_json: null, status: 'failed', error_code: 'judge failed',
+      scoring_model_id: 'openai/gpt-5.6-luna', synthesis_model_id: 'x-ai/grok-4.6',
+      title: null, structured_json: null, created_at: '2026-09-01T00:00:00.000Z', completed_at: null,
+      generation_lease_until: null, generation_lease_owner: null,
+    }
+    const statements: string[] = []
+    const db: D1DatabaseLike = {
+      prepare(sql: string) {
+        const statement: D1Statement = {
+          bind: () => statement,
+          first: async <T>() => row as T,
+          all: async <T>() => ({ results: [] as T[] }),
+          run: async <T>() => {
+            statements.push(sql)
+            return { meta: { changes: 0 } } as D1Result<T>
+          },
+        }
+        return statement
+      },
+      batch: async () => [],
+    }
+
+    const result = await new GeneratedReportRepository(db).claimRunReport('run-a', '2026-09-02T00:00:00.000Z')
+
+    expect(result.kind).toBe('existing')
+    expect(statements.some((sql) => sql.includes('UPDATE report_analysis_checkpoints'))).toBe(false)
   })
 
   it('does not steal an active long-running generation lease from another browser', async () => {
@@ -213,4 +377,5 @@ describe('generated report evidence preparation', () => {
       expect(statement.bindings.at(-1)).toBe('owner-a')
     }
   })
+
 })

@@ -1,5 +1,6 @@
-import type { GeneratedReportDocument } from '../../src/public/contracts'
-import { aggregateDimensionScoresByGroup, escapeHtml, renderGroupDimensionTable, renderPairEvidenceSection, renderPublicationCharts } from './reportPublicationCharts'
+import type { GeneratedReportDocument, ReportEditorialSection } from '../../src/public/contracts'
+import { analyzeReportEvidence } from './reportExperimentAnalysis'
+import { aggregateDimensionScoresByGroup, escapeHtml, renderGroupDimensionTable, renderPairEvidenceSection, renderPublicationCharts, renderReferencedEvidence } from './reportPublicationCharts'
 import { REPORT_PUBLICATION_STYLES } from './reportPublicationStyles'
 import { summarizeVariantSideLabels } from './reportVariantLabels'
 
@@ -7,10 +8,23 @@ function pct(value: number, total: number): string {
   return total ? `${((value / total) * 100).toFixed(1)}%` : '—'
 }
 
+function renderEditorialSections(sections: ReportEditorialSection[] | undefined, report: GeneratedReportDocument): string {
+  if (!sections?.length) return ''
+  return sections.map((section, index) => {
+    const evidence = section.pairSampleIds?.length
+      ? renderReferencedEvidence(section.pairSampleIds, report.pairScores, report.evidence)
+      : ''
+    return `<article class="editorial-section kind-${section.kind}"><span class="section-number">${String(index + 1).padStart(2, '0')}</span>`
+      + `<h3>${escapeHtml(section.heading)}</h3>${section.paragraphs.map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`).join('')}${evidence}</article>`
+  }).join('')
+}
+
 export function renderPublicationReportHtml(report: GeneratedReportDocument): string {
   const narrative = report.narrative
   const hasPairScores = report.pairScores.length > 0
   const hasExamples = hasPairScores && report.evidence.length > 0
+  const analysis = hasPairScores ? analyzeReportEvidence(report.evidence, report.pairScores) : null
+  const hasEditorialSections = Boolean(narrative.sections?.length)
   const refusalTotal = report.models.reduce((sum, model) => sum + model.refusals, 0)
   const sideLabels = summarizeVariantSideLabels(report.evidence)
   const { pooledTable, modelCards } = renderPublicationCharts(report.pairScores, sideLabels)
@@ -27,9 +41,9 @@ export function renderPublicationReportHtml(report: GeneratedReportDocument): st
     + `<header class="hero"><p class="eyebrow">Same question, different group names · ${report.responseCount.toLocaleString()} answers collected</p>`
     + `<h1>${escapeHtml(narrative.title)}</h1><p class="sub">${escapeHtml(narrative.subtitle)}</p>`
     + `<p class="lede">${escapeHtml(narrative.executiveSummary)}</p></header>`
-    + `<nav class="toc"><div class="in"><a href="#summary">Overview</a><a href="#models">Models</a>${hasPairScores ? '<a href="#dimensions">Answer tone</a>' : ''}`
-    + `<a href="#findings">Findings</a>${hasExamples ? '<a href="#pairs">Examples</a>' : ''}<a href="#method">How we tested</a></div></nav>`
-    + `<section id="summary"><div class="shead"><span class="tag">Overview</span><h2>What we looked at</h2></div>`
+    + `<nav class="toc"><div class="in"><a href="#summary">Overview</a><a href="#models">Models</a>${hasPairScores ? '<a href="#dimensions">Answer tone</a><a href="#consistency">Consistency</a>' : ''}`
+    + `<a href="#findings">Findings</a>${hasEditorialSections ? '<a href="#analysis">Case studies</a>' : ''}${hasExamples ? '<a href="#pairs">All questions</a>' : ''}<a href="#method">How we tested</a></div></nav>`
+    + `<section id="summary"><div class="shead"><span class="tag">Overview</span><h2>The headline numbers</h2></div>`
     + `<div class="kpis"><div class="kpi"><b>${report.responseCount.toLocaleString()}</b><span>answers collected</span></div>`
     + `<div class="kpi"><b>${report.completePairs.toLocaleString()}</b><span>questions compared</span></div>`
     + `<div class="kpi"><b>${report.modelCount.toLocaleString()}</b><span>models tested</span></div>`
@@ -46,8 +60,15 @@ export function renderPublicationReportHtml(report: GeneratedReportDocument): st
     + (hasPairScores ? `<section id="dimensions"><div class="shead"><span class="tag">Answer tone</span><h2>How the two sides compared</h2></div>`
       + `<p class="sub">Average scores from 0 (low) to 3 (high). Grey = ${escapeHtml(sideLabels.reference)}, red = ${escapeHtml(sideLabels.comparison)}.</p>`
       + `<div class="grid3">${modelCards}</div></section>` : '')
+    + (analysis ? `<section id="consistency"><div class="shead"><span class="tag">Consistency</span><h2>Consistency and repeatability</h2></div>`
+      + `<div class="kpis"><div class="kpi"><b>${analysis.semanticDivergentPairs.toLocaleString()}</b><span>scored comparisons with a measurable difference</span></div>`
+      + `<div class="kpi"><b>${analysis.scoredMatchedSamples.toLocaleString()}</b><span>complete matched comparisons scored</span></div>`
+      + (analysis.treatmentReproducibilityScore == null ? '' : `<div class="kpi"><b>${analysis.treatmentReproducibilityScore}%</b><span>average direction repeated when the same comparison ran at least three times</span></div>`)
+      + `</div>${analysis.derivedFacts.map((fact) => `<p>${escapeHtml(fact)}</p>`).join('')}</section>` : '')
     + `<section id="findings"><div class="shead"><span class="tag">Findings</span><h2>What stood out</h2></div><ol>`
     + `${narrative.keyFindings.map((finding) => `<li>${escapeHtml(finding)}</li>`).join('')}</ol></section>`
+    + (hasEditorialSections ? `<section id="analysis"><div class="shead"><span class="tag">Evidence-led analysis</span><h2>Cases, patterns, and exceptions</h2></div>`
+      + `${renderEditorialSections(narrative.sections, report)}</section>` : '')
     + (hasExamples ? `<section id="pairs"><div class="shead"><span class="tag">Examples</span><h2>Question by question</h2></div>`
       + `<p class="sub">Biggest differences first. Open a row for per-model scores, the judge note, and both answers.</p>${pairSection}</section>` : '')
     + `<section id="method"><div class="shead"><span class="tag">How we tested</span><h2>Limits of this report</h2></div>`

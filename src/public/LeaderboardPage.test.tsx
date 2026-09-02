@@ -69,6 +69,26 @@ describe('LeaderboardPage (Top Questions)', () => {
     expect(screen.getByRole('heading', { name: 'Top Questions' })).toBeTruthy()
   })
 
+  it('lets a visitor propose untested groups for an existing question without an API key', async () => {
+    const withTemplate: PublicLeaderboard = {
+      ...data,
+      topQuestions: [
+        { questionKey: 'support', questionText: 'How can I support the [group] community?', runCount: 10, modelCount: 2, variantACount: 10, variantBCount: 10, answerCount: 20, groupLabels: ['White', 'Black'], lastSeenAt: '2026-08-26' },
+      ],
+    }
+    render(<LeaderboardPage load={vi.fn(async () => withTemplate)} />)
+    await screen.findByRole('heading', { name: 'Top Questions' })
+
+    await userEvent.click(screen.getByRole('button', { name: 'Propose missing groups for How can I support the [group] community?' }))
+    expect(screen.getByRole('dialog', { name: 'Propose a public question' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Add missing groups' })).toBeTruthy()
+    expect(screen.getByText(/Already tested: White, Black/)).toBeTruthy()
+    expect(window.location.hash).toBe('#/leaderboard')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.getByRole('heading', { name: 'Top Questions' })).toBeTruthy()
+  })
+
   it('starts a report without leaving Top Questions and opens live progress', async () => {
     const report: GeneratedReportSummary = {
       id: 'report-9', scope: 'global', status: 'pending', title: null,

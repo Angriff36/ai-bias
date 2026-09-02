@@ -7,18 +7,11 @@ import { evidenceTime } from './leaderboardUi'
 import { questionLeaderboardHref } from './questionKeys'
 import { PROMPT_PAGE_SIZES, type PromptPageSize } from './submittedPromptFeed'
 import { usePublicFetch } from './usePublicFetch'
-import { MISSING_GROUPS_KEY, type MissingGroupsRequest } from '../wizard/missingGroups'
+import type { MissingGroupsRequest } from '../wizard/missingGroups'
 import { invalidatePublicCache } from './publicApiCache'
 import { ReportGenerationProgress } from './ReportGenerationProgress'
 import { QuestionProposalComposer } from './QuestionProposalComposer'
 import { beginQuestionFunding } from './questionProposalFunding'
-
-/** Open the experiment wizard on this question so the user can pick the groups it has not asked about. */
-function addMissingGroups(question: PublicQuestionSummary) {
-  const request: MissingGroupsRequest = { question: question.questionText, existingGroups: question.groupLabels }
-  sessionStorage.setItem(MISSING_GROUPS_KEY, JSON.stringify(request))
-  window.location.hash = '#/experiments'
-}
 
 function shortModelCount(question: PublicQuestionSummary): string {
   return `${question.modelCount.toLocaleString()} ${question.modelCount === 1 ? 'model' : 'models'}`
@@ -50,7 +43,7 @@ export function LeaderboardPage({
   const [proposals, setProposals] = useState<PublicQuestionProposal[]>([])
   const [proposalLoading, setProposalLoading] = useState(false)
   const [proposalError, setProposalError] = useState<string | null>(null)
-  const [proposalComposerOpen, setProposalComposerOpen] = useState(false)
+  const [proposalComposer, setProposalComposer] = useState<{ missingGroups?: MissingGroupsRequest } | null>(null)
   const [proposalRefresh, setProposalRefresh] = useState(0)
 
   const questions = data?.topQuestions ?? []
@@ -116,10 +109,11 @@ export function LeaderboardPage({
     }
   }
 
-  if (proposalComposerOpen) {
+  if (proposalComposer) {
     return (
       <QuestionProposalComposer
-        onClose={() => setProposalComposerOpen(false)}
+        missingGroups={proposalComposer.missingGroups}
+        onClose={() => setProposalComposer(null)}
         onComplete={() => {
           setQuestionTab('unanswered')
           setProposalRefresh((value) => value + 1)
@@ -137,7 +131,7 @@ export function LeaderboardPage({
         </div>
         <div className="submitted-prompts-actions">
           <button type="button" className="secondary" onClick={() => { window.location.hash = '#/experiments' }}>Run your own test</button>
-          <button type="button" className="primary" onClick={() => setProposalComposerOpen(true)}>Propose a question</button>
+          <button type="button" className="primary" onClick={() => setProposalComposer({})}>Propose a question</button>
         </div>
       </div>
       <div className="question-tabs" role="tablist" aria-label="Question status">
@@ -152,7 +146,7 @@ export function LeaderboardPage({
               <h3>Questions waiting for evidence</h3>
               <p>Anyone can fund a question by running its exact comparisons with their own connected OpenRouter account.</p>
             </div>
-            <button type="button" className="primary" onClick={() => setProposalComposerOpen(true)}>Propose for free</button>
+            <button type="button" className="primary" onClick={() => setProposalComposer({})}>Propose for free</button>
           </div>
           {proposalLoading && <p role="status">Loading unanswered questions…</p>}
           {proposalError && <div className="banner error" role="alert">{proposalError}</div>}
@@ -252,8 +246,8 @@ export function LeaderboardPage({
                     <button
                       type="button"
                       className="secondary top-questions-add"
-                      aria-label={`Add missing groups for ${question.questionText}`}
-                      onClick={() => addMissingGroups(question)}
+                      aria-label={`Propose missing groups for ${question.questionText}`}
+                      onClick={() => setProposalComposer({ missingGroups: { question: question.questionText, existingGroups: question.groupLabels } })}
                     >
                       + Groups
                     </button>

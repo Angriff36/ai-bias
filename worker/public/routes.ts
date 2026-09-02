@@ -1,4 +1,4 @@
-import { freeRunRequestSchema, generatedReportRequestSchema, publicClaimRequestSchema, publicQuestionDetailSchema, publicQuestionProposalRequestSchema, publicSubmissionSchema } from '../../src/public/contracts'
+import { freeRunRequestSchema, generatedReportRequestSchema, publicClaimRequestSchema, publicQuestionDetailSchema, publicQuestionProposalRequestSchema, publicSubmissionSchema, questionSearchOutcomes, type QuestionSearchOutcome } from '../../src/public/contracts'
 import { scheduleAnalysis, type AiBindingLike, type ExecutionContextLike } from './analysis'
 import type { D1DatabaseLike } from './d1'
 import { quotaIdentity, runFreePair } from './freeRun'
@@ -42,7 +42,7 @@ export async function handlePublicApi(
   env: PublicWorkerEnv,
   context: ExecutionContextLike,
   injected?: {
-    repository: Pick<PublicRepository, 'publish' | 'getLeaderboard' | 'getQuestionDetail' | 'getAllowance'>
+    repository: Pick<PublicRepository, 'publish' | 'getLeaderboard' | 'getQuestionDetail' | 'getAllowance' | 'searchQuestions'>
     reportRepository: Pick<GeneratedReportRepository, 'claimRunReport' | 'claimCurrentGlobalReport' | 'claimQuestionSetReport' | 'listReports' | 'getReportDocument' | 'prepareReportGeneration'>
     claimRepository?: Pick<ClaimRepository, 'create'> & {
       list(options?: ClaimListOptions): ReturnType<ClaimRepository['list']>
@@ -97,6 +97,21 @@ export async function handlePublicApi(
       const proposal = await questionProposalRepository.get(proposalDetail[1])
       if (!proposal) return json({ error: 'Question proposal not found.' }, 404)
       const response = json({ proposal })
+      response.headers.set('Cache-Control', PUBLIC_CACHE_CONTROL)
+      return response
+    }
+    if (url.pathname === '/api/public/question-search' && request.method === 'GET') {
+      const day = (value: string | null) => (value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : undefined)
+      const outcome = url.searchParams.get('outcome')
+      const result = await repository.searchQuestions({
+        query: url.searchParams.get('q')?.slice(0, 200) || undefined,
+        group: url.searchParams.get('group')?.slice(0, 200) || undefined,
+        model: url.searchParams.get('model')?.slice(0, 240) || undefined,
+        outcome: outcome && (questionSearchOutcomes as readonly string[]).includes(outcome) ? outcome as QuestionSearchOutcome : undefined,
+        from: day(url.searchParams.get('from')),
+        to: day(url.searchParams.get('to')),
+      })
+      const response = json(result)
       response.headers.set('Cache-Control', PUBLIC_CACHE_CONTROL)
       return response
     }

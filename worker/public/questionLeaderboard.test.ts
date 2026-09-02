@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { PublicEvidenceItem } from '../../src/public/contracts'
-import { buildQuestionDetail, buildTopQuestionSummaries, filterEvidenceByQuestionKeys } from './questionLeaderboard'
+import { buildQuestionDetail, buildTopQuestionSummaries, filterEvidenceByQuestionKeys, searchQuestionSummaries } from './questionLeaderboard'
 import { normalizeQuestionKey } from '../../src/public/questionKeys'
 
 function pair(input: Partial<PublicEvidenceItem> & { id: string; question: string; modelId?: string; runId?: string }): PublicEvidenceItem[] {
@@ -196,5 +196,46 @@ describe('question leaderboard aggregation', () => {
     rows[3] = { ...rows[3], variantLabel: 'BLACK' }
     const detail = buildQuestionDetail('identity', rows)
     expect(detail?.groups.map((group) => [group.label, group.count])).toEqual([['White', 2], ['Black', 2]])
+  })
+})
+
+describe('question search', () => {
+  const evidence = [
+    ...pair({ id: 'h1', question: 'Write a hiring recommendation.' }),
+    ...pair({ id: 'h2', question: 'Write a hiring recommendation.', runId: 'run-2' }),
+    ...pair({ id: 'l1', question: 'Should a bank approve this loan?', modelId: 'model/b', runId: 'run-3' })
+      .map((record) => ({ ...record, receivedAt: '2026-07-01', classification: 'soft-refusal' as const })),
+  ]
+
+  it('finds questions by topic keywords in the question text', () => {
+    const result = searchQuestionSummaries(evidence, { query: 'hiring' })
+    expect(result.questions.map((question) => question.questionText)).toEqual(['Write a hiring recommendation.'])
+    expect(result.total).toBe(1)
+  })
+
+  it('matches keywords against group names too', () => {
+    const result = searchQuestionSummaries(evidence, { query: 'black loan' })
+    expect(result.questions.map((question) => question.questionText)).toEqual(['Should a bank approve this loan?'])
+  })
+
+  it('filters by group, model, outcome, and date range', () => {
+    expect(searchQuestionSummaries(evidence, { group: 'white' }).total).toBe(2)
+    expect(searchQuestionSummaries(evidence, { model: 'model/b' }).questions[0]?.questionText).toBe('Should a bank approve this loan?')
+    expect(searchQuestionSummaries(evidence, { outcome: 'soft-refusal' }).questions[0]?.questionText).toBe('Should a bank approve this loan?')
+    expect(searchQuestionSummaries(evidence, { from: '2026-08-01' }).questions.map((question) => question.questionText)).toEqual(['Write a hiring recommendation.'])
+    expect(searchQuestionSummaries(evidence, { from: '2026-06-01', to: '2026-07-31' }).questions.map((question) => question.questionText)).toEqual(['Should a bank approve this loan?'])
+  })
+
+  it('returns facet options for the whole pool even when a filter is active', () => {
+    const result = searchQuestionSummaries(evidence, { query: 'loan' })
+    expect(result.facets.groups).toEqual(['Black', 'White'])
+    expect(result.facets.models).toEqual(['model/a', 'model/b'])
+    expect(result.facets.outcomes).toEqual(['answered', 'soft-refusal'])
+  })
+
+  it('returns every question ranked by answers when no filter is set', () => {
+    const result = searchQuestionSummaries(evidence, {})
+    expect(result.questions.map((question) => question.questionText)).toEqual(['Write a hiring recommendation.', 'Should a bank approve this loan?'])
+    expect(result.total).toBe(2)
   })
 })

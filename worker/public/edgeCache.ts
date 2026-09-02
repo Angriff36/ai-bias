@@ -11,6 +11,7 @@ const CACHEABLE_PUBLIC_PATHS = [
   /^\/api\/public\/claims$/,
   /^\/api\/public\/question-proposals(?:\/[0-9a-f-]{36})?$/,
   /^\/api\/public\/questions\/[^/]+$/,
+  /^\/api\/public\/question-search$/,
   /^\/api\/public\/reports\/[A-Za-z0-9-]+(?:\.html)?$/,
 ]
 

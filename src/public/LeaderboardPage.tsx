@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import './submittedPrompts.css'
 import './conclusions.css'
-import type { GeneratedReportSummary, PublicLeaderboard, PublicQuestionProposal, PublicQuestionSummary } from './contracts'
-import { getPublicLeaderboard, listGeneratedReports, listQuestionProposals, requestQuestionSetReport } from './client'
+import { questionSearchOutcomes, type GeneratedReportSummary, type PublicLeaderboard, type PublicQuestionProposal, type PublicQuestionSearchResult, type PublicQuestionSummary, type QuestionSearchFilters, type QuestionSearchOutcome } from './contracts'
+import { getPublicLeaderboard, listGeneratedReports, listQuestionProposals, requestQuestionSetReport, searchPublicQuestions } from './client'
 import { evidenceTime } from './leaderboardUi'
 import { questionLeaderboardHref } from './questionKeys'
 import { PROMPT_PAGE_SIZES, type PromptPageSize } from './submittedPromptFeed'
@@ -24,17 +24,27 @@ function shortModelCount(question: PublicQuestionSummary): string {
   return `${question.modelCount.toLocaleString()} ${question.modelCount === 1 ? 'model' : 'models'}`
 }
 
+const OUTCOME_LABELS: Record<QuestionSearchOutcome, string> = {
+  'answered': 'Answered',
+  'soft-refusal': 'Soft refusal',
+  'hard-refusal': 'Hard refusal',
+  'empty': 'Empty response',
+  'error': 'Error',
+}
+
 /** Top Questions: the most-asked prompts, ranked by how many answers they have. The evidence, not the verdict. */
 export function LeaderboardPage({
   load = getPublicLeaderboard,
   startReport = requestQuestionSetReport,
   loadReports = listGeneratedReports,
   loadProposals = listQuestionProposals,
+  search = searchPublicQuestions,
 }: {
   load?: () => Promise<PublicLeaderboard>
   startReport?: (questionKeys: string[]) => Promise<GeneratedReportSummary>
   loadReports?: () => Promise<GeneratedReportSummary[]>
   loadProposals?: (status: 'unanswered' | 'answered') => Promise<PublicQuestionProposal[]>
+  search?: (filters: QuestionSearchFilters) => Promise<PublicQuestionSearchResult>
 }) {
   const loadLeaderboard = useCallback(() => load(), [load])
   const { data, error, loading, refreshing, retry } = usePublicFetch('leaderboard', loadLeaderboard)
@@ -52,10 +62,61 @@ export function LeaderboardPage({
   const [proposalError, setProposalError] = useState<string | null>(null)
   const [proposalComposerOpen, setProposalComposerOpen] = useState(false)
   const [proposalRefresh, setProposalRefresh] = useState(0)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [groupFilter, setGroupFilter] = useState('')
+  const [modelFilter, setModelFilter] = useState('')
+  const [outcomeFilter, setOutcomeFilter] = useState('')
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
+  const [searchResult, setSearchResult] = useState<PublicQuestionSearchResult | null>(null)
+  const [searching, setSearching] = useState(false)
+  const [searchError, setSearchError] = useState<string | null>(null)
 
   const questions = data?.topQuestions ?? []
-  const visible = questions.slice(0, pageSize)
+  const searchActive = Boolean(searchQuery.trim() || groupFilter || modelFilter || outcomeFilter || fromDate || toDate)
+  const visible = searchActive ? (searchResult?.questions ?? []) : questions.slice(0, pageSize)
   const reportInFlight = starting || activeReport?.status === 'pending'
+  const facetGroups = searchResult?.facets.groups ?? [...new Set(questions.flatMap((question) => question.groupLabels))].sort((left, right) => left.localeCompare(right))
+  const facetModels = searchResult?.facets.models ?? [...new Set((data?.models ?? []).map((model) => model.modelId))].sort((left, right) => left.localeCompare(right))
+  const facetOutcomes = searchResult?.facets.outcomes ?? [...questionSearchOutcomes]
+
+  useEffect(() => {
+    if (!searchActive) {
+      setSearchResult(null)
+      setSearchError(null)
+      setSearching(false)
+      return
+    }
+    let live = true
+    setSearching(true)
+    const timer = window.setTimeout(async () => {
+      try {
+        const result = await search({
+          query: searchQuery.trim() || undefined,
+          group: groupFilter || undefined,
+          model: modelFilter || undefined,
+          outcome: (outcomeFilter || undefined) as QuestionSearchOutcome | undefined,
+          from: fromDate || undefined,
+          to: toDate || undefined,
+        })
+        if (live) { setSearchResult(result); setSearchError(null) }
+      } catch (cause) {
+        if (live) setSearchError(cause instanceof Error ? cause.message : 'The search could not be completed.')
+      } finally {
+        if (live) setSearching(false)
+      }
+    }, 250)
+    return () => { live = false; window.clearTimeout(timer) }
+  }, [search, searchActive, searchQuery, groupFilter, modelFilter, outcomeFilter, fromDate, toDate])
+
+  function clearSearch() {
+    setSearchQuery('')
+    setGroupFilter('')
+    setModelFilter('')
+    setOutcomeFilter('')
+    setFromDate('')
+    setToDate('')
+  }
 
   useEffect(() => {
     if (questionTab !== 'unanswered') return
@@ -200,7 +261,56 @@ export function LeaderboardPage({
             <div><strong>{data.totals.responses.toLocaleString()}</strong><span>answers stored</span></div>
             <div><strong>{data.totals.models.toLocaleString()}</strong><span>models covered</span></div>
           </div>
+          <section className="question-search" aria-label="Search the public evidence pool">
+            <input
+              type="search"
+              className="question-search-input"
+              value={searchQuery}
+              placeholder="Search questions by topic, for example hiring or loan"
+              aria-label="Search questions"
+              onChange={(event) => setSearchQuery(event.target.value)}
+            />
+            <div className="question-search-filters">
+              <label>
+                <span>Group</span>
+                <select value={groupFilter} aria-label="Filter by group" onChange={(event) => setGroupFilter(event.target.value)}>
+                  <option value="">All groups</option>
+                  {facetGroups.map((label) => <option key={label} value={label}>{label}</option>)}
+                </select>
+              </label>
+              <label>
+                <span>Model</span>
+                <select value={modelFilter} aria-label="Filter by model" onChange={(event) => setModelFilter(event.target.value)}>
+                  <option value="">All models</option>
+                  {facetModels.map((modelId) => <option key={modelId} value={modelId}>{modelId}</option>)}
+                </select>
+              </label>
+              <label>
+                <span>Outcome</span>
+                <select value={outcomeFilter} aria-label="Filter by outcome" onChange={(event) => setOutcomeFilter(event.target.value)}>
+                  <option value="">All outcomes</option>
+                  {facetOutcomes.map((outcome) => <option key={outcome} value={outcome}>{OUTCOME_LABELS[outcome as QuestionSearchOutcome] ?? outcome}</option>)}
+                </select>
+              </label>
+              <label>
+                <span>From</span>
+                <input type="date" value={fromDate} aria-label="Evidence from date" onChange={(event) => setFromDate(event.target.value)} />
+              </label>
+              <label>
+                <span>To</span>
+                <input type="date" value={toDate} aria-label="Evidence to date" onChange={(event) => setToDate(event.target.value)} />
+              </label>
+              {searchActive && <button type="button" className="secondary" onClick={clearSearch}>Clear filters</button>}
+            </div>
+            {searching && <p role="status" className="muted">Searching…</p>}
+            {searchError && <div className="banner error" role="alert">{searchError}</div>}
+          </section>
           <div className="conclusions-controls">
+            {searchActive ? (
+              <span className="muted" role="status">
+                {searchResult ? `${searchResult.total.toLocaleString()} ${searchResult.total === 1 ? 'question matches' : 'questions match'} your search.` : ''}
+              </span>
+            ) : (
             <fieldset>
               <legend className="sr-only">Questions to show</legend>
               <span>Show top</span>
@@ -208,6 +318,7 @@ export function LeaderboardPage({
                 <button key={size} type="button" className={pageSize === size ? 'is-active' : undefined} aria-pressed={pageSize === size} aria-label={`Show top ${size}`} onClick={() => setPageSize(size)}>{size}</button>
               ))}
             </fieldset>
+            )}
             <div className="top-questions-report">
               <span className="muted">{selected.length} selected for a report</span>
               <button type="button" className="secondary" disabled={selected.length === 0 && !activeReport && !starting} onClick={start}>
@@ -219,7 +330,11 @@ export function LeaderboardPage({
           </div>
           {startError && <p className="form-error" role="alert">{startError}</p>}
           {visible.length === 0 ? (
-            <p className="muted">No public questions yet. Run a test to add the first one.</p>
+            <p className="muted">
+              {searchActive
+                ? (searching ? 'Searching the evidence pool…' : 'No questions match these filters. Clear a filter or try different words.')
+                : 'No public questions yet. Run a test to add the first one.'}
+            </p>
           ) : (
             <div className="top-questions-table">
               <div className="top-questions-head">
@@ -263,7 +378,11 @@ export function LeaderboardPage({
             </div>
           )}
           <div className="conclusions-footer">
-            <p>Showing top {visible.length.toLocaleString()} of {data.totals.questions.toLocaleString()} tracked questions.</p>
+            <p>
+              {searchActive
+                ? `Showing ${visible.length.toLocaleString()} of ${(searchResult?.total ?? 0).toLocaleString()} matching questions.`
+                : `Showing top ${visible.length.toLocaleString()} of ${data.totals.questions.toLocaleString()} tracked questions.`}
+            </p>
           </div>
         </>
       )}

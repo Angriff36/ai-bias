@@ -10,6 +10,7 @@ import {
   publicQuestionDetailSchema,
   publicQuestionProposalListSchema,
   publicQuestionProposalSchema,
+  publicQuestionSearchSchema,
   publishResultSchema,
   type FreeRunRequest,
   type FreeRunResponse,
@@ -20,6 +21,8 @@ import {
   type PublicQuestionDetail,
   type PublicQuestionProposal,
   type PublicQuestionProposalRequest,
+  type PublicQuestionSearchResult,
+  type QuestionSearchFilters,
 } from './contracts'
 import { invalidatePublicCache, readPublicCache, writePublicCache } from './publicApiCache'
 import { PublicSubmissionChunks, truncateForPublication } from './publishChunks'
@@ -92,6 +95,19 @@ export async function getPublicQuestionDetail(questionKey: string, fetcher: Fetc
   const detail = publicQuestionDetailSchema.parse(body.question)
   writePublicCache(cacheKey, detail)
   return detail
+}
+
+/** Search every pooled question by keywords and facet filters. Results change per keystroke, so the browser cache (60s) is the only cache. */
+export async function searchPublicQuestions(filters: QuestionSearchFilters, fetcher: Fetcher = fetch): Promise<PublicQuestionSearchResult> {
+  const params = new URLSearchParams()
+  if (filters.query?.trim()) params.set('q', filters.query.trim())
+  if (filters.group) params.set('group', filters.group)
+  if (filters.model) params.set('model', filters.model)
+  if (filters.outcome) params.set('outcome', filters.outcome)
+  if (filters.from) params.set('from', filters.from)
+  if (filters.to) params.set('to', filters.to)
+  const response = await fetcher(`/api/public/question-search?${params.toString()}`, { credentials: 'same-origin' })
+  return readPublicPayload(publicQuestionSearchSchema, await responseJson(response))
 }
 
 export async function listQuestionProposals(status: 'unanswered' | 'answered' = 'unanswered', fetcher: Fetcher = fetch): Promise<PublicQuestionProposal[]> {

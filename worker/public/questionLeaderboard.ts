@@ -5,7 +5,9 @@ import type {
   PublicQuestionGroup,
   PublicQuestionInstance,
   PublicQuestionLayout,
+  PublicQuestionSearchResult,
   PublicQuestionSummary,
+  QuestionSearchFilters,
 } from '../../src/public/contracts'
 import { normalizeQuestionKey } from '../../src/public/questionKeys'
 import { completePairGroups, isMatchedSwapPair, isPromptPlaceholder } from './reportGlobalCohort'
@@ -208,6 +210,73 @@ export function buildTopQuestionSummaries(evidence: PublicEvidenceItem[], limit 
       || left.questionKey.localeCompare(right.questionKey)
     ))
     .slice(0, limit)
+}
+
+const OUTCOME_ORDER: PublicEvidenceItem['classification'][] = ['answered', 'soft-refusal', 'hard-refusal', 'empty', 'error']
+
+function questionMatchesFilters(summary: PublicQuestionSummary, records: PublicEvidenceItem[], filters: QuestionSearchFilters): boolean {
+  const tokens = (filters.query ?? '').toLowerCase().split(/\s+/).filter(Boolean)
+  if (tokens.length > 0) {
+    const haystack = [summary.questionText, ...summary.groupLabels].join(' ').toLowerCase()
+    if (!tokens.every((token) => haystack.includes(token))) return false
+  }
+  const group = filters.group?.toLowerCase()
+  if (group && !summary.groupLabels.some((label) => label.toLowerCase() === group)) return false
+  if (filters.model && !records.some((item) => item.modelId === filters.model)) return false
+  if (filters.outcome && !records.some((item) => item.classification === filters.outcome)) return false
+  if (filters.from || filters.to) {
+    const inRange = records.some((item) => {
+      const day = item.receivedAt.slice(0, 10)
+      return (!filters.from || day >= filters.from) && (!filters.to || day <= filters.to)
+    })
+    if (!inRange) return false
+  }
+  return true
+}
+
+/**
+ * Full-text search and faceted filtering over every pooled question. Facet
+ * option lists always describe the whole pool so the controls stay populated
+ * while a filter is active.
+ */
+export function searchQuestionSummaries(evidence: PublicEvidenceItem[], filters: QuestionSearchFilters, limit = 100): PublicQuestionSearchResult {
+  const canonicalEvidence = canonicalizeLegacyQuestions(evidence)
+  const groups = new Map<string, PublicEvidenceItem[]>()
+  for (const item of canonicalEvidence) {
+    const key = normalizeQuestionKey(item.question)
+    if (key === '__missing_question__') continue
+    groups.set(key, [...(groups.get(key) ?? []), item])
+  }
+  const entries = [...groups.entries()]
+    .map(([key, records]) => ({ summary: toSummary(key, records), records }))
+    .filter((entry): entry is { summary: PublicQuestionSummary; records: PublicEvidenceItem[] } => entry.summary !== null)
+    .sort((left, right) => (
+      right.summary.answerCount - left.summary.answerCount
+      || right.summary.runCount - left.summary.runCount
+      || left.summary.questionKey.localeCompare(right.summary.questionKey)
+    ))
+  const groupFacet = new Map<string, string>()
+  const modelFacet = new Set<string>()
+  const outcomeFacet = new Set<PublicEvidenceItem['classification']>()
+  for (const entry of entries) {
+    for (const label of entry.summary.groupLabels) {
+      if (!groupFacet.has(label.toLowerCase())) groupFacet.set(label.toLowerCase(), label)
+    }
+    for (const item of entry.records) {
+      modelFacet.add(item.modelId)
+      outcomeFacet.add(item.classification)
+    }
+  }
+  const matches = entries.filter((entry) => questionMatchesFilters(entry.summary, entry.records, filters))
+  return {
+    questions: matches.slice(0, limit).map((entry) => entry.summary),
+    total: matches.length,
+    facets: {
+      groups: [...groupFacet.values()].sort((left, right) => left.localeCompare(right)),
+      models: [...modelFacet].sort((left, right) => left.localeCompare(right)),
+      outcomes: OUTCOME_ORDER.filter((outcome) => outcomeFacet.has(outcome)),
+    },
+  }
 }
 
 function toInstance(variantA: PublicEvidenceItem, variantB: PublicEvidenceItem): PublicQuestionInstance {

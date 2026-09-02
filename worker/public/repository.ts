@@ -1,8 +1,8 @@
-import type { PublicEvidenceItem, PublicLeaderboard, PublicModelAggregate, PublicQuestionDetail, PublicSubmission, GeneratedReportSummary } from '../../src/public/contracts'
+import type { PublicEvidenceItem, PublicLeaderboard, PublicModelAggregate, PublicQuestionDetail, PublicQuestionSearchResult, PublicSubmission, QuestionSearchFilters, GeneratedReportSummary } from '../../src/public/contracts'
 import { generatedReportSummarySchema } from '../../src/public/contracts'
 import type { D1DatabaseLike } from './d1'
 import { PublicRunPublisher } from './publicRunPublisher'
-import { buildQuestionDetail, buildTopQuestionSummaries } from './questionLeaderboard'
+import { buildQuestionDetail, buildTopQuestionSummaries, searchQuestionSummaries } from './questionLeaderboard'
 import { ensureQuestionKeys } from './questionKeyMaintenance'
 import { buildQuestionCatalog } from './reportGlobalCohort'
 import { readCachedLeaderboard, readCachedQuestionDetail, writeCachedLeaderboard, writeCachedQuestionDetail } from './readCache'
@@ -41,6 +41,13 @@ const evidenceSelect = `SELECT id, run_id, pair_index, run_index, question, vari
 
 const catalogEvidenceSelect = `SELECT id, run_id, pair_index, run_index, question, variant_key, variant_label, provider, model_id, prompt, status, received_at
   FROM public_evidence`
+
+const searchEvidenceSelect = `SELECT id, run_id, pair_index, run_index, question, variant_key, variant_label, provider, model_id, prompt, status, classification, received_at
+  FROM public_evidence`
+
+function mapSearchEvidenceRow(row: Record<string, unknown>): PublicEvidenceItem {
+  return { ...mapCatalogEvidenceRow(row), classification: s(row.classification) as PublicEvidenceItem['classification'] }
+}
 
 export class PublicRepository {
   constructor(private readonly db: D1DatabaseLike) {}
@@ -103,6 +110,12 @@ export class PublicRepository {
     }
     writeCachedLeaderboard(leaderboard)
     return leaderboard
+  }
+
+  async searchQuestions(filters: QuestionSearchFilters): Promise<PublicQuestionSearchResult> {
+    await ensureQuestionKeys(this.db)
+    const rows = (await this.db.prepare(searchEvidenceSelect).all()).results ?? []
+    return searchQuestionSummaries(rows.map(mapSearchEvidenceRow), filters)
   }
 
   async getQuestionDetail(questionKey: string): Promise<PublicQuestionDetail | null> {

@@ -34,6 +34,7 @@ vi.mock('./public/client', () => ({
   createQuestionProposal: vi.fn(),
   createClaim: vi.fn(),
   requestQuestionSetReport: vi.fn(),
+  searchPublicQuestions: vi.fn().mockResolvedValue({ questions: [], total: 0, facets: { groups: [], models: [], outcomes: [] } }),
 }))
 
 describe('application navigation', () => {

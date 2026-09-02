@@ -10,6 +10,7 @@ function dependencies() {
       getLeaderboard: vi.fn(async () => leaderboard),
       getQuestionDetail: vi.fn(async () => null),
       getAllowance: vi.fn(async () => ({ remaining: 2, dailyRemaining: 250 })),
+      searchQuestions: vi.fn(async () => ({ questions: [], total: 0, facets: { groups: [], models: [], outcomes: [] } })),
     },
     reportRepository: {
       claimRunReport: vi.fn(async () => ({ kind: 'claimed', report: { id: 'report-1', scope: 'run', status: 'pending', title: null, responseCount: 0, completePairs: 0, modelCount: 0, createdAt: 'now', completedAt: null } })),
@@ -49,6 +50,25 @@ function dependencies() {
 }
 
 describe('public API routes', () => {
+  it('searches questions with validated facet filters and drops malformed values', async () => {
+    const deps = dependencies()
+    const response = await handlePublicApi(new Request(
+      'https://ai-tests.com/api/public/question-search?q=hiring&group=White&model=model%2Fa&outcome=soft-refusal&from=2026-08-01&to=not-a-date',
+    ), {} as never, { waitUntil: vi.fn() }, deps as never)
+    expect(response?.status).toBe(200)
+    expect(response?.headers.get('Cache-Control')).toContain('public')
+    expect(deps.repository.searchQuestions).toHaveBeenCalledWith({
+      query: 'hiring', group: 'White', model: 'model/a', outcome: 'soft-refusal', from: '2026-08-01', to: undefined,
+    })
+    const invalidOutcome = await handlePublicApi(new Request(
+      'https://ai-tests.com/api/public/question-search?outcome=weird',
+    ), {} as never, { waitUntil: vi.fn() }, deps as never)
+    expect(invalidOutcome?.status).toBe(200)
+    expect(deps.repository.searchQuestions).toHaveBeenLastCalledWith({
+      query: undefined, group: undefined, model: undefined, outcome: undefined, from: undefined, to: undefined,
+    })
+  })
+
   it('lists unanswered proposals and accepts a free proposal without running a model', async () => {
     const deps = dependencies()
     const list = await handlePublicApi(new Request('https://ai-tests.com/api/public/question-proposals?status=unanswered'), {} as never, { waitUntil: vi.fn() }, deps as never)

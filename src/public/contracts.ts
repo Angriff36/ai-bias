@@ -556,6 +556,34 @@ export const publicQuestionSummarySchema: z.ZodType<PublicQuestionSummary> = z.o
   lastSeenAt: z.string(),
 })
 
+export const questionSearchOutcomes = ['answered', 'soft-refusal', 'hard-refusal', 'empty', 'error'] as const
+export type QuestionSearchOutcome = typeof questionSearchOutcomes[number]
+
+/** Search words and facet filters over the whole public question pool. An empty field means "any". */
+export interface QuestionSearchFilters {
+  query?: string
+  group?: string
+  model?: string
+  outcome?: QuestionSearchOutcome
+  /** Inclusive UTC day bounds (YYYY-MM-DD) an answer must fall inside. */
+  from?: string
+  to?: string
+}
+
+export interface PublicQuestionSearchResult {
+  questions: PublicQuestionSummary[]
+  /** How many questions matched, before the result cap. */
+  total: number
+  /** Every value a visitor can filter on, computed from the whole pool (not the matches). */
+  facets: { groups: string[]; models: string[]; outcomes: string[] }
+}
+
+export const publicQuestionSearchSchema: z.ZodType<PublicQuestionSearchResult> = z.object({
+  questions: z.array(publicQuestionSummarySchema),
+  total: z.number().int().min(0),
+  facets: z.object({ groups: z.array(z.string()), models: z.array(z.string()), outcomes: z.array(z.string()) }),
+})
+
 const classificationSchema = z.enum(['hard-refusal', 'soft-refusal', 'empty', 'error', 'answered'])
 
 // Older API responses lack the run position; treat them as position 0 so the page still renders.

@@ -39,7 +39,8 @@ describe('LeaderboardPage (Top Questions)', () => {
     render(<LeaderboardPage load={vi.fn(async () => data)} />)
     expect(await screen.findByRole('heading', { name: 'Top Questions' })).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Identity' }).getAttribute('href')).toBe('#/leaderboard/questions/identity')
-    expect(screen.getByText('Asian')).toBeTruthy()
+    // 'Asian' appears both as a row group chip and as a Group filter option.
+    expect(screen.getAllByText('Asian').length).toBeGreaterThan(0)
     expect(screen.getByText('42')).toBeTruthy()
     expect(screen.queryByText('Bias Score')).toBeNull()
   })
@@ -130,6 +131,41 @@ describe('LeaderboardPage (Top Questions)', () => {
     expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('100')
     expect(screen.getByRole('link', { name: 'Open completed report' }).getAttribute('href'))
       .toBe('/api/public/reports/report-9.html')
+  })
+
+  it('searches the pool by keywords and shows only the matching questions', async () => {
+    const search = vi.fn(async () => ({
+      questions: data.topQuestions.slice(1),
+      total: 1,
+      facets: { groups: ['Black', 'White'], models: ['model/a'], outcomes: ['answered'] },
+    }))
+    render(<LeaderboardPage load={vi.fn(async () => data)} search={search} />)
+    await screen.findByRole('heading', { name: 'Top Questions' })
+    expect(screen.getByRole('link', { name: 'Identity' })).toBeTruthy()
+
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Search questions' }), 'hiring')
+    expect(await screen.findByText('1 question matches your search.')).toBeTruthy()
+    expect(search).toHaveBeenLastCalledWith(expect.objectContaining({ query: 'hiring' }))
+    expect(screen.getByRole('link', { name: 'Write a hiring recommendation.' })).toBeTruthy()
+    expect(screen.queryByRole('link', { name: 'Identity' })).toBeNull()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
+    expect(await screen.findByRole('link', { name: 'Identity' })).toBeTruthy()
+  })
+
+  it('sends facet filters to the search and lists the server facet options', async () => {
+    const search = vi.fn(async () => ({
+      questions: [],
+      total: 0,
+      facets: { groups: ['Asian', 'Black', 'White'], models: ['model/a', 'model/b'], outcomes: ['answered', 'soft-refusal'] },
+    }))
+    render(<LeaderboardPage load={vi.fn(async () => data)} search={search} />)
+    await screen.findByRole('heading', { name: 'Top Questions' })
+
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Filter by group' }), 'White')
+    expect(await screen.findByText('No questions match these filters. Clear a filter or try different words.')).toBeTruthy()
+    expect(search).toHaveBeenLastCalledWith(expect.objectContaining({ group: 'White' }))
+    expect(screen.getByRole('option', { name: 'model/b' })).toBeTruthy()
   })
 
   it('limits the list to 20, 50, or 100 questions', async () => {

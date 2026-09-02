@@ -1,8 +1,10 @@
 import { useCallback, useMemo, useState } from 'react'
 import './submittedPrompts.css'
 import type { PublicQuestionAnswer, PublicQuestionDetail, PublicQuestionGroup } from './contracts'
+import { CiteButton } from './CiteButton'
 import { getPublicQuestionDetail } from './client'
 import { evidenceTime } from './leaderboardUi'
+import { questionLeaderboardHref } from './questionKeys'
 import { usePublicFetch } from './usePublicFetch'
 
 const CLASS_LABELS: Record<PublicQuestionAnswer['classification'], string> = {
@@ -219,6 +221,12 @@ export function QuestionDetailPage({
               {groups.map((group) => `${group.count.toLocaleString()} × ${group.label}`).join(' · ')}
               {' · '}{detail.modelCount.toLocaleString()} {detail.modelCount === 1 ? 'model' : 'models'}
             </p>
+            <CiteButton subject={{
+              kind: 'question',
+              title: detail.questionText,
+              path: `/${questionLeaderboardHref(detail.questionKey)}`,
+              evidenceIdentifiers: groups.flatMap((group) => group.answers.map((answer) => answer.id)),
+            }} />
           </header>
 
           {isPair && (

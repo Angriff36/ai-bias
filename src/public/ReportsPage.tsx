@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { EmptyState, SkeletonRows } from '../components/EmptyState'
+import { CiteButton } from './CiteButton'
 import { listGeneratedReports } from './client'
 import type { GeneratedReportSummary } from './contracts'
 import { invalidatePublicCache } from './publicApiCache'
@@ -91,6 +92,19 @@ export function ReportsPage() {
               <td>
                 <a className="report-link" href={`/api/public/reports/${report.id}.html`}>{report.title ?? 'Untitled research report'}</a>
                 <span className="muted"> {report.responseCount.toLocaleString()} responses · {report.modelCount.toLocaleString()} {report.modelCount === 1 ? 'model' : 'models'}</span>
+                <CiteButton subject={{
+                  kind: 'report',
+                  title: report.title ?? 'Untitled research report',
+                  path: `/api/public/reports/${report.id}.html`,
+                  // A published report is frozen; these fields describe its evidence state.
+                  evidenceIdentifiers: [
+                    `report:${report.id}`,
+                    `completed:${report.completedAt ?? report.createdAt}`,
+                    `responses:${report.responseCount}`,
+                    `pairs:${report.completePairs}`,
+                    `models:${report.modelCount}`,
+                  ],
+                }} />
               </td>
               <td>{new Date(report.completedAt ?? report.createdAt).toLocaleDateString()}</td>
             </tr>

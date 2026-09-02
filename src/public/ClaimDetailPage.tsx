@@ -2,6 +2,7 @@ import { useCallback } from 'react'
 import './submittedPrompts.css'
 import './conclusions.css'
 import type { ClaimFinding, PublicClaim, PublicLeaderboard } from './contracts'
+import { CiteButton } from './CiteButton'
 import { getPublicLeaderboard, listClaims } from './client'
 import { verdictLabel } from './conclusionsRow'
 import { evidenceTime } from './leaderboardUi'
@@ -83,6 +84,18 @@ export function ClaimDetailPage({
           <header className="claim-detail-header">
             <p className="eyebrow">Claim · written {evidenceTime(claim.createdAt)}</p>
             <h2>{claim.text}</h2>
+            <CiteButton subject={{
+              kind: 'claim',
+              title: claim.text,
+              path: `/#/conclusions/claims/${encodeURIComponent(claim.id)}`,
+              evidenceIdentifiers: [
+                `claim:${claim.id}`,
+                `verdict:${claim.verdict ?? claim.evaluationStatus}`,
+                `evaluated:${claim.evaluatedAt ?? ''}`,
+                ...claim.supportingFindings.flatMap((finding) => finding.evidenceIds),
+                ...claim.counterFindings.flatMap((finding) => finding.evidenceIds),
+              ],
+            }} />
           </header>
 
           <section className={`claim-answer-card verdict-${claim.verdict ?? claim.evaluationStatus}`} aria-labelledby="claim-answer-title">

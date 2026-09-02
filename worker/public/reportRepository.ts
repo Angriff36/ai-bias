@@ -291,11 +291,24 @@ export class GeneratedReportRepository {
       )`).bind(now, reportId, analysisId, reportId, leaseOwner)))
   }
 
-  async getQueuedAnalysisStatus(reportId: string, analysisId: string): Promise<'pending' | 'complete' | 'failed' | null> {
-    const row = await this.db.prepare(`SELECT c.status FROM report_analysis_checkpoints c
-      JOIN generated_reports r ON r.id=c.report_id WHERE c.report_id=? AND c.analysis_id=? AND r.status='pending'`)
-      .bind(reportId, analysisId).first<{ status: 'pending' | 'complete' | 'failed' }>()
-    return row?.status ?? null
+  async claimQueuedAnalysis(
+    reportId: string,
+    analysisId: string,
+    now: string,
+    retry: boolean,
+  ): Promise<'claimed' | 'complete' | 'unavailable'> {
+    const claimed = await this.db.prepare(`UPDATE report_analysis_checkpoints SET completed_at=?
+      WHERE report_id=? AND analysis_id=? AND status='pending' AND (completed_at IS NULL OR ?=1)`)
+      .bind(now, reportId, analysisId, retry ? 1 : 0).run()
+    if ((claimed.meta?.changes ?? 0) > 0) return 'claimed'
+    const row = await this.db.prepare(`SELECT status FROM report_analysis_checkpoints
+      WHERE report_id=? AND analysis_id=?`).bind(reportId, analysisId).first<{ status: string }>()
+    return row?.status === 'complete' ? 'complete' : 'unavailable'
+  }
+
+  async releaseQueuedAnalysisClaim(reportId: string, analysisId: string): Promise<void> {
+    await this.db.prepare(`UPDATE report_analysis_checkpoints SET completed_at=NULL
+      WHERE report_id=? AND analysis_id=? AND status='pending'`).bind(reportId, analysisId).run()
   }
 
   async completeQueuedAnalysis(
@@ -365,7 +378,7 @@ export class GeneratedReportRepository {
       return current ? { report: this.summary(current), started: false } : null
     }
     if (row.status === 'failed') {
-      await this.resetIncompleteAnalysisCheckpoints(reportId)
+      await this.resetRetryableAnalysisCheckpoints(reportId)
     }
     return {
       report: this.summary({ ...row, status: 'pending', generationLeaseUntil: leaseUntil, generationLeaseOwner: leaseOwner }),
@@ -419,18 +432,23 @@ export class GeneratedReportRepository {
       row = { ...row, status: 'failed', generationLeaseUntil: null, generationLeaseOwner: null }
     }
     if (row.status !== 'failed') return { kind: 'existing', report: this.summary(row) }
-    await this.db.prepare(`UPDATE generated_reports
+    const reclaimed = await this.db.prepare(`UPDATE generated_reports
       SET status='pending', error_code=NULL, created_at=?, scoring_model_id=?, synthesis_model_id=?
       WHERE id=? AND status='failed' AND generation_lease_owner IS NULL`)
       .bind(now, SCORING_MODEL, SYNTHESIS_MODEL, row.id).run()
-    await this.resetIncompleteAnalysisCheckpoints(row.id)
+    if ((reclaimed.meta?.changes ?? 0) === 0) {
+      const current = await this.getRow(row.id)
+      return { kind: 'existing', report: this.summary(current ?? row) }
+    }
+    await this.resetRetryableAnalysisCheckpoints(row.id)
     return { kind: 'claimed', report: this.summary({ ...row, status: 'pending', createdAt: now }) }
   }
 
-  private async resetIncompleteAnalysisCheckpoints(reportId: string): Promise<void> {
+  private async resetRetryableAnalysisCheckpoints(reportId: string): Promise<void> {
     await this.db.prepare(`UPDATE report_analysis_checkpoints
       SET status='pending', enqueued_at=NULL, completed_at=NULL, error_code=NULL
-      WHERE report_id=? AND status<>'complete'`).bind(reportId).run()
+      WHERE report_id=? AND (status='failed' OR (status='pending' AND completed_at IS NULL))`)
+      .bind(reportId).run()
   }
 
   private async finalizeStoredDocumentIfValid(row: ReportRow, now: string): Promise<ReportRow | null> {

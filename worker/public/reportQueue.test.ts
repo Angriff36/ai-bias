@@ -120,7 +120,8 @@ describe('report generation Queue execution', () => {
     const finalize = vi.fn(async () => undefined)
     await processReportQueueMessage(item, {
       repository: {
-        getQueuedAnalysisStatus: vi.fn(), completeQueuedAnalysis: vi.fn(), failQueuedAnalysis: vi.fn(),
+        claimQueuedAnalysis: vi.fn(), releaseQueuedAnalysisClaim: vi.fn(),
+        completeQueuedAnalysis: vi.fn(), failQueuedAnalysis: vi.fn(),
         claimReportFinalization: vi.fn(async () => 'retry-owner'),
       },
       judge, finalize, now: () => '2026-09-02T00:00:00.000Z',
@@ -136,7 +137,8 @@ describe('report generation Queue execution', () => {
     const item = delivery(body)
     const order: string[] = []
     const repository = {
-      getQueuedAnalysisStatus: vi.fn(async () => 'pending' as const),
+      claimQueuedAnalysis: vi.fn(async () => 'claimed' as const),
+      releaseQueuedAnalysisClaim: vi.fn(async () => undefined),
       completeQueuedAnalysis: vi.fn(async () => { order.push('checkpoint'); return { allComplete: false } }),
       failQueuedAnalysis: vi.fn(async () => undefined),
       claimReportFinalization: vi.fn(async () => null),
@@ -165,7 +167,8 @@ describe('report generation Queue execution', () => {
       return scoreFor({ version: 1, reportId: 'report-queue', analysisId: 'temporary', cell })
     }) }
     const repository = {
-      getQueuedAnalysisStatus: vi.fn(async () => 'pending' as const),
+      claimQueuedAnalysis: vi.fn(async () => 'claimed' as const),
+      releaseQueuedAnalysisClaim: vi.fn(async () => undefined),
       completeQueuedAnalysis: vi.fn(async () => ({ allComplete: false })),
       failQueuedAnalysis: vi.fn(async () => undefined),
       claimReportFinalization: vi.fn(async () => null),
@@ -184,7 +187,8 @@ describe('report generation Queue execution', () => {
     const body = message(2)
     const item = delivery(body, 2)
     const repository = {
-      getQueuedAnalysisStatus: vi.fn(async () => 'complete' as const),
+      claimQueuedAnalysis: vi.fn(async () => 'complete' as const),
+      releaseQueuedAnalysisClaim: vi.fn(async () => undefined),
       completeQueuedAnalysis: vi.fn(),
       failQueuedAnalysis: vi.fn(),
       claimReportFinalization: vi.fn(async () => null),
@@ -204,7 +208,8 @@ describe('report generation Queue execution', () => {
     const second = delivery(body, 2)
     let status: 'pending' | 'complete' = 'pending'
     const repository = {
-      getQueuedAnalysisStatus: vi.fn(async () => status),
+      claimQueuedAnalysis: vi.fn(async () => status === 'complete' ? 'complete' as const : 'claimed' as const),
+      releaseQueuedAnalysisClaim: vi.fn(async () => undefined),
       completeQueuedAnalysis: vi.fn(async () => { status = 'complete'; return { allComplete: false } }),
       failQueuedAnalysis: vi.fn(),
       claimReportFinalization: vi.fn(async () => null),
@@ -217,6 +222,7 @@ describe('report generation Queue execution', () => {
     await processReportQueueMessage(second, { repository, judge, finalize: vi.fn(), now: () => 'now' })
 
     expect(first.retry).toHaveBeenCalledTimes(1)
+    expect(repository.releaseQueuedAnalysisClaim).toHaveBeenCalledWith(body.reportId, body.analysisId)
     expect(first.ack).not.toHaveBeenCalled()
     expect(second.ack).toHaveBeenCalledTimes(1)
     expect(repository.completeQueuedAnalysis).toHaveBeenCalledTimes(1)
@@ -226,7 +232,8 @@ describe('report generation Queue execution', () => {
     const items = [delivery(message(4)), delivery(message(5))]
     let claimed = false
     const repository = {
-      getQueuedAnalysisStatus: vi.fn(async () => 'pending' as const),
+      claimQueuedAnalysis: vi.fn(async () => 'claimed' as const),
+      releaseQueuedAnalysisClaim: vi.fn(async () => undefined),
       completeQueuedAnalysis: vi.fn(async () => ({ allComplete: true })),
       failQueuedAnalysis: vi.fn(),
       claimReportFinalization: vi.fn(async () => {

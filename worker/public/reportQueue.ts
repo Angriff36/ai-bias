@@ -34,7 +34,8 @@ interface EnqueueRepository {
 }
 
 interface ConsumerRepository {
-  getQueuedAnalysisStatus(reportId: string, analysisId: string): Promise<'pending' | 'complete' | 'failed' | null>
+  claimQueuedAnalysis(reportId: string, analysisId: string, now: string, retry: boolean): Promise<'claimed' | 'complete' | 'unavailable'>
+  releaseQueuedAnalysisClaim(reportId: string, analysisId: string): Promise<void>
   completeQueuedAnalysis(reportId: string, analysisId: string, scores: GeneratedReportPairScore[], now: string): Promise<{ allComplete: boolean }>
   failQueuedAnalysis(reportId: string, analysisId: string, code: string, now: string): Promise<void>
   claimReportFinalization(reportId: string, now: string): Promise<string | null>
@@ -146,13 +147,15 @@ export async function processReportQueueMessage(
       delivery.ack()
       return
     }
-    const status = await dependencies.repository.getQueuedAnalysisStatus(reportId, analysisId)
-    let allComplete = status === 'complete'
-    if (status !== 'complete') {
-      if (status == null || status === 'failed') {
-        delivery.ack()
-        return
-      }
+    const claim = await dependencies.repository.claimQueuedAnalysis(
+      reportId, analysisId, dependencies.now(), delivery.attempts > 1,
+    )
+    let allComplete = claim === 'complete'
+    if (claim === 'unavailable') {
+      delivery.ack()
+      return
+    }
+    if (claim === 'claimed') {
       const scores = await dependencies.judge.score(cell)
       allComplete = (await dependencies.repository.completeQueuedAnalysis(
         reportId, analysisId, scores, dependencies.now(),
@@ -165,6 +168,7 @@ export async function processReportQueueMessage(
     delivery.ack()
   } catch (error) {
     if (delivery.attempts <= REPORT_QUEUE_MAX_RETRIES) {
+      await dependencies.repository.releaseQueuedAnalysisClaim(reportId, analysisId)
       delivery.retry()
       return
     }

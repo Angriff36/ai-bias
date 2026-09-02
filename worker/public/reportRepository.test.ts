@@ -160,7 +160,7 @@ describe('generated report evidence preparation', () => {
     ])
   })
 
-  it('re-enqueues every incomplete analysis checkpoint when a failed report is retried', async () => {
+  it('re-enqueues failed and stale orphaned analysis checkpoints when a failed report is retried', async () => {
     const row = {
       id: 'failed-report', scope: 'global', public_run_id: null, response_watermark: 1,
       cohort_fingerprint: null, cohort_snapshot_json: null, status: 'failed', error_code: 'judge failed',
@@ -188,10 +188,11 @@ describe('generated report evidence preparation', () => {
 
     expect(prepared?.started).toBe(true)
     expect(statements.some((sql) => sql.includes('UPDATE report_analysis_checkpoints')
-      && sql.includes("status<>'complete'") && sql.includes("status='pending'") && sql.includes('enqueued_at=NULL'))).toBe(true)
+      && sql.includes("status='failed'") && sql.includes("status='pending'")
+      && sql.includes('completed_at IS NULL') && sql.includes('enqueued_at=NULL'))).toBe(true)
   })
 
-  it('re-enqueues incomplete checkpoints when an existing failed run report is reclaimed', async () => {
+  it('re-enqueues failed checkpoints when an existing failed run report is reclaimed', async () => {
     const row = {
       id: 'failed-report', scope: 'run', public_run_id: 'run-a', response_watermark: null,
       cohort_fingerprint: null, cohort_snapshot_json: null, status: 'failed', error_code: 'judge failed',
@@ -216,7 +217,57 @@ describe('generated report evidence preparation', () => {
     await new GeneratedReportRepository(db).claimRunReport('run-a', '2026-09-02T00:00:00.000Z')
 
     expect(statements.some((sql) => sql.includes('UPDATE report_analysis_checkpoints')
-      && sql.includes("status<>'complete'") && sql.includes('enqueued_at=NULL'))).toBe(true)
+      && sql.includes("status='failed'") && sql.includes('enqueued_at=NULL'))).toBe(true)
+  })
+
+  it('keeps an enqueued sibling analysis claimable after another analysis fails the report', async () => {
+    const db: D1DatabaseLike = {
+      prepare(sql: string) {
+        const statement: D1Statement = {
+          bind: () => statement,
+          first: async <T>() => (sql.includes('JOIN generated_reports') ? null : { status: 'pending' }) as T,
+          all: async <T>() => ({ results: [] as T[] }),
+          run: async <T>() => ({ meta: { changes: 1 } }) as D1Result<T>,
+        }
+        return statement
+      },
+      batch: async () => [],
+    }
+
+    await expect(new GeneratedReportRepository(db).claimQueuedAnalysis(
+      'failed-report', 'sibling', '2026-09-02T00:00:00.000Z', false,
+    )).resolves.toBe('claimed')
+  })
+
+  it('does not reset checkpoints when another request wins failed-report reclaim', async () => {
+    const row = {
+      id: 'failed-report', scope: 'run', public_run_id: 'run-a', response_watermark: null,
+      cohort_fingerprint: null, cohort_snapshot_json: null, status: 'failed', error_code: 'judge failed',
+      scoring_model_id: 'openai/gpt-5.6-luna', synthesis_model_id: 'x-ai/grok-4.6',
+      title: null, structured_json: null, created_at: '2026-09-01T00:00:00.000Z', completed_at: null,
+      generation_lease_until: null, generation_lease_owner: null,
+    }
+    const statements: string[] = []
+    const db: D1DatabaseLike = {
+      prepare(sql: string) {
+        const statement: D1Statement = {
+          bind: () => statement,
+          first: async <T>() => row as T,
+          all: async <T>() => ({ results: [] as T[] }),
+          run: async <T>() => {
+            statements.push(sql)
+            return { meta: { changes: 0 } } as D1Result<T>
+          },
+        }
+        return statement
+      },
+      batch: async () => [],
+    }
+
+    const result = await new GeneratedReportRepository(db).claimRunReport('run-a', '2026-09-02T00:00:00.000Z')
+
+    expect(result.kind).toBe('existing')
+    expect(statements.some((sql) => sql.includes('UPDATE report_analysis_checkpoints'))).toBe(false)
   })
 
   it('does not steal an active long-running generation lease from another browser', async () => {

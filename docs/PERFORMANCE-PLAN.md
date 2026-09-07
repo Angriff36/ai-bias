@@ -61,3 +61,18 @@ Landing page waterfall today: HTML → main script → route chunk → API chunk
 - Origin cache control and `s-maxage` semantics: https://developers.cloudflare.com/cache/concepts/cache-control/
 - Request waterfalls: https://tanstack.com/query/latest/docs/framework/react/guides/request-waterfalls
 - Module preloading: https://blacksheepcode.com/posts/loading_optimisations_part_4
+
+## Implemented (branch `perf/fast-public-reads`, 2026-09-06)
+
+| Plan item | Where | Note |
+|---|---|---|
+| Stored snapshots for public reads | `worker/public/readCache.ts`, `repository.ts`, `claimRepository.ts`, `routes.ts` | One D1 row per read. Stale row served at once, refreshed after the response. Generation counters (not clocks) stop a late recompute from overwriting a newer write. No per-isolate memory copy. |
+| Stop sending unused answers | `repository.ts` | `recentEvidence` is always empty; no page rendered it. |
+| Edge cache | `routes.ts` | Kept at 60 s (writes can purge only their own data centre). Misses are cheap now. |
+| Early data fetch | `index.html`, `src/public/client.ts` | Inline classic script starts the route's API request before any bundle; the client consumes it once. |
+| Shell first | `src/App.tsx` | Header and tabs render at once; only private sections wait for the browser database. |
+| Eager private-workspace open | `src/main.tsx` | Starts the SQL engine and IndexedDB open in parallel with React on private routes. |
+| Hover prefetch | `src/App.tsx` | Pointer-enter or focus on a tab downloads its code. |
+| Early Hints | `worker/router.ts` | `Link: modulepreload / preload` headers on the HTML; inline script allowed by sha256 in the CSP. Cloudflare must have Early Hints enabled on the zone for the 103 response. |
+
+Review: four Codex (gpt-5.6-sol) passes found and fixed: a late refresh resurrecting invalidated data, claims not cleared on report completion, pending verdicts pinned at the edge, per-isolate memory hiding cross-isolate writes, clock-skew ordering, analysis state not clearing the leaderboard.

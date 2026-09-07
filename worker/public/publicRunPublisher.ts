@@ -5,7 +5,7 @@ import { thresholdsCrossed } from './analysis'
 import type { D1DatabaseLike, D1Statement } from './d1'
 import { PublicRunPublishPlan } from './publicRunPublishPlan'
 import { aggregateSubmission, type ModelContribution, totalCompletePairs } from './publicSubmissionStats'
-import { invalidatePublicReadCache } from './readCache'
+import { invalidateSnapshots } from './readCache'
 
 export type PublicPublishResult = {
   runId: string
@@ -155,6 +155,6 @@ export class PublicRunPublisher {
     for (let index = 0; index < statements.length; index += 40) {
       await this.db.batch(statements.slice(index, index + 40))
     }
-    invalidatePublicReadCache()
+    await invalidateSnapshots(this.db, 'all')
   }
 }

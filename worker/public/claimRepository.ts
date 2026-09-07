@@ -8,7 +8,7 @@ import {
 } from './claimAdjudication'
 import type { D1DatabaseLike } from './d1'
 import { indexEvidenceByQuestionKey } from './questionLeaderboard'
-import { readCachedClaims, writeCachedClaims } from './readCache'
+import { invalidateSnapshots, readThrough } from './readCache'
 import { REPORT_DIMENSIONS } from './reportDimensions'
 
 const n = (value: unknown) => Number(value ?? 0)
@@ -92,6 +92,8 @@ export interface ClaimListOptions {
 }
 
 const EVALUATION_LEASE_MS = 2 * 60_000
+/** A stored claims list is served for this long; a finished evaluation or a new claim clears it early. */
+const CLAIMS_SNAPSHOT_TTL_MS = 5 * 60_000
 
 export class ClaimRepository {
   constructor(
@@ -100,21 +102,22 @@ export class ClaimRepository {
   ) {}
 
   async list(options: ClaimListOptions = {}): Promise<PublicClaim[]> {
-    const cached = readCachedClaims()
-    if (cached) return cached
+    return readThrough(this.db, 'claims', () => this.computeList(options), {
+      ttlMs: CLAIMS_SNAPSHOT_TTL_MS,
+      defer: options.deferEvaluation ? (work) => options.deferEvaluation?.(() => work.then(() => undefined)) : undefined,
+    })
+  }
+
+  private async computeList(options: ClaimListOptions): Promise<PublicClaim[]> {
     const rows = (await this.db.prepare(`SELECT id, text, question_keys_json, created_at,
       adjudication_json, evidence_fingerprint, evaluated_at, evaluation_status, evaluation_error
       FROM claims ORDER BY created_at DESC`).all()).results ?? []
-    if (rows.length === 0) {
-      writeCachedClaims([])
-      return []
-    }
+    if (rows.length === 0) return []
     const reports = await this.completeReportKeys()
     const revision = await this.evidenceRevision()
     const persisted = rows.map((row) => this.persistedClaim(row, reports))
     if (persisted.every((claim): claim is PublicClaim => claim != null)
       && rows.every((row) => s(row.evaluation_status) === 'complete' && s(row.evaluated_at) >= revision)) {
-      writeCachedClaims(persisted)
       return persisted
     }
     const evidence = ((await this.db.prepare(`${evidenceSelect} ORDER BY received_at, id`).all()).results ?? []).map(mapEvidenceRow)
@@ -138,7 +141,6 @@ export class ClaimRepository {
           .map((report) => ({ id: report.id, title: report.title })),
       })
     }
-    writeCachedClaims(claims)
     return claims
   }
 
@@ -231,14 +233,14 @@ export class ClaimRepository {
       await this.db.prepare(`UPDATE claims SET adjudication_json = ?, evidence_fingerprint = ?, evaluated_at = ?,
         evaluation_status = 'complete', evaluation_error = NULL WHERE id = ?`)
         .bind(JSON.stringify(adjudication), summary.evidenceFingerprint, evaluatedAt, claimId).run()
-      writeCachedClaims(null)
+      await invalidateSnapshots(this.db, ['claims'])
       return { evaluationStatus: 'complete', ...adjudication, evaluatedAt }
     } catch (error) {
       const message = error instanceof Error ? error.message.slice(0, 500) : 'Claim evaluation failed.'
       await this.db.prepare(`UPDATE claims SET evidence_fingerprint = ?, evaluated_at = ?,
         evaluation_status = 'failed', evaluation_error = ? WHERE id = ?`)
         .bind(summary.evidenceFingerprint, evaluatedAt, message, claimId).run()
-      writeCachedClaims(null)
+      await invalidateSnapshots(this.db, ['claims'])
       return this.emptyAdjudication('failed', summary.coverage, evaluatedAt)
     }
   }
@@ -288,7 +290,7 @@ export class ClaimRepository {
       .bind(id, cleanText, JSON.stringify(keys), now, start, DAILY_CLAIM_LIMIT).run()
     const stored = await this.db.prepare('SELECT id FROM claims WHERE lower(text) = lower(?) LIMIT 1').bind(cleanText).first<{ id: string }>()
     if (!stored) return { kind: 'limited' }
-    writeCachedClaims(null)
+    await invalidateSnapshots(this.db, ['claims'])
     const claim = (await this.list()).find((item) => item.id === stored.id)
     if (!claim) throw new Error('Could not read the claim back.')
     return { kind: stored.id === id ? 'created' : 'duplicate', claim }

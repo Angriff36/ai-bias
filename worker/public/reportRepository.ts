@@ -19,7 +19,7 @@ import {
 import { parseStoredReportDocument } from './reportDocumentParse'
 import { buildPairSampleId, comparisonIdentity, groupCompleteMatchedSamples } from './matchedSampleIdentity'
 import { filterEvidenceByQuestionKeys } from './questionLeaderboard'
-import { invalidateCachedReports, writeCachedClaims } from './readCache'
+import { invalidateSnapshots } from './readCache'
 import { normalizeQuestionKey } from '../../src/public/questionKeys'
 import { groupPolarJudgeCells } from './reportJudgeBatch'
 import { REPORT_JUDGE_MODEL } from './reportJudgeClient'
@@ -247,8 +247,7 @@ export class GeneratedReportRepository {
           generation_lease_until=NULL, generation_lease_owner=NULL, completed_at=?
       WHERE id=? AND status='pending' AND generation_lease_owner=?`)
       .bind(document.narrative.title, JSON.stringify(document), now, reportId, leaseOwner).run()
-    invalidateCachedReports()
-    writeCachedClaims(null)
+    await invalidateSnapshots(this.db, ['reports'])
   }
 
   async failReport(reportId: string, code: string, leaseOwner: string): Promise<void> {
@@ -256,7 +255,7 @@ export class GeneratedReportRepository {
       SET status='failed', error_code=?, generation_lease_until=NULL, generation_lease_owner=NULL
       WHERE id=? AND status='pending' AND generation_lease_owner=?`)
       .bind(code.slice(0, 80), reportId, leaseOwner).run()
-    invalidateCachedReports()
+    await invalidateSnapshots(this.db, ['reports'])
   }
 
   async loadPairScores(reportId: string): Promise<GeneratedReportPairScore[]> {
@@ -333,7 +332,7 @@ export class GeneratedReportRepository {
         generation_lease_until=NULL, generation_lease_owner=NULL
         WHERE id=? AND status='pending'`).bind(reportId, reportId, reportId),
     ])
-    invalidateCachedReports()
+    await invalidateSnapshots(this.db, ['reports'])
     const progress = await this.db.prepare(`SELECT analysis_completed, analysis_total FROM generated_reports WHERE id=? AND status='pending'`)
       .bind(reportId).first<{ analysis_completed: number; analysis_total: number }>()
     return { allComplete: n(progress?.analysis_total) > 0 && n(progress?.analysis_completed) >= n(progress?.analysis_total) }
@@ -346,7 +345,7 @@ export class GeneratedReportRepository {
       this.db.prepare(`UPDATE generated_reports SET status='failed', error_code=?, generation_lease_until=NULL, generation_lease_owner=NULL
         WHERE id=? AND status='pending'`).bind(code.slice(0, 80), reportId),
     ])
-    invalidateCachedReports()
+    await invalidateSnapshots(this.db, ['reports'])
   }
 
   async claimReportFinalization(reportId: string, now: string): Promise<string | null> {

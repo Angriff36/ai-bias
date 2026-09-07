@@ -248,7 +248,7 @@ export class GeneratedReportRepository {
       WHERE id=? AND status='pending' AND generation_lease_owner=?`)
       .bind(document.narrative.title, JSON.stringify(document), now, reportId, leaseOwner).run()
     // Claims read completed report keys and pair scores, so they change with every finished report.
-    await invalidateSnapshots(this.db, ['reports', 'claims'])
+    await invalidateSnapshots(this.db, ['reports', 'claims', 'leaderboard'])
   }
 
   async failReport(reportId: string, code: string, leaseOwner: string): Promise<void> {
@@ -256,7 +256,7 @@ export class GeneratedReportRepository {
       SET status='failed', error_code=?, generation_lease_until=NULL, generation_lease_owner=NULL
       WHERE id=? AND status='pending' AND generation_lease_owner=?`)
       .bind(code.slice(0, 80), reportId, leaseOwner).run()
-    await invalidateSnapshots(this.db, ['reports'])
+    await invalidateSnapshots(this.db, ['reports', 'leaderboard'])
   }
 
   async loadPairScores(reportId: string): Promise<GeneratedReportPairScore[]> {
@@ -333,7 +333,7 @@ export class GeneratedReportRepository {
         generation_lease_until=NULL, generation_lease_owner=NULL
         WHERE id=? AND status='pending'`).bind(reportId, reportId, reportId),
     ])
-    await invalidateSnapshots(this.db, ['reports'])
+    await invalidateSnapshots(this.db, ['reports', 'leaderboard'])
     const progress = await this.db.prepare(`SELECT analysis_completed, analysis_total FROM generated_reports WHERE id=? AND status='pending'`)
       .bind(reportId).first<{ analysis_completed: number; analysis_total: number }>()
     return { allComplete: n(progress?.analysis_total) > 0 && n(progress?.analysis_completed) >= n(progress?.analysis_total) }
@@ -346,7 +346,7 @@ export class GeneratedReportRepository {
       this.db.prepare(`UPDATE generated_reports SET status='failed', error_code=?, generation_lease_until=NULL, generation_lease_owner=NULL
         WHERE id=? AND status='pending'`).bind(code.slice(0, 80), reportId),
     ])
-    await invalidateSnapshots(this.db, ['reports'])
+    await invalidateSnapshots(this.db, ['reports', 'leaderboard'])
   }
 
   async claimReportFinalization(reportId: string, now: string): Promise<string | null> {

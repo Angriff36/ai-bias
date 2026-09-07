@@ -13,8 +13,8 @@ import type { D1DatabaseLike } from './d1'
 export const PUBLIC_READ_CACHE_TTL_MS = 60_000
 
 const SNAPSHOT_PREFIX = 'snapshot:'
-/** Keys every write to evidence must clear, even when no row exists yet. */
-const CORE_KEYS = ['leaderboard', 'claims', 'reports']
+/** Durable "everything before this moment is stale" marker; guards keys that have no row yet. */
+const ALL_MARKER_KEY = 'snapshot:__all__'
 
 interface Snapshot<T> {
   value: T
@@ -35,6 +35,11 @@ const memory = new Map<string, Snapshot<unknown>>()
 const invalidatedAt = new Map<string, number>()
 let allInvalidatedAt = 0
 const inflight = new Map<string, Promise<unknown>>()
+
+/** A start stamp that always orders after every invalidation this isolate has already made. */
+function computationStart(key: string): number {
+  return Math.max(Date.now(), (invalidatedAt.get(key) ?? 0) + 1, allInvalidatedAt + 1)
+}
 
 const isFresh = <T>(entry: Snapshot<T>, ttl: ReadThroughOptions<T>['ttlMs']) =>
   Date.now() - entry.computedAt < (typeof ttl === 'function' ? ttl(entry.value) : ttl)
@@ -60,12 +65,14 @@ async function store<T>(db: D1DatabaseLike | undefined, key: string, entry: Snap
   memory.set(key, entry)
   if (!db) return
   try {
-    // The row is written only when no invalidation marker newer than this
-    // computation's start exists, so a late refresh cannot resurrect old data.
-    await db.prepare(`INSERT INTO public_cache_meta (key, value) VALUES (?, ?)
+    // The row is written only when neither this key's marker nor the global
+    // marker is newer than the computation's start, so a late refresh (even one
+    // for a key that had no row yet) cannot resurrect pre-write data.
+    await db.prepare(`INSERT INTO public_cache_meta (key, value)
+      SELECT ?, ? WHERE COALESCE((SELECT json_extract(value, '$.invalidatedAt') FROM public_cache_meta WHERE key = ?), 0) < ?
       ON CONFLICT(key) DO UPDATE SET value = excluded.value
       WHERE COALESCE(json_extract(public_cache_meta.value, '$.invalidatedAt'), 0) < ?`)
-      .bind(SNAPSHOT_PREFIX + key, JSON.stringify(entry), startedAt).run()
+      .bind(SNAPSHOT_PREFIX + key, JSON.stringify(entry), ALL_MARKER_KEY, startedAt, startedAt).run()
   } catch {
     // The next read recomputes; nothing else depends on the stored copy.
   }
@@ -74,7 +81,7 @@ async function store<T>(db: D1DatabaseLike | undefined, key: string, entry: Snap
 function refresh<T>(db: D1DatabaseLike | undefined, key: string, compute: () => Promise<T>): Promise<T> {
   const running = inflight.get(key) as Promise<T> | undefined
   if (running) return running
-  const startedAt = Date.now()
+  const startedAt = computationStart(key)
   const work = (async () => {
     const value = await compute()
     if (value != null) await store(db, key, { value, computedAt: Date.now() }, startedAt)
@@ -128,7 +135,7 @@ export async function invalidateSnapshots(db: D1DatabaseLike | undefined, keys: 
     if (keys === 'all') {
       await db.batch([
         db.prepare("UPDATE public_cache_meta SET value = ? WHERE key LIKE 'snapshot:%'").bind(marker),
-        ...CORE_KEYS.map((key) => db.prepare('INSERT INTO public_cache_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING').bind(SNAPSHOT_PREFIX + key, marker)),
+        db.prepare('INSERT INTO public_cache_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').bind(ALL_MARKER_KEY, marker),
       ])
     } else if (keys.length > 0) {
       await db.batch(keys.map((key) => db.prepare('INSERT INTO public_cache_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')

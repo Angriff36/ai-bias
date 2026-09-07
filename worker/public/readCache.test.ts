@@ -15,10 +15,15 @@ function fakeDb(rows = new Map<string, string>()): D1DatabaseLike & { rows: Map<
     all: async () => ({ results: [] }),
     run: async () => {
       const key = String(values[0])
-      if (sql.startsWith('INSERT') && sql.includes('DO NOTHING')) {
-        if (!rows.has(key)) rows.set(key, String(values[1]))
-      } else if (sql.startsWith('INSERT') && sql.includes('WHERE COALESCE')) {
-        if (!rows.has(key) || invalidatedAtOf(rows.get(key)) < Number(values[2])) rows.set(key, String(values[1]))
+      if (sql.startsWith('INSERT') && sql.includes('SELECT ?, ? WHERE')) {
+        // Guarded write: the global marker blocks new rows, the row's own marker blocks updates.
+        const allMarker = invalidatedAtOf(rows.get(String(values[2])))
+        const startedAt = Number(values[3])
+        if (!rows.has(key)) {
+          if (allMarker < startedAt) rows.set(key, String(values[1]))
+        } else if (invalidatedAtOf(rows.get(key)) < startedAt) {
+          rows.set(key, String(values[1]))
+        }
       } else if (sql.startsWith('INSERT')) {
         rows.set(key, String(values[1]))
       } else if (sql.startsWith('UPDATE public_cache_meta SET value = ? WHERE key LIKE')) {
@@ -91,6 +96,9 @@ describe('public read snapshots', () => {
     await invalidateSnapshots(db, 'all')
     invalidatePublicReadCache()
     // Our isolate still holds nothing in memory and reads D1: the marker means "recompute".
+    // (A recompute in another isolate within the same millisecond as the marker is refused
+    // on purpose and simply recomputes again on the next read.)
+    await new Promise((resolve) => setTimeout(resolve, 5))
     const compute = vi.fn(async () => 'second')
     expect(await readThrough(db, 'claims', compute, { ttlMs: 60_000 })).toBe('second')
     expect(compute).toHaveBeenCalledTimes(1)
@@ -107,14 +115,37 @@ describe('public read snapshots', () => {
     await invalidateSnapshots(broken, 'all')
   })
 
-  it('invalidating everything marks every stored snapshot and the core keys', async () => {
+  it('invalidating everything marks every stored snapshot and blocks late first-time writes', async () => {
     invalidatePublicReadCache()
     const db = fakeDb()
     await readThrough(db, 'question:a', async () => 1, { ttlMs: 60_000 })
+    // A question page nobody cached yet starts computing in another isolate...
+    let release: (value: string) => void = () => undefined
+    invalidatePublicReadCache()
+    const late = readThrough(db, 'question:b', () => new Promise<string>((resolve) => { release = resolve }), { ttlMs: 60_000 })
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    // ...then evidence is published everywhere.
+    invalidatePublicReadCache()
     await invalidateSnapshots(db, 'all')
-    for (const key of ['snapshot:question:a', 'snapshot:leaderboard', 'snapshot:claims', 'snapshot:reports']) {
-      expect(JSON.parse(db.rows.get(key) ?? '{}')).toHaveProperty('invalidatedAt')
-    }
+    expect(JSON.parse(db.rows.get('snapshot:question:a') ?? '{}')).toHaveProperty('invalidatedAt')
+    release('pre-publication answers')
+    expect(await late).toBe('pre-publication answers')
+    expect(db.rows.has('snapshot:question:b')).toBe(false)
     expect(await readThrough(db, 'question:a', async () => 2, { ttlMs: 60_000 })).toBe(2)
+  })
+
+  it('accepts a recompute that starts in the same millisecond as the invalidation it follows', async () => {
+    invalidatePublicReadCache()
+    const db = fakeDb()
+    const frozen = Date.now()
+    vi.spyOn(Date, 'now').mockImplementation(() => frozen)
+    try {
+      await readThrough(db, 'reports', async () => 'before', { ttlMs: 60_000 })
+      await invalidateSnapshots(db, ['reports'])
+      expect(await readThrough(db, 'reports', async () => 'after', { ttlMs: 60_000 })).toBe('after')
+      expect(JSON.parse(db.rows.get('snapshot:reports') ?? '{}')).toMatchObject({ value: 'after' })
+    } finally {
+      vi.restoreAllMocks()
+    }
   })
 })

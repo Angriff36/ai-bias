@@ -77,7 +77,8 @@ export async function handlePublicApi(
     await enqueueReportAnalyses(env.REPORT_GENERATION_QUEUE, reportRepository as GeneratedReportRepository, reportId, leaseOwner)
   })
   const defer = (work: Promise<unknown>) => context.waitUntil(work)
-  const clearReportsSnapshot = () => invalidateSnapshots(env.PUBLIC_DB, ['reports'])
+  // The leaderboard carries latestReport/reportPending, so it moves with every report state change.
+  const clearReportsSnapshot = () => invalidateSnapshots(env.PUBLIC_DB, ['reports', 'leaderboard'])
   const runClaimedReport = async (reportId: string, now: string) => {
     const prepared = await reportRepository.prepareReportGeneration(reportId, now)
     if (prepared?.started && prepared.leaseOwner) await enqueueReport(reportId, prepared.leaseOwner)

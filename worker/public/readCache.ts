@@ -2,8 +2,11 @@ import type { D1DatabaseLike } from './d1'
 
 /**
  * Public read snapshots: compute once, store the JSON in D1 (`public_cache_meta`),
- * and serve the stored row on later requests. A stale row is served at once and
- * refreshed in the background, so a visitor never waits for a full recompute.
+ * and serve the stored row on later requests — one small row read instead of a
+ * full recompute. A stale row is served at once and refreshed in the background,
+ * so a visitor never waits for a recompute. There is deliberately no per-isolate
+ * memory copy: D1 is the single source of truth, so a write in any isolate or
+ * data centre is seen by the very next read everywhere.
  * Every D1 step is best effort — a cache failure falls back to computing.
  *
  * Invalidation does not delete the row; it replaces it with an `invalidatedAt`
@@ -31,12 +34,12 @@ export interface ReadThroughOptions<T> {
   defer?: (work: Promise<unknown>) => void
 }
 
-const memory = new Map<string, Snapshot<unknown>>()
+// Local ordering only: a computation this isolate starts after an invalidation it
+// made is stamped strictly later than that invalidation, whatever the clock says.
 const invalidatedAt = new Map<string, number>()
 let allInvalidatedAt = 0
 const inflight = new Map<string, Promise<unknown>>()
 
-/** A start stamp that always orders after every invalidation this isolate has already made. */
 function computationStart(key: string): number {
   return Math.max(Date.now(), (invalidatedAt.get(key) ?? 0) + 1, allInvalidatedAt + 1)
 }
@@ -61,9 +64,7 @@ async function loadStored<T>(db: D1DatabaseLike | undefined, key: string): Promi
 }
 
 async function store<T>(db: D1DatabaseLike | undefined, key: string, entry: Snapshot<T>, startedAt: number): Promise<void> {
-  if (invalidatedSince(key, startedAt)) return
-  memory.set(key, entry)
-  if (!db) return
+  if (!db || invalidatedSince(key, startedAt)) return
   try {
     // The row is written only when neither this key's marker nor the global
     // marker is newer than the computation's start, so a late refresh (even one
@@ -92,9 +93,9 @@ function refresh<T>(db: D1DatabaseLike | undefined, key: string, compute: () => 
 }
 
 /**
- * Return the snapshot for `key`, computing it when there is none. A fresh copy
- * (in memory or in D1) is returned as is. A stale copy is returned at once while
- * `defer` recomputes it; without `defer` the caller waits for the recompute.
+ * Return the snapshot for `key`, computing it when there is none. A fresh stored
+ * copy is returned as is. A stale copy is returned at once while `defer`
+ * recomputes it; without `defer` the caller waits for the recompute.
  */
 export async function readThrough<T>(
   db: D1DatabaseLike | undefined,
@@ -102,17 +103,11 @@ export async function readThrough<T>(
   compute: () => Promise<T>,
   options: ReadThroughOptions<T>,
 ): Promise<T> {
-  let entry = memory.get(key) as Snapshot<T> | undefined
-  if (entry && isFresh(entry, options.ttlMs)) return entry.value
   const stored = await loadStored<T>(db, key)
-  if (stored && (!entry || stored.computedAt > entry.computedAt)) {
-    memory.set(key, stored)
-    entry = stored
-  }
-  if (entry && isFresh(entry, options.ttlMs)) return entry.value
-  if (entry && options.defer) {
+  if (stored && isFresh(stored, options.ttlMs)) return stored.value
+  if (stored && options.defer) {
     options.defer(refresh(db, key, compute).catch(() => undefined))
-    return entry.value
+    return stored.value
   }
   return refresh(db, key, compute)
 }
@@ -120,15 +115,8 @@ export async function readThrough<T>(
 /** Mark snapshots invalid so the next read recomputes. `'all'` covers every snapshot. */
 export async function invalidateSnapshots(db: D1DatabaseLike | undefined, keys: string[] | 'all'): Promise<void> {
   const now = Date.now()
-  if (keys === 'all') {
-    allInvalidatedAt = now
-    memory.clear()
-  } else {
-    for (const key of keys) {
-      invalidatedAt.set(key, now)
-      memory.delete(key)
-    }
-  }
+  if (keys === 'all') allInvalidatedAt = now
+  else for (const key of keys) invalidatedAt.set(key, now)
   if (!db) return
   const marker = JSON.stringify({ invalidatedAt: now })
   try {
@@ -142,13 +130,12 @@ export async function invalidateSnapshots(db: D1DatabaseLike | undefined, keys: 
         .bind(SNAPSHOT_PREFIX + key, marker)))
     }
   } catch {
-    // Best effort: the in-memory marker still protects this isolate.
+    // Best effort: the local stamps still order this isolate's own computations.
   }
 }
 
-/** Memory-only reset for tests and for callers without a database handle. */
+/** Reset the local ordering stamps (tests). Stored snapshots live in D1 only. */
 export function invalidatePublicReadCache(): void {
-  memory.clear()
   invalidatedAt.clear()
   allInvalidatedAt = 0
 }

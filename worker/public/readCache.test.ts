@@ -40,6 +40,20 @@ function fakeDb(rows = new Map<string, string>()): D1DatabaseLike & { rows: Map<
 }
 
 describe('public read snapshots', () => {
+  it('sees another isolate’s write on the very next read: there is no per-isolate memory copy', async () => {
+    invalidatePublicReadCache()
+    const db = fakeDb()
+    expect(await readThrough(db, 'question:q', async () => 'old answers', { ttlMs: 10 * 60_000 })).toBe('old answers')
+    // Another isolate (different local stamps) publishes evidence.
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    invalidatePublicReadCache()
+    await invalidateSnapshots(db, 'all')
+    // This isolate, which just served the old row, recomputes immediately.
+    const compute = vi.fn(async () => 'new answers')
+    expect(await readThrough(db, 'question:q', compute, { ttlMs: 10 * 60_000 })).toBe('new answers')
+    expect(compute).toHaveBeenCalledTimes(1)
+  })
+
   it('computes once, stores the snapshot in D1, and serves it to a fresh isolate', async () => {
     invalidatePublicReadCache()
     const db = fakeDb()

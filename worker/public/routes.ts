@@ -7,13 +7,19 @@ import { renderReportHtml } from './reportHtml'
 import { GeneratedReportRepository } from './reportRepository'
 import { enqueueReportAnalyses, type ReportQueueProducer } from './reportQueue'
 import { CURATED_REPORTS } from './curatedReports'
-import { invalidateCachedReports, readCachedReports, writeCachedReports } from './readCache'
+import { invalidateSnapshots, readThrough } from './readCache'
 import { ClaimRepository } from './claimRepository'
 import type { ClaimListOptions } from './claimRepository'
 import { createOpenRouterClaimEvaluator } from './claimAdjudication'
 import { QuestionProposalRepository } from './questionProposalRepository'
 
-const PUBLIC_CACHE_CONTROL = 'public, max-age=60, stale-while-revalidate=300'
+// Browsers and the Cloudflare edge keep a copy for 60 s. Writes purge the edge only in
+// their own data centre, so the edge TTL stays short; misses are cheap now that
+// every public read is one stored-snapshot row.
+const PUBLIC_CACHE_CONTROL = 'public, max-age=60, s-maxage=60, stale-while-revalidate=300'
+const REPORTS_SNAPSHOT_TTL_MS = 60_000
+/** While a report is being written, its progress must show within a poll or two. */
+const PENDING_REPORTS_SNAPSHOT_TTL_MS = 5_000
 
 export interface PublicWorkerEnv {
   PUBLIC_DB: D1DatabaseLike
@@ -69,6 +75,9 @@ export async function handlePublicApi(
   const enqueueReport = injected?.enqueueReport ?? (async (reportId: string, leaseOwner: string) => {
     await enqueueReportAnalyses(env.REPORT_GENERATION_QUEUE, reportRepository as GeneratedReportRepository, reportId, leaseOwner)
   })
+  const defer = (work: Promise<unknown>) => context.waitUntil(work)
+  // The leaderboard carries latestReport/reportPending, so it moves with every report state change.
+  const clearReportsSnapshot = () => invalidateSnapshots(env.PUBLIC_DB, ['reports', 'leaderboard'])
   const runClaimedReport = async (reportId: string, now: string) => {
     const prepared = await reportRepository.prepareReportGeneration(reportId, now)
     if (prepared?.started && prepared.leaseOwner) await enqueueReport(reportId, prepared.leaseOwner)
@@ -77,7 +86,7 @@ export async function handlePublicApi(
 
   try {
     if (url.pathname === '/api/public/leaderboard' && request.method === 'GET') {
-      const response = json(await repository.getLeaderboard())
+      const response = json(await repository.getLeaderboard({ defer }))
       response.headers.set('Cache-Control', PUBLIC_CACHE_CONTROL)
       return response
     }
@@ -102,16 +111,17 @@ export async function handlePublicApi(
     }
     const questionDetail = url.pathname.match(/^\/api\/public\/questions\/([^/]+)$/)
     if (questionDetail && request.method === 'GET') {
-      const detail = await repository.getQuestionDetail(decodeURIComponent(questionDetail[1]))
+      const detail = await repository.getQuestionDetail(decodeURIComponent(questionDetail[1]), { defer })
       if (!detail) return json({ error: 'Question not found.' }, 404)
       const response = json({ question: publicQuestionDetailSchema.parse(detail) })
       response.headers.set('Cache-Control', PUBLIC_CACHE_CONTROL)
       return response
     }
     if (url.pathname === '/api/public/reports' && request.method === 'GET') {
-      const cached = readCachedReports()
-      const reports = cached ?? [...CURATED_REPORTS, ...await reportRepository.listReports()]
-      if (!cached) writeCachedReports(reports)
+      const reports = await readThrough(env.PUBLIC_DB, 'reports', async () => [...CURATED_REPORTS, ...await reportRepository.listReports()], {
+        ttlMs: (list) => list.some((report) => report.status !== 'complete') ? PENDING_REPORTS_SNAPSHOT_TTL_MS : REPORTS_SNAPSHOT_TTL_MS,
+        defer,
+      })
       const response = json({ reports })
       response.headers.set('Cache-Control', reports.some((report) => report.status !== 'complete') ? 'no-store' : PUBLIC_CACHE_CONTROL)
       return response
@@ -123,7 +133,7 @@ export async function handlePublicApi(
         const claim = await reportRepository.claimQuestionSetReport(parsed.questionKeys, now)
         if (claim.kind === 'ineligible') return json({ error: 'None of the chosen questions has a complete matched pair to report on yet.' }, 422)
         if (claim.kind === 'limited') return json({ error: 'The daily report-generation limit has been reached. Existing reports remain available.' }, 429)
-        invalidateCachedReports()
+        await clearReportsSnapshot()
         const report = claim.kind === 'claimed' ? await runClaimedReport(claim.report.id, now) : claim.report
         return json({ report: report ?? claim.report }, claim.kind === 'claimed' ? 202 : 200)
       }
@@ -143,7 +153,7 @@ export async function handlePublicApi(
       }
       if (claim.kind === 'unchanged') return json({ report: claim.report }, 200)
       if (claim.kind === 'limited') return json({ error: 'The daily report-generation limit has been reached. Existing reports remain available.' }, 429)
-      invalidateCachedReports()
+      await clearReportsSnapshot()
       const report = claim.kind === 'claimed' ? await runClaimedReport(claim.report.id, now) : claim.report
       return json({ report: report ?? claim.report }, claim.kind === 'claimed' ? 202 : 200)
     }
@@ -152,7 +162,7 @@ export async function handlePublicApi(
       const now = new Date().toISOString()
       const reportId = regenerate[1]
       const prepared = await reportRepository.prepareReportGeneration(reportId, now)
-      invalidateCachedReports()
+      await clearReportsSnapshot()
       if (!prepared) return json({ error: 'Report not found or already complete.' }, 404)
       if (prepared.started && prepared.leaseOwner) {
         await enqueueReport(reportId, prepared.leaseOwner)
@@ -193,7 +203,9 @@ export async function handlePublicApi(
     }
     if (url.pathname === '/api/public/claims' && request.method === 'GET') {
       const claims = await claimRepository.list({ deferEvaluation: (run) => context.waitUntil(run()) })
-      return json({ claims }, 200, { 'Cache-Control': PUBLIC_CACHE_CONTROL })
+      // A verdict still being written must not be pinned at the edge until it lands.
+      const pending = claims.some((claim) => claim.evaluationStatus === 'pending')
+      return json({ claims }, 200, { 'Cache-Control': pending ? 'no-store' : PUBLIC_CACHE_CONTROL })
     }
     if (url.pathname === '/api/public/claims' && request.method === 'POST') {
       const parsed = publicClaimRequestSchema.parse(await readJson(request))

@@ -5,9 +5,12 @@ import { PublicRunPublisher } from './publicRunPublisher'
 import { buildQuestionDetail, buildTopQuestionSummaries } from './questionLeaderboard'
 import { ensureQuestionKeys } from './questionKeyMaintenance'
 import { buildQuestionCatalog } from './reportGlobalCohort'
-import { readCachedLeaderboard, readCachedQuestionDetail, writeCachedLeaderboard, writeCachedQuestionDetail } from './readCache'
+import { invalidateSnapshots, readThrough } from './readCache'
 
 export { aggregateSubmission, type ModelContribution } from './publicSubmissionStats'
+
+const LEADERBOARD_SNAPSHOT_TTL_MS = 5 * 60_000
+const QUESTION_SNAPSHOT_TTL_MS = 10 * 60_000
 
 export interface FreeReservation { quotaHash: string; day: string }
 
@@ -49,9 +52,16 @@ export class PublicRepository {
     return new PublicRunPublisher(this.db).publish(raw, receivedAt)
   }
 
-  async getLeaderboard(modelLimit = 50, recentLimit = 200, questionLimit = 100): Promise<PublicLeaderboard> {
-    const cached = readCachedLeaderboard()
-    if (cached) return cached
+  /**
+   * The leaderboard is a stored snapshot: one D1 row read per request. A stale
+   * snapshot is served at once and recomputed after the response when `defer`
+   * (Workers `waitUntil`) is given. Publishing new evidence clears the snapshot.
+   */
+  getLeaderboard(options: { defer?: (work: Promise<unknown>) => void } = {}): Promise<PublicLeaderboard> {
+    return readThrough(this.db, 'leaderboard', () => this.computeLeaderboard(), { ttlMs: LEADERBOARD_SNAPSHOT_TTL_MS, defer: options.defer })
+  }
+
+  private async computeLeaderboard(modelLimit = 50, questionLimit = 100): Promise<PublicLeaderboard> {
     await ensureQuestionKeys(this.db)
     const totals = await this.db.prepare(`SELECT
       (SELECT COUNT(*) FROM public_runs) AS runs,
@@ -62,7 +72,6 @@ export class PublicRepository {
       answered_count, refusal_count, error_count, truncated_count, latency_sum_ms, first_seen_at, last_seen_at
       FROM model_aggregates WHERE complete_pair_count > 0
       ORDER BY complete_pair_count DESC, (1.0 * asymmetric_pair_count / complete_pair_count) DESC, model_id ASC LIMIT ?`).bind(modelLimit).all()).results ?? []
-    const evidenceRows = (await this.db.prepare(`${evidenceSelect} ORDER BY received_at DESC, run_id DESC, pair_index ASC, variant_key ASC LIMIT ?`).bind(recentLimit).all()).results ?? []
     const catalogRows = (await this.db.prepare(catalogEvidenceSelect).all()).results ?? []
     const catalogEvidence = catalogRows.map(mapCatalogEvidenceRow)
     const topQuestions = buildTopQuestionSummaries(catalogEvidence, questionLimit)
@@ -84,8 +93,9 @@ export class PublicRepository {
         firstSeenAt: s(row.first_seen_at), lastSeenAt: s(row.last_seen_at),
       }
     })
-    const recentEvidence: PublicEvidenceItem[] = evidenceRows.map(mapEvidenceRow)
-    const leaderboard = {
+    // No page renders recent answers; sending 200 full responses only made the payload slow.
+    const recentEvidence: PublicEvidenceItem[] = []
+    return {
       totals: {
         runs: n(totals?.runs),
         responses: n(totals?.responses),
@@ -101,13 +111,13 @@ export class PublicRepository {
       reportPending: n(pendingReports?.count) > 0,
       recentEvidence,
     }
-    writeCachedLeaderboard(leaderboard)
-    return leaderboard
   }
 
-  async getQuestionDetail(questionKey: string): Promise<PublicQuestionDetail | null> {
-    const cached = readCachedQuestionDetail(questionKey)
-    if (cached) return cached
+  getQuestionDetail(questionKey: string, options: { defer?: (work: Promise<unknown>) => void } = {}): Promise<PublicQuestionDetail | null> {
+    return readThrough(this.db, `question:${questionKey}`, () => this.computeQuestionDetail(questionKey), { ttlMs: QUESTION_SNAPSHOT_TTL_MS, defer: options.defer })
+  }
+
+  private async computeQuestionDetail(questionKey: string): Promise<PublicQuestionDetail | null> {
     await ensureQuestionKeys(this.db)
     const legacyPromptKey = /^prompt\s+\d+\s+vs\s+prompt\s+\d+$/i.test(questionKey)
     const statement = legacyPromptKey
@@ -122,7 +132,6 @@ export class PublicRepository {
       const allRows = (await this.db.prepare(`${evidenceSelect} ORDER BY received_at DESC, run_id DESC, pair_index ASC, variant_key ASC`).all()).results ?? []
       detail = buildQuestionDetail(questionKey, allRows.map(mapEvidenceRow))
     }
-    if (detail) writeCachedQuestionDetail(questionKey, detail)
     return detail
   }
 
@@ -159,15 +168,20 @@ export class PublicRepository {
   async claimAnalysis(threshold: number, aggregateJson: string, modelId: string, now: string): Promise<boolean> {
     const result = await this.db.prepare(`INSERT INTO analysis_snapshots (threshold, aggregate_json, model_id, status, created_at)
       VALUES (?, ?, ?, 'pending', ?) ON CONFLICT(threshold) DO NOTHING`).bind(threshold, aggregateJson, modelId, now).run()
-    return n(result.meta?.changes) === 1
+    const claimed = n(result.meta?.changes) === 1
+    // The leaderboard shows analysisPending / latestAnalysis, so every analysis state change clears it.
+    if (claimed) await invalidateSnapshots(this.db, ['leaderboard'])
+    return claimed
   }
 
   async completeAnalysis(threshold: number, analysis: string, now: string): Promise<void> {
     await this.db.prepare("UPDATE analysis_snapshots SET status='complete', analysis=?, completed_at=? WHERE threshold=?").bind(analysis, now, threshold).run()
+    await invalidateSnapshots(this.db, ['leaderboard'])
   }
 
   async failAnalysis(threshold: number): Promise<void> {
     await this.db.prepare("UPDATE analysis_snapshots SET status='failed' WHERE threshold=?").bind(threshold).run()
+    await invalidateSnapshots(this.db, ['leaderboard'])
   }
 }
 

@@ -371,8 +371,10 @@ describe('generated report evidence preparation', () => {
     await repo.failReport('report', 'failed', 'owner-a')
     await repo.completeReport('report', document, '2026-08-30T15:00:00.000Z', 'owner-a')
 
-    expect(statements).toHaveLength(4)
-    for (const statement of statements) {
+    // Clearing the stored report-list snapshot is bookkeeping, not a lease write.
+    const leaseWrites = statements.filter((statement) => !statement.sql.includes('public_cache_meta'))
+    expect(leaseWrites).toHaveLength(4)
+    for (const statement of leaseWrites) {
       expect(statement.sql).toContain('generation_lease_owner=?')
       expect(statement.bindings.at(-1)).toBe('owner-a')
     }

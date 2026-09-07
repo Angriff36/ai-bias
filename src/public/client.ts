@@ -26,6 +26,24 @@ import { PublicSubmissionChunks, truncateForPublication } from './publishChunks'
 
 type Fetcher = typeof fetch
 
+declare global {
+  interface Window { __aiBiasEarly?: Record<string, Promise<Response>> }
+}
+
+/**
+ * index.html starts the GET for the current route before any script loads and
+ * parks the promise on `window.__aiBiasEarly`. Use that response once, then fall
+ * back to a normal request. Injected fetchers (tests) never use it.
+ */
+function publicGet(url: string, fetcher: Fetcher): Promise<Response> {
+  const early = fetcher === fetch && typeof window !== 'undefined' ? window.__aiBiasEarly?.[url] : undefined
+  if (early) {
+    delete window.__aiBiasEarly?.[url]
+    return early.catch(() => fetcher(url, { credentials: 'same-origin' }))
+  }
+  return fetcher(url, { credentials: 'same-origin' })
+}
+
 const PUBLIC_UNAVAILABLE = 'Public evidence could not be loaded. Refresh the page, or run the full local site with npm start.'
 
 async function responseJson(response: Response): Promise<unknown> {
@@ -78,7 +96,7 @@ export async function publishRun(records: RawRecord[], fetcher: Fetcher = fetch)
 export async function getPublicLeaderboard(fetcher: Fetcher = fetch): Promise<PublicLeaderboard> {
   const cached = readPublicCache<PublicLeaderboard>('leaderboard')
   if (cached?.status === 'fresh') return cached.data
-  const data = readPublicPayload(publicLeaderboardSchema, await responseJson(await fetcher('/api/public/leaderboard', { credentials: 'same-origin' })))
+  const data = readPublicPayload(publicLeaderboardSchema, await responseJson(await publicGet('/api/public/leaderboard', fetcher)))
   writePublicCache('leaderboard', data)
   return data
 }
@@ -87,7 +105,7 @@ export async function getPublicQuestionDetail(questionKey: string, fetcher: Fetc
   const cacheKey = `question:${questionKey}`
   const cached = readPublicCache<PublicQuestionDetail>(cacheKey)
   if (cached?.status === 'fresh') return cached.data
-  const response = await fetcher(`/api/public/questions/${encodeURIComponent(questionKey)}`, { credentials: 'same-origin' })
+  const response = await publicGet(`/api/public/questions/${encodeURIComponent(questionKey)}`, fetcher)
   const body = await responseJson(response) as { question?: PublicQuestionDetail }
   const detail = publicQuestionDetailSchema.parse(body.question)
   writePublicCache(cacheKey, detail)
@@ -116,7 +134,7 @@ export async function createQuestionProposal(input: PublicQuestionProposalReques
 export async function listGeneratedReports(fetcher: Fetcher = fetch): Promise<GeneratedReportSummary[]> {
   const cached = readPublicCache<GeneratedReportSummary[]>('reports')
   if (cached?.status === 'fresh') return cached.data
-  const response = await fetcher('/api/public/reports', { credentials: 'same-origin' })
+  const response = await publicGet('/api/public/reports', fetcher)
   const reports = generatedReportListSchema.parse(await responseJson(response)).reports
   writePublicCache('reports', reports)
   return reports
@@ -141,7 +159,7 @@ export async function requestQuestionSetReport(questionKeys: string[], fetcher: 
 export async function listClaims(fetcher: Fetcher = fetch): Promise<PublicClaim[]> {
   const cached = readPublicCache<PublicClaim[]>('claims')
   if (cached?.status === 'fresh') return cached.data
-  const response = await fetcher('/api/public/claims', { credentials: 'same-origin' })
+  const response = await publicGet('/api/public/claims', fetcher)
   const claims = publicClaimListSchema.parse(await responseJson(response)).claims
   writePublicCache('claims', claims)
   return claims

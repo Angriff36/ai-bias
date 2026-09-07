@@ -39,6 +39,19 @@ describe('routeWorkerRequest', () => {
     expect(env.ASSETS.fetch).toHaveBeenCalledOnce()
   })
 
+  it("allows only the shell's inline early-fetch script and hints the bundle and stylesheet", async () => {
+    const html = '<!doctype html><html><head><script>window.__aiBiasEarly={}</script>'
+      + '<script type="module" crossorigin src="/assets/index-B8F3dFAW.js"></script>'
+      + '<link rel="stylesheet" crossorigin href="/assets/index-C1.css"></head><body><div id="root"></div></body></html>'
+    const env = envWith(new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8' } }))
+    const response = await routeWorkerRequest(new Request('https://example.test/'), env)
+
+    expect(await response.text()).toBe(html)
+    // sha256 of the exact inline script text, so an altered script is blocked.
+    expect(response.headers.get('Content-Security-Policy')).toContain("script-src 'self' 'sha256-AwujgWxW5fk3cpRwF7b2LR0kqnEMxHEBdPOXSTU+dc8=' 'wasm-unsafe-eval'")
+    expect(response.headers.get('Link')).toBe('</assets/index-B8F3dFAW.js>; rel=modulepreload, </assets/index-C1.css>; rel=preload; as=style')
+  })
+
   it('lets browsers keep fingerprinted build assets without revalidating them', async () => {
     const env = envWith(new Response('compiled javascript', {
       headers: { 'Cache-Control': 'public, max-age=0, must-revalidate' },

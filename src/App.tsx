@@ -1,24 +1,40 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
 
-const ExperimentHistoryList = lazy(async () => ({ default: (await import('./components/ExperimentHistoryList')).ExperimentHistoryList }))
-const ExperimentEditor = lazy(async () => ({ default: (await import('./components/ExperimentEditor')).ExperimentEditor }))
-const ReportDetailView = lazy(async () => ({ default: (await import('./components/ReportDetailView')).ReportDetailView }))
-const ProvidersPanel = lazy(async () => ({ default: (await import('./components/ProvidersPanel')).ProvidersPanel }))
-const TemplateLibrary = lazy(async () => ({ default: (await import('./components/TemplateLibrary')).TemplateLibrary }))
-const ObservationsPanel = lazy(async () => ({ default: (await import('./components/ObservationsPanel')).ObservationsPanel }))
-const ConclusionsPage = lazy(async () => ({ default: (await import('./public/ConclusionsPage')).ConclusionsPage }))
-const ClaimDetailPage = lazy(async () => ({ default: (await import('./public/ClaimDetailPage')).ClaimDetailPage }))
-const AboutPage = lazy(async () => ({ default: (await import('./components/AboutPage')).AboutPage }))
-const LeaderboardPage = lazy(async () => ({ default: (await import('./public/LeaderboardPage')).LeaderboardPage }))
-const QuestionDetailPage = lazy(async () => ({ default: (await import('./public/QuestionDetailPage')).QuestionDetailPage }))
-const ReportsPage = lazy(async () => ({ default: (await import('./public/ReportsPage')).ReportsPage }))
+type Tab = 'experiments' | 'leaderboard' | 'conclusions' | 'templates' | 'observations' | 'targets' | 'reports' | 'about'
 
-type ServerState =
+/** One loader per section, shared by the lazy component and the hover prefetch. */
+const LOADERS = {
+  experiments: () => import('./components/ExperimentHistoryList'),
+  editor: () => import('./components/ExperimentEditor'),
+  reportDetail: () => import('./components/ReportDetailView'),
+  targets: () => import('./components/ProvidersPanel'),
+  templates: () => import('./components/TemplateLibrary'),
+  observations: () => import('./components/ObservationsPanel'),
+  conclusions: () => import('./public/ConclusionsPage'),
+  claimDetail: () => import('./public/ClaimDetailPage'),
+  about: () => import('./components/AboutPage'),
+  leaderboard: () => import('./public/LeaderboardPage'),
+  questionDetail: () => import('./public/QuestionDetailPage'),
+  reports: () => import('./public/ReportsPage'),
+}
+
+const ExperimentHistoryList = lazy(async () => ({ default: (await LOADERS.experiments()).ExperimentHistoryList }))
+const ExperimentEditor = lazy(async () => ({ default: (await LOADERS.editor()).ExperimentEditor }))
+const ReportDetailView = lazy(async () => ({ default: (await LOADERS.reportDetail()).ReportDetailView }))
+const ProvidersPanel = lazy(async () => ({ default: (await LOADERS.targets()).ProvidersPanel }))
+const TemplateLibrary = lazy(async () => ({ default: (await LOADERS.templates()).TemplateLibrary }))
+const ObservationsPanel = lazy(async () => ({ default: (await LOADERS.observations()).ObservationsPanel }))
+const ConclusionsPage = lazy(async () => ({ default: (await LOADERS.conclusions()).ConclusionsPage }))
+const ClaimDetailPage = lazy(async () => ({ default: (await LOADERS.claimDetail()).ClaimDetailPage }))
+const AboutPage = lazy(async () => ({ default: (await LOADERS.about()).AboutPage }))
+const LeaderboardPage = lazy(async () => ({ default: (await LOADERS.leaderboard()).LeaderboardPage }))
+const QuestionDetailPage = lazy(async () => ({ default: (await LOADERS.questionDetail()).QuestionDetailPage }))
+const ReportsPage = lazy(async () => ({ default: (await LOADERS.reports()).ReportsPage }))
+
+type WorkspaceState =
   | { phase: 'connecting' }
   | { phase: 'ready' }
   | { phase: 'failed'; message: string }
-
-type Tab = 'experiments' | 'leaderboard' | 'conclusions' | 'templates' | 'observations' | 'targets' | 'reports' | 'about'
 
 const TABS: Tab[] = ['experiments', 'leaderboard', 'conclusions', 'templates', 'observations', 'targets', 'reports', 'about']
 const PUBLIC_TABS = new Set<Tab>(['leaderboard', 'conclusions', 'reports', 'about'])
@@ -32,40 +48,57 @@ function tabFromHash(hash = window.location.hash): Tab {
   return (TABS as string[]).includes(t) ? (t as Tab) : 'experiments'
 }
 
+const hasOAuthCode = () => new URL(window.location.href).searchParams.has('code')
+
+/** True when the current URL needs the private browser database before it can show content. */
+export function needsPrivateWorkspace(hash = window.location.hash): boolean {
+  return !PUBLIC_TABS.has(tabFromHash(hash)) || hasOAuthCode()
+}
+
+/** Start downloading a section's code before the visitor clicks it. */
+function prefetchTab(tab: Tab) {
+  void LOADERS[tab]().catch(() => undefined)
+}
+
+// Once the workspace opened in this page, later private sections show at once.
+let workspaceOpened = false
+
 export default function App() {
-  const [state, setState] = useState<ServerState>(() => (
-    PUBLIC_TABS.has(tabFromHash()) && !new URL(window.location.href).searchParams.has('code')
-      ? { phase: 'ready' }
-      : { phase: 'connecting' }
-  ))
+  return <MainApp />
+}
+
+/**
+ * Gate for sections that read the private browser database. The header and
+ * tabs above it are already on screen; only this area waits for the database.
+ */
+function PrivateWorkspace({ children }: { children: ReactNode }) {
+  const [state, setState] = useState<WorkspaceState>(() => (workspaceOpened && !hasOAuthCode() ? { phase: 'ready' } : { phase: 'connecting' }))
   const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
+    if (workspaceOpened && !hasOAuthCode()) return
     let cancelled = false
-    if (PUBLIC_TABS.has(tabFromHash()) && !new URL(window.location.href).searchParams.has('code')) {
-      setState({ phase: 'ready' })
-      return () => { cancelled = true }
-    }
     setState({ phase: 'connecting' })
     const openWorkspace = async () => {
-      if (new URL(window.location.href).searchParams.has('code')) {
+      if (hasOAuthCode()) {
+        const cleanUrl = new URL(window.location.href)
+        cleanUrl.searchParams.delete('code')
         try {
           const { completeOpenRouterOAuth } = await import('./openrouter/oauth')
           const result = await completeOpenRouterOAuth({ callbackUrl: window.location.href })
-          const cleanUrl = new URL(window.location.href)
-          cleanUrl.searchParams.delete('code')
           cleanUrl.hash = result.returnHash || '#/providers'
           window.history.replaceState({}, '', `${cleanUrl.pathname}${cleanUrl.search}${cleanUrl.hash}`)
+          window.dispatchEvent(new Event('hashchange'))
         } catch (error) {
-          const cleanUrl = new URL(window.location.href)
-          cleanUrl.searchParams.delete('code')
           cleanUrl.hash = '#/providers'
           window.history.replaceState({}, '', `${cleanUrl.pathname}${cleanUrl.search}${cleanUrl.hash}`)
+          window.dispatchEvent(new Event('hashchange'))
           throw error
         }
       }
       const { api } = await import('./api')
       await api.health()
+      workspaceOpened = true
       if (!cancelled) setState({ phase: 'ready' })
     }
     openWorkspace()
@@ -78,40 +111,36 @@ export default function App() {
 
   if (state.phase === 'connecting') {
     return (
-      <div className="app">
-        <div className="banner info" role="status">
-          <div className="spinner" aria-hidden="true" />
-          <span>Opening your private workspace…</span>
-        </div>
+      <div className="banner info" role="status">
+        <div className="spinner" aria-hidden="true" />
+        <span>Opening your private workspace…</span>
       </div>
     )
   }
 
   if (state.phase === 'failed') {
     return (
-      <div className="app">
-        <div className="banner error" role="alert">
-          <span>
-            {state.message} Check this browser&apos;s storage settings, then try again.
-            {' '}If this keeps happening, reset your local workspace below. That removes experiments saved only in this browser.
-          </span>
-          <div className="workspace-error-actions">
-            <button className="secondary" onClick={() => setAttempt((n) => n + 1)}>Try again</button>
-            <button
-              className="secondary danger-outline"
-              onClick={() => {
-                void import('./api').then(({ api }) => api.resetDatabase()).then(() => setAttempt((n) => n + 1))
-              }}
-            >
-              Reset local workspace
-            </button>
-          </div>
+      <div className="banner error" role="alert">
+        <span>
+          {state.message} Check this browser&apos;s storage settings, then try again.
+          {' '}If this keeps happening, reset your local workspace below. That removes experiments saved only in this browser.
+        </span>
+        <div className="workspace-error-actions">
+          <button className="secondary" onClick={() => setAttempt((n) => n + 1)}>Try again</button>
+          <button
+            className="secondary danger-outline"
+            onClick={() => {
+              void import('./api').then(({ api }) => api.resetDatabase()).then(() => setAttempt((n) => n + 1))
+            }}
+          >
+            Reset local workspace
+          </button>
         </div>
       </div>
     )
   }
 
-  return <MainApp />
+  return <>{children}</>
 }
 
 function MainApp() {
@@ -155,6 +184,31 @@ function MainApp() {
     { id: 'reports', label: 'Reports' },
     { id: 'about', label: 'About' },
   ]
+
+  const publicContent = (
+    <>
+      {tab === 'leaderboard' && <LeaderboardRoute />}
+      {tab === 'conclusions' && <ConclusionsRoute />}
+      {tab === 'reports' && <ReportsRoute />}
+      {tab === 'about' && <AboutPage />}
+    </>
+  )
+  const privateContent = (
+    <>
+      {tab === 'experiments' && <ExperimentRoute />}
+      {tab === 'templates' && (
+        <TemplateLibrary
+          onUsePrompt={(prompt, name) => {
+            sessionStorage.setItem(PENDING_PROMPT_KEY, JSON.stringify({ prompt, name }))
+            selectTab('experiments')
+          }}
+        />
+      )}
+      {tab === 'observations' && <ObservationsPanel />}
+      {tab === 'targets' && <ProvidersPanel />}
+    </>
+  )
+
   return (
     <div className="app">
       <header className="app-header">
@@ -167,28 +221,21 @@ function MainApp() {
       </header>
       <nav className="tabs" role="tablist" aria-label="Main sections">
         {tabs.map((t) => (
-          <button key={t.id} role="tab" aria-selected={tab === t.id} onClick={() => selectTab(t.id)}>
+          <button
+            key={t.id}
+            role="tab"
+            aria-selected={tab === t.id}
+            onClick={() => selectTab(t.id)}
+            onPointerEnter={() => prefetchTab(t.id)}
+            onFocus={() => prefetchTab(t.id)}
+          >
             {t.label}
           </button>
         ))}
       </nav>
       {toast && <div className="toast" role="status" aria-live="polite"><span>{toast}</span><button aria-label="Dismiss notification" onClick={() => setToast(null)}>×</button></div>}
       <Suspense fallback={<div className="banner info" role="status"><div className="spinner" aria-hidden="true" /><span>Loading section…</span></div>}>
-        {tab === 'experiments' && <ExperimentRoute />}
-        {tab === 'leaderboard' && <LeaderboardRoute />}
-        {tab === 'conclusions' && <ConclusionsRoute />}
-        {tab === 'templates' && (
-          <TemplateLibrary
-            onUsePrompt={(prompt, name) => {
-              sessionStorage.setItem(PENDING_PROMPT_KEY, JSON.stringify({ prompt, name }))
-              selectTab('experiments')
-            }}
-          />
-        )}
-        {tab === 'observations' && <ObservationsPanel />}
-        {tab === 'targets' && <ProvidersPanel />}
-        {tab === 'reports' && <ReportsRoute />}
-        {tab === 'about' && <AboutPage />}
+        {needsPrivateWorkspace(route) ? <PrivateWorkspace>{privateContent}</PrivateWorkspace> : publicContent}
       </Suspense>
     </div>
   )

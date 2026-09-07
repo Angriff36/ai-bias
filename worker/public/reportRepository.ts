@@ -247,7 +247,8 @@ export class GeneratedReportRepository {
           generation_lease_until=NULL, generation_lease_owner=NULL, completed_at=?
       WHERE id=? AND status='pending' AND generation_lease_owner=?`)
       .bind(document.narrative.title, JSON.stringify(document), now, reportId, leaseOwner).run()
-    await invalidateSnapshots(this.db, ['reports'])
+    // Claims read completed report keys and pair scores, so they change with every finished report.
+    await invalidateSnapshots(this.db, ['reports', 'claims'])
   }
 
   async failReport(reportId: string, code: string, leaseOwner: string): Promise<void> {

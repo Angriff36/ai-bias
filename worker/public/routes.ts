@@ -15,6 +15,9 @@ import { QuestionProposalRepository } from './questionProposalRepository'
 
 // Browsers keep a copy for 60 s; the Cloudflare edge keeps one for 5 min (writes clear it in-colo).
 const PUBLIC_CACHE_CONTROL = 'public, max-age=60, s-maxage=300, stale-while-revalidate=300'
+// Claims and question details change from places that cannot purge the edge
+// (queue consumers, other data centres), so the edge keeps them for one minute only.
+const SHORT_CACHE_CONTROL = 'public, max-age=60, s-maxage=60, stale-while-revalidate=300'
 const REPORTS_SNAPSHOT_TTL_MS = 60_000
 /** While a report is being written, its progress must show within a poll or two. */
 const PENDING_REPORTS_SNAPSHOT_TTL_MS = 5_000
@@ -111,7 +114,7 @@ export async function handlePublicApi(
       const detail = await repository.getQuestionDetail(decodeURIComponent(questionDetail[1]), { defer })
       if (!detail) return json({ error: 'Question not found.' }, 404)
       const response = json({ question: publicQuestionDetailSchema.parse(detail) })
-      response.headers.set('Cache-Control', PUBLIC_CACHE_CONTROL)
+      response.headers.set('Cache-Control', SHORT_CACHE_CONTROL)
       return response
     }
     if (url.pathname === '/api/public/reports' && request.method === 'GET') {
@@ -200,7 +203,9 @@ export async function handlePublicApi(
     }
     if (url.pathname === '/api/public/claims' && request.method === 'GET') {
       const claims = await claimRepository.list({ deferEvaluation: (run) => context.waitUntil(run()) })
-      return json({ claims }, 200, { 'Cache-Control': PUBLIC_CACHE_CONTROL })
+      // A verdict still being written must not be pinned at the edge until it lands.
+      const pending = claims.some((claim) => claim.evaluationStatus === 'pending')
+      return json({ claims }, 200, { 'Cache-Control': pending ? 'no-store' : SHORT_CACHE_CONTROL })
     }
     if (url.pathname === '/api/public/claims' && request.method === 'POST') {
       const parsed = publicClaimRequestSchema.parse(await readJson(request))

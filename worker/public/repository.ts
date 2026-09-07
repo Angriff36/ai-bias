@@ -5,7 +5,7 @@ import { PublicRunPublisher } from './publicRunPublisher'
 import { buildQuestionDetail, buildTopQuestionSummaries } from './questionLeaderboard'
 import { ensureQuestionKeys } from './questionKeyMaintenance'
 import { buildQuestionCatalog } from './reportGlobalCohort'
-import { readThrough } from './readCache'
+import { invalidateSnapshots, readThrough } from './readCache'
 
 export { aggregateSubmission, type ModelContribution } from './publicSubmissionStats'
 
@@ -168,15 +168,20 @@ export class PublicRepository {
   async claimAnalysis(threshold: number, aggregateJson: string, modelId: string, now: string): Promise<boolean> {
     const result = await this.db.prepare(`INSERT INTO analysis_snapshots (threshold, aggregate_json, model_id, status, created_at)
       VALUES (?, ?, ?, 'pending', ?) ON CONFLICT(threshold) DO NOTHING`).bind(threshold, aggregateJson, modelId, now).run()
-    return n(result.meta?.changes) === 1
+    const claimed = n(result.meta?.changes) === 1
+    // The leaderboard shows analysisPending / latestAnalysis, so every analysis state change clears it.
+    if (claimed) await invalidateSnapshots(this.db, ['leaderboard'])
+    return claimed
   }
 
   async completeAnalysis(threshold: number, analysis: string, now: string): Promise<void> {
     await this.db.prepare("UPDATE analysis_snapshots SET status='complete', analysis=?, completed_at=? WHERE threshold=?").bind(analysis, now, threshold).run()
+    await invalidateSnapshots(this.db, ['leaderboard'])
   }
 
   async failAnalysis(threshold: number): Promise<void> {
     await this.db.prepare("UPDATE analysis_snapshots SET status='failed' WHERE threshold=?").bind(threshold).run()
+    await invalidateSnapshots(this.db, ['leaderboard'])
   }
 }
 

@@ -333,7 +333,8 @@ export class GeneratedReportRepository {
         generation_lease_until=NULL, generation_lease_owner=NULL
         WHERE id=? AND status='pending'`).bind(reportId, reportId, reportId),
     ])
-    await invalidateSnapshots(this.db, ['reports', 'leaderboard'])
+    // Progress counts change only the report list; the leaderboard's pending flag is unchanged.
+    await invalidateSnapshots(this.db, ['reports'])
     const progress = await this.db.prepare(`SELECT analysis_completed, analysis_total FROM generated_reports WHERE id=? AND status='pending'`)
       .bind(reportId).first<{ analysis_completed: number; analysis_total: number }>()
     return { allComplete: n(progress?.analysis_total) > 0 && n(progress?.analysis_completed) >= n(progress?.analysis_total) }

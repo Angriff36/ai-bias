@@ -54,9 +54,26 @@ function invalidatedUrls(request: Request): string[] {
   return []
 }
 
+/**
+ * The Cache API rewrites Cache-Control on stored responses to the zone's Browser
+ * Cache TTL (observed: max-age=14400), which would let browsers hold public data
+ * for hours. The origin value travels in this header and is restored on a HIT.
+ */
+const ORIGIN_CACHE_CONTROL = 'X-AI-Bias-Origin-Cache-Control'
+
 function withCacheStatus(response: Response, status: 'HIT' | 'MISS'): Response {
   const headers = new Headers(response.headers)
   headers.set('X-AI-Bias-Cache', status)
+  const origin = headers.get(ORIGIN_CACHE_CONTROL)
+  if (origin) headers.set('Cache-Control', origin)
+  headers.delete(ORIGIN_CACHE_CONTROL)
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers })
+}
+
+function forStorage(response: Response): Response {
+  const headers = new Headers(response.headers)
+  const control = headers.get('Cache-Control')
+  if (control) headers.set(ORIGIN_CACHE_CONTROL, control)
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers })
 }
 
@@ -80,6 +97,6 @@ export async function serveCachedPublicRead(
   const response = await load()
   if (!isCacheableResponse(response)) return response
   const cacheable = withCacheStatus(response.clone(), 'MISS')
-  context.waitUntil(cache.put(key, cacheable.clone()))
+  context.waitUntil(cache.put(key, forStorage(cacheable.clone())))
   return cacheable
 }

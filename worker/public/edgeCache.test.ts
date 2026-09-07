@@ -35,6 +35,30 @@ describe('public edge cache', () => {
     expect(second.headers.get('X-AI-Bias-Cache')).toBe('HIT')
   })
 
+  it('gives browsers the origin Cache-Control on a HIT even when the edge store rewrote it', async () => {
+    const cache = memoryCache()
+    // Cloudflare's Cache API stamps the zone Browser Cache TTL on stored responses.
+    const put = cache.put.bind(cache)
+    cache.put = async (request, response) => {
+      const headers = new Headers(response.headers)
+      headers.set('Cache-Control', 'public, max-age=14400, s-maxage=60')
+      await put(request, new Response(await response.text(), { status: response.status, headers }))
+    }
+    const waits: Promise<unknown>[] = []
+    const request = new Request('https://ai-tests.com/api/public/leaderboard')
+    const load = async () => new Response('{}', { headers: { 'Cache-Control': 'public, max-age=60, s-maxage=60' } })
+
+    const miss = await serveCachedPublicRead(request, cache, { waitUntil: (promise) => waits.push(promise) }, load)
+    await Promise.all(waits)
+    const hit = await serveCachedPublicRead(request, cache, { waitUntil: () => undefined }, load)
+
+    expect(miss.headers.get('Cache-Control')).toBe('public, max-age=60, s-maxage=60')
+    expect(miss.headers.has('X-AI-Bias-Origin-Cache-Control')).toBe(false)
+    expect(hit.headers.get('X-AI-Bias-Cache')).toBe('HIT')
+    expect(hit.headers.get('Cache-Control')).toBe('public, max-age=60, s-maxage=60')
+    expect(hit.headers.has('X-AI-Bias-Origin-Cache-Control')).toBe(false)
+  })
+
   it('does not cache mutations, failures, or no-store responses', async () => {
     const cache = memoryCache()
     const put = vi.spyOn(cache, 'put')

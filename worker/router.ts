@@ -30,14 +30,56 @@ const PUBLICATION_SECURITY_POLICY = [
 
 const FINGERPRINTED_ASSET = /^\/assets\/[^/]+-[A-Za-z0-9_-]{8,}\.[^/]+$/
 
-function securedAsset(asset: Response, contentSecurityPolicy: string, pathname: string): Response {
+function securedAsset(asset: Response, contentSecurityPolicy: string, pathname: string, body: BodyInit | null = asset.body): Response {
   const headers = new Headers(asset.headers)
   if (FINGERPRINTED_ASSET.test(pathname)) headers.set('Cache-Control', 'public, max-age=31536000, immutable')
   headers.set('Content-Security-Policy', contentSecurityPolicy)
   headers.set('Referrer-Policy', 'no-referrer')
   headers.set('X-Content-Type-Options', 'nosniff')
   headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
-  return new Response(asset.body, { status: asset.status, statusText: asset.statusText, headers })
+  return new Response(body, { status: asset.status, statusText: asset.statusText, headers })
+}
+
+interface HtmlHints { contentSecurityPolicy: string; link: string | null }
+
+// One computation per distinct HTML document per isolate.
+const htmlHints = new Map<string, Promise<HtmlHints>>()
+
+async function sha256Base64(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))
+  return btoa(String.fromCharCode(...new Uint8Array(digest)))
+}
+
+/**
+ * The app shell carries one inline script that starts the API request for the
+ * current route before any bundle downloads. Allow exactly that script by hash,
+ * and tell the browser (via Early Hints / Link) which bundle and stylesheet to
+ * fetch before the HTML body arrives.
+ */
+async function computeHtmlHints(html: string): Promise<HtmlHints> {
+  const inlineScripts = [...html.matchAll(/<script(?![^>]*src=)(?![^>]*type="module")[^>]*>([\s\S]*?)<\/script>/g)].map((match) => match[1])
+  const hashes = await Promise.all(inlineScripts.map(async (script) => `'sha256-${await sha256Base64(script)}'`))
+  const contentSecurityPolicy = hashes.length > 0
+    ? CONTENT_SECURITY_POLICY.replace("script-src 'self'", `script-src 'self' ${hashes.join(' ')}`)
+    : CONTENT_SECURITY_POLICY
+  const links: string[] = []
+  for (const match of html.matchAll(/<script[^>]*type="module"[^>]*src="([^"]+)"/g)) links.push(`<${match[1]}>; rel=modulepreload`)
+  for (const match of html.matchAll(/<link[^>]*rel="stylesheet"[^>]*href="([^"]+)"/g)) links.push(`<${match[1]}>; rel=preload; as=style`)
+  return { contentSecurityPolicy, link: links.length > 0 ? links.join(', ') : null }
+}
+
+async function securedHtml(asset: Response, pathname: string): Promise<Response> {
+  const html = await asset.text()
+  let pending = htmlHints.get(html)
+  if (!pending) {
+    pending = computeHtmlHints(html)
+    htmlHints.set(html, pending)
+  }
+  const hints = await pending
+  const response = securedAsset(asset, hints.contentSecurityPolicy, pathname, html)
+  response.headers.delete('Content-Length')
+  if (hints.link) response.headers.set('Link', hints.link)
+  return response
 }
 
 export async function routeWorkerRequest(
@@ -77,5 +119,6 @@ export async function routeWorkerRequest(
     })
   }
   const asset = await env.ASSETS.fetch(request)
+  if ((asset.headers.get('Content-Type') ?? '').includes('text/html')) return securedHtml(asset, url.pathname)
   return securedAsset(asset, CONTENT_SECURITY_POLICY, url.pathname)
 }
